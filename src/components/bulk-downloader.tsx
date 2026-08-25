@@ -28,6 +28,7 @@ import {
   exportUrlList,
   exportYtdlpBatchScript,
   extractYoutubeLinks,
+  importBatchJson,
   type BulkItem,
   type BulkQualityPreset,
   type BulkQueueOptions,
@@ -70,6 +71,28 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
   // Load input text into items
   const handleLoadLinks = async () => {
+    // A pasted JSON manifest (from Export) round-trips through importBatchJson so
+    // each item keeps its saved preset — the plain-text path below only sees URLs.
+    const looksLikeManifest = /^\s*[[{]/.test(inputText);
+    if (looksLikeManifest) {
+      const { items: imported, error } = importBatchJson(inputText, globalPreset);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      const existing = new Set(items.map((i) => i.id));
+      const fresh = imported.filter((item) => !existing.has(item.id));
+      if (!fresh.length) {
+        toast.info("Every video in that manifest is already queued.");
+        return;
+      }
+      setItems((prev) => [...prev, ...fresh]);
+      setInputText("");
+      toast.success(`Imported ${fresh.length} video(s) from the manifest.`);
+      void resolveMetadataForItems(fresh);
+      return;
+    }
+
     if (!extracted.totalUnique && !extracted.playlistIds.length) {
       toast.error("No valid YouTube video or playlist links found in the text.");
       return;
