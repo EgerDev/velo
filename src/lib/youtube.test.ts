@@ -649,3 +649,55 @@ describe("isShortVideo", () => {
     );
   });
 });
+
+describe("buildPresets 1080p without H.264 1080p", () => {
+  const audio140 = fmt({
+    itag: 140,
+    kind: "audio",
+    qualityLabel: "High",
+    height: null,
+    ext: "m4a",
+    hasVideo: false,
+    size: 800_000,
+  });
+
+  it("offers 1080p from VP9/AV1 when H.264 tops out at 720p (HDR-style upload)", () => {
+    const presets = buildPresets([
+      fmt({ itag: 18, kind: "av", qualityLabel: "360p", height: 360 }),
+      fmt({ itag: 298, kind: "video", qualityLabel: "720p60", height: 720, fps: 60, hasAudio: false, size: 50_000_000 }),
+      fmt({ itag: 399, kind: "video", codec: "AV1", qualityLabel: "1080p", height: 1080, hasAudio: false, size: 40_000_000 }),
+      fmt({
+        itag: 248,
+        kind: "video",
+        codec: "VP9",
+        ext: "webm",
+        mime: "video/webm",
+        qualityLabel: "1080p",
+        height: 1080,
+        hasAudio: false,
+        size: 60_000_000,
+      }),
+      fmt({ itag: 701, kind: "video", codec: "AV1", qualityLabel: "2160p60", height: 2160, fps: 60, hasAudio: false, size: 900_000_000 }),
+      audio140,
+    ]);
+    const fullhd = presets.find((p) => p.id === "fullhd");
+    assert.ok(fullhd, "expected a 1080p preset");
+    assert.equal(fullhd?.height, 1080);
+    assert.equal(fullhd?.codec, "VP9");
+    assert.ok(fullhd?.hasAudio);
+    const recommended = presets.find((p) => p.recommended);
+    assert.equal(recommended?.id, "fullhd");
+  });
+
+  it("uses 1080p60 H.264 (itag 299) for Full HD when itag 137 is absent", () => {
+    const presets = buildPresets([
+      fmt({ itag: 18, kind: "av", qualityLabel: "360p", height: 360 }),
+      fmt({ itag: 299, kind: "video", qualityLabel: "1080p60", height: 1080, fps: 60, hasAudio: false, size: 80_000_000 }),
+      audio140,
+    ]);
+    const fullhd = presets.find((p) => p.id === "fullhd");
+    assert.equal(fullhd?.itag, 299);
+    assert.equal(fullhd?.codec, "H.264");
+    assert.equal(fullhd?.title, "Full HD");
+  });
+});

@@ -660,7 +660,13 @@ export function pickMuxedFallback(presets: VideoPreset[], failed?: VideoPreset |
 }
 
 function pickWorking1080(formats: VideoFormat[]): VideoPreset | null {
-  const dash = formats.find((f) => f.itag === 137);
+  // itag 137 is the classic 1080p30 H.264 stream, but 60fps uploads carry
+  // 1080p H.264 as itag 299 — accept any H.264 video-only track in the band.
+  const dash =
+    formats.find((f) => f.itag === 137) ??
+    formats.find(
+      (f) => f.kind === "video" && f.codec === "H.264" && inBand(f.height, 1080, 1439),
+    );
   const aac =
     formats.find((f) => f.itag === 140 && f.kind === "audio") ??
     formats.find((f) => f.kind === "audio" && (f.codec === "AAC" || f.ext === "m4a"));
@@ -670,7 +676,7 @@ function pickWorking1080(formats: VideoFormat[]): VideoPreset | null {
   if (dash && aac) {
     return {
       id: "fullhd",
-      itag: 137,
+      itag: dash.itag,
       audioItag: aac.itag,
       kind: "av",
       title: "Full HD",
@@ -688,7 +694,7 @@ function pickWorking1080(formats: VideoFormat[]): VideoPreset | null {
   if (dash && opus) {
     return {
       id: "fullhd",
-      itag: 137,
+      itag: dash.itag,
       audioItag: opus.itag,
       kind: "av",
       title: "Full HD",
@@ -827,7 +833,15 @@ export function buildPresets(formats: VideoFormat[]): VideoPreset[] {
   const hd = pickMergedPreset(formats, "hd", () => "HD", 720, 1079, "H.264") ?? pickMergedPreset(formats, "hd", () => "HD", 720, 1079);
   if (hd) push(hd);
 
-  const fullhd = pickWorking1080(formats);
+  let fullhd = pickWorking1080(formats);
+  // No 1080p H.264 (common for HDR uploads, which only carry VP9/AV1 above
+  // 720p): still offer 1080p from the codec most players handle.
+  if (!fullhd) {
+    fullhd =
+      pickMergedPreset(formats, "fullhd", () => "1080p", 1080, 1439, "VP9") ??
+      pickMergedPreset(formats, "fullhd", () => "1080p", 1080, 1439, "AV1") ??
+      pickMergedPreset(formats, "fullhd", () => "1080p", 1080, 1439);
+  }
   if (fullhd) push(fullhd);
 
   const uhd = pickMergedPreset(
