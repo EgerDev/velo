@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TranscriptViewer } from "@/components/transcript-viewer";
+import { AudioStudio } from "@/components/audio-studio";
 import { chaptersToCues, parseChapters } from "@/lib/chapters";
 import { descriptionSidecar, chaptersVttSidecar, type Sidecar } from "@/lib/sidecars";
 import { exportNLETimeline, type NLEExportFormat } from "@/lib/nle-export";
@@ -1038,6 +1039,18 @@ export function VideoPanel({
           <p className="mt-4 text-xs leading-relaxed text-subtle">
             {codecPlayHint(selected.codec, selected.ext)}
           </p>
+        ) : null}
+
+        {activeTab === "audio" ? (
+          <AudioStudio
+            videoId={video.id}
+            title={video.title}
+            author={video.author}
+            duration={video.duration}
+            audioPreset={
+              selected?.kind === "audio" ? selected : (audioPresets[0] ?? null)
+            }
+          />
         ) : null}
             </>
           )}

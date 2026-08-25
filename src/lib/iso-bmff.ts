@@ -113,6 +113,42 @@ export function dashHlsSliceEnd(index: SidxIndex, fragment = 0): number | null {
   return ref ? ref.end : null;
 }
 
+export type AudioContainer = "mp3" | "flac" | "ogg" | "wav";
+
+function ascii(data: Uint8Array, offset: number, length: number): string {
+  let out = "";
+  for (let i = offset; i < offset + length; i += 1) {
+    const byte = data[i];
+    if (byte === undefined) return "";
+    out += String.fromCharCode(byte);
+  }
+  return out;
+}
+
+/**
+ * Standalone audio containers. YouTube never serves these — they only appear
+ * once the browser-side encoder has produced a file — so they are deliberately
+ * kept out of `looksLikeFragment`, which validates stream fragments.
+ */
+export function looksLikeAudioFile(data: Uint8Array): AudioContainer | null {
+  if (data.length < 4) return null;
+  if (ascii(data, 0, 3) === "ID3") return "mp3";
+  // MPEG audio frame sync: 11 set bits. Catches an MP3 with no ID3 tag.
+  if (data[0] === 0xff && (data[1]! & 0xe0) === 0xe0) return "mp3";
+  if (ascii(data, 0, 4) === "fLaC") return "flac";
+  if (ascii(data, 0, 4) === "OggS") return "ogg";
+  if (ascii(data, 0, 4) === "RIFF" && data.length >= 12 && ascii(data, 8, 4) === "WAVE") return "wav";
+  return null;
+}
+
+/**
+ * Is this a real media file rather than an HTML error/block page? Broader than
+ * `looksLikeFragment`: it also accepts the audio containers the encoder emits.
+ */
+export function looksLikeMediaFile(data: Uint8Array): string | null {
+  return looksLikeFragment(data) ?? looksLikeAudioFile(data);
+}
+
 export function looksLikeFragment(data: Uint8Array): "fmp4" | "ts" | "webm" | "mp4" | null {
   if (!data.length) return null;
   if (data[0] === TS_SYNC) {

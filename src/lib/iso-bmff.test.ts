@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { dashSegmentPlan, hlsContainer, looksLikeFragment } from "./iso-bmff.ts";
+import {
+  dashSegmentPlan,
+  hlsContainer,
+  looksLikeAudioFile,
+  looksLikeFragment,
+  looksLikeMediaFile,
+} from "./iso-bmff.ts";
 import { parseHls } from "./stream-unlock.ts";
 
 test("YouTube HLS VOD is MPEG-TS fragments, not CMAF MAP", () => {
@@ -69,4 +75,36 @@ test("itag 137 opens as ftypdash + sidx (dash.js SegmentBase)", () => {
   const first = sidx!.refs[0]!;
   assert.ok(first.end >= first.start);
   assert.ok(first.size > 0);
+});
+
+const audioBytes = (...parts: (string | number[])[]) =>
+  new Uint8Array(
+    parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)),
+  );
+
+test("looksLikeAudioFile recognizes the containers the browser encoder emits", () => {
+  assert.equal(looksLikeAudioFile(audioBytes("ID3", [4, 0, 0, 0, 0, 0, 0])), "mp3");
+  assert.equal(looksLikeAudioFile(audioBytes([0xff, 0xfb, 0x90, 0x00])), "mp3");
+  assert.equal(looksLikeAudioFile(audioBytes("fLaC", [0, 0, 0, 34])), "flac");
+  assert.equal(looksLikeAudioFile(audioBytes("OggS", [0, 2, 0, 0])), "ogg");
+  assert.equal(looksLikeAudioFile(audioBytes("RIFF", [36, 0, 0, 0], "WAVE")), "wav");
+});
+
+test("looksLikeAudioFile rejects HTML block pages and truncated input", () => {
+  assert.equal(looksLikeAudioFile(audioBytes("<!DOCTYPE html>")), null);
+  assert.equal(looksLikeAudioFile(audioBytes("<html><body>Blocked")), null);
+  assert.equal(looksLikeAudioFile(new Uint8Array([0x49, 0x44])), null);
+  assert.equal(looksLikeAudioFile(new Uint8Array()), null);
+});
+
+test("audio containers stay out of the fragment check", () => {
+  assert.equal(looksLikeFragment(audioBytes("ID3", [4, 0, 0, 0, 0, 0, 0])), null);
+  assert.equal(looksLikeFragment(audioBytes("fLaC", [0, 0, 0, 34])), null);
+});
+
+test("looksLikeMediaFile spans both fragment and audio containers", () => {
+  assert.equal(looksLikeMediaFile(audioBytes("ID3", [4, 0, 0, 0, 0, 0, 0])), "mp3");
+  assert.equal(looksLikeMediaFile(audioBytes([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0])), "webm");
+  assert.equal(looksLikeMediaFile(audioBytes([0, 0, 0, 0], "ftyp", "isom")), "mp4");
+  assert.equal(looksLikeMediaFile(audioBytes("<!DOCTYPE html>")), null);
 });

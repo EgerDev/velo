@@ -1,4 +1,4 @@
-import { looksLikeFragment } from "./iso-bmff.ts";
+import { looksLikeMediaFile } from "./iso-bmff.ts";
 
 const DB_NAME = "velo-media";
 const STORE = "files";
@@ -198,7 +198,9 @@ export async function blobIsMedia(blob: Blob): Promise<boolean> {
   if (!isUsableCachedBlob(blob)) return false;
   try {
     const head = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
-    return looksLikeFragment(head) !== null;
+    // Accepts converted audio (mp3/flac/wav/ogg) too, not just YouTube's own
+    // fragment containers — an encoder output is still real media.
+    return looksLikeMediaFile(head) !== null;
   } catch {
     return false;
   }
