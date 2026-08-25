@@ -55,6 +55,7 @@ export function parseTsPacket(data: Uint8Array, offset = 0): TsPacket | null {
   if (adaptation === 2 || adaptation === 3) {
     if (data.length <= payloadOffset) return null;
     payloadOffset += 1 + data[payloadOffset]!;
+    if (payloadOffset > offset + TS_PACKET) return null;
   }
   return {
     offset,

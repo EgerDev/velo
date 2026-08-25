@@ -4,6 +4,7 @@ import { blobIsMedia, putCachedMedia } from "@/lib/media-cache";
 type WritableSink = {
   write: (data: Blob) => Promise<void> | void;
   close: () => Promise<void> | void;
+  abort?: () => Promise<void> | void;
 };
 
 type PickerWindow = Window & {
@@ -48,9 +49,13 @@ export async function writePendingSave(
     return true;
   } catch {
     try {
-      await writable.close();
+      if (typeof writable.abort === "function") {
+        await writable.abort();
+      } else {
+        await writable.close();
+      }
     } catch {
-      /* already closed */
+      /* already closed or aborted */
     }
     return false;
   }

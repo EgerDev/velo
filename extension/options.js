@@ -33,7 +33,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     serverInput.value = rawUrl;
 
+    const { settings: current } = await chrome.storage.sync.get("settings");
     const updated = {
+      ...(current || {}),
       veloServerUrl: rawUrl,
       defaultPreset: presetSelect.value,
       defaultLang: langSelect.value,

@@ -25,6 +25,10 @@ chrome.runtime.onInstalled.addListener(async () => {
   updateQueueBadge();
 });
 
+chrome.runtime.onStartup.addListener(() => {
+  updateQueueBadge();
+});
+
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
     const handleErr = () => chrome.runtime.lastError;

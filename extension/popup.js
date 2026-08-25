@@ -162,6 +162,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateQueueBadgeCount();
   });
 
+  manualUrlInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") btnManualFetch?.click();
+  });
+
   btnManualFetch?.addEventListener("click", () => {
     const val = manualUrlInput.value.trim();
     const id = extractVideoId(val);
@@ -342,12 +346,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     queueItemsList.innerHTML = queue
       .map(
         (item) => `
-        <div class="queue-item" data-id="${item.id}">
+        <div class="queue-item" data-id="${escapeHtml(item.id)}">
           <div class="queue-item-info">
             <div class="queue-item-title">${escapeHtml(item.title || item.id)}</div>
             <div class="queue-item-date">Added ${new Date(item.addedAt).toLocaleDateString()}</div>
           </div>
-          <button class="queue-item-remove" data-remove="${item.id}" title="Remove">✕</button>
+          <button class="queue-item-remove" data-remove="${escapeHtml(item.id)}" title="Remove">✕</button>
         </div>
       `,
       )

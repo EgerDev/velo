@@ -23,9 +23,19 @@ export function readBoxes(data: Uint8Array, limit = 24): Box[] {
   while (offset + 8 <= data.length && boxes.length < limit) {
     const size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
     const type = String.fromCharCode(data[offset + 4]!, data[offset + 5]!, data[offset + 6]!, data[offset + 7]!);
-    if (size < 8) break;
-    boxes.push({ type, size, offset });
-    offset += size;
+    let actualSize = size;
+    if (size === 1) {
+      if (offset + 16 > data.length) break;
+      const hi = new DataView(data.buffer, data.byteOffset + offset, 16).getUint32(8);
+      const lo = new DataView(data.buffer, data.byteOffset + offset, 16).getUint32(12);
+      actualSize = hi * 2 ** 32 + lo;
+    } else if (size === 0) {
+      actualSize = data.length - offset;
+    } else if (size < 8) {
+      break;
+    }
+    boxes.push({ type, size: actualSize, offset });
+    offset += actualSize;
   }
   return boxes;
 }
@@ -40,8 +50,9 @@ export type SidxIndex = {
 };
 
 export function parseSidx(data: Uint8Array, box: Box): SidxIndex | null {
-  if (box.type !== "sidx" || box.size < 32) return null;
-  const view = new DataView(data.buffer, data.byteOffset + box.offset, box.size);
+  if (box.type !== "sidx" || box.size < 32 || box.offset + 12 > data.length) return null;
+  const actualLen = Math.min(box.size, data.length - box.offset);
+  const view = new DataView(data.buffer, data.byteOffset + box.offset, actualLen);
   const version = view.getUint8(8);
   let cursor = 12;
   cursor += 4;

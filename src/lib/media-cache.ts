@@ -82,13 +82,17 @@ export function planRecentSave(hasCache: boolean): RecentSavePlan {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "key" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("IndexedDB unavailable"));
+    try {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "key" });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error("IndexedDB unavailable"));
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error("IndexedDB security error"));
+    }
   });
 }
 
@@ -160,7 +164,8 @@ export async function putCachedMedia(opts: {
       await tx(db, "readwrite", (store) => store.put(record));
     } catch (err) {
       if (!isQuotaError(err)) throw err;
-      const oldest = [...mine].sort((a, b) => a.savedAt - b.savedAt)[0];
+      const remaining = mine.filter((r) => !evict.includes(r.key));
+      const oldest = remaining.sort((a, b) => a.savedAt - b.savedAt)[0];
       if (oldest) await tx(db, "readwrite", (store) => store.delete(oldest.key));
       await tx(db, "readwrite", (store) => store.put(record)).catch(() => undefined);
     }
@@ -185,8 +190,12 @@ export function isUsableCachedBlob(blob: Blob | undefined | null): boolean {
 
 export async function blobIsMedia(blob: Blob): Promise<boolean> {
   if (!isUsableCachedBlob(blob)) return false;
-  const head = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
-  return looksLikeFragment(head) !== null;
+  try {
+    const head = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
+    return looksLikeFragment(head) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export async function getCachedMedia(videoId: string, itag: number): Promise<CachedMedia | null> {
