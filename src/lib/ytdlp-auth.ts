@@ -16,7 +16,13 @@ const SESSION_NAMES = /^(SID|HSID|SSID|SAPISID|LOGIN_INFO|__SECURE-1PSID|__SECUR
 
 export const GUEST_CLIENTS = ["visionos", "web_embedded", "tv_simply", "android"] as const;
 /** Cookie-capable InnerTube clients only. android/ios/visionos/tv_simply set SUPPORTS_COOKIES=False and are skipped when --cookies is set. */
-export const SESSION_CLIENTS = ["web_embedded", "tv_downgraded", "web", "mweb", "web_safari"] as const;
+export const SESSION_CLIENTS = [
+  "web_embedded",
+  "tv_downgraded",
+  "web",
+  "mweb",
+  "web_safari",
+] as const;
 /** Proved 24 Aug 2026 via SOCKS: web_embedded has mux 18 without POT and 1080p dash with POT; tv_simply has mux 18; android is SABR-only without POT. */
 export const SOCKS_CLIENTS = ["web_embedded", "tv_simply", "web_safari", "android"] as const;
 
@@ -34,15 +40,18 @@ export function socksClientsForItag(itag: number): readonly string[] {
  * returns ftyp on the same hop. There is no working android_vr version today.
  */
 export function resolvePlayerClient(client: string): string {
-  const parts = client.split(",").map((id) => id.trim()).filter(Boolean);
+  const parts = client
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
   const mapped = parts.map((id) => (id === "android_vr" ? "web_embedded" : id));
   return [...new Set(mapped)].join(",") || "web_embedded";
 }
 
 /** itag 137 (and 299/136/…) are video-only dash. Pair AAC, then HLS 1080, then 360. */
 const VIDEO_ONLY = new Set([
-  133, 134, 135, 136, 137, 160, 242, 243, 244, 247, 248, 264, 266, 271, 272, 278, 298, 299, 302, 303, 308, 313, 336, 394, 395, 396, 397, 398,
-  399, 400, 401, 571, 598,
+  133, 134, 135, 136, 137, 160, 242, 243, 244, 247, 248, 264, 266, 271, 272, 278, 298, 299, 302,
+  303, 308, 313, 336, 394, 395, 396, 397, 398, 399, 400, 401, 571, 598,
 ]);
 
 /**
@@ -78,8 +87,13 @@ export function isVideoOnlyItag(itag: number): boolean {
   return VIDEO_ONLY.has(itag);
 }
 
-export function ytdlpRunTimeoutMs(opts: { itag: number; proxy?: string; cookiePath?: string }): number {
-  if (opts.proxy || opts.cookiePath || isVideoOnlyItag(opts.itag) || opts.itag === 96) return 180_000;
+export function ytdlpRunTimeoutMs(opts: {
+  itag: number;
+  proxy?: string;
+  cookiePath?: string;
+}): number {
+  if (opts.proxy || opts.cookiePath || isVideoOnlyItag(opts.itag) || opts.itag === 96)
+    return 180_000;
   return 45_000;
 }
 
@@ -115,7 +129,13 @@ export function readCookieSession(raw: string | undefined): CookieSession | null
   const visitor = fields.get("VISITOR_INFO1_LIVE") ?? null;
   const dataSyncId = fields.get("DATASYNC_ID") ?? fields.get("DELEGATED_SESSION_ID") ?? null;
   const loggedIn = [...fields.keys()].some((name) => SESSION_NAMES.test(name));
-  return { header: parsed.header, netscape: parsed.netscape, visitorData: visitor, dataSyncId, loggedIn };
+  return {
+    header: parsed.header,
+    netscape: parsed.netscape,
+    visitorData: visitor,
+    dataSyncId,
+    loggedIn,
+  };
 }
 
 /**
@@ -153,7 +173,12 @@ export function ytdlpUserAgentArgs(_client: string): string[] {
  * are suppressed in yt-dlp 2026.08. Use `--add-headers Field:value` instead,
  * and never for User-Agent (clobbers player_client).
  */
-export const YTDLP_DEPRECATED_HEADERS = ["--user-agent", "--referer", "--add-header", "--dump-user-agent"] as const;
+export const YTDLP_DEPRECATED_HEADERS = [
+  "--user-agent",
+  "--referer",
+  "--add-header",
+  "--dump-user-agent",
+] as const;
 
 export function ytdlpHeaderArgs(): string[] {
   return ["--add-headers", "Accept-Language:en-US,en;q=0.9"];
@@ -163,36 +188,153 @@ export function ytdlpHeaderArgs(): string[] {
 export function ytdlpImpersonateArgs(client: string): string[] {
   const id = resolvePlayerClient(client).split(",")[0]?.trim() ?? "";
   if (id === "web_safari" || id === "mweb") return ["--impersonate", "safari"];
-  if (id === "web" || id === "web_embedded" || id.startsWith("tv")) return ["--impersonate", "chrome"];
+  if (id === "web" || id === "web_embedded" || id.startsWith("tv"))
+    return ["--impersonate", "chrome"];
   return [];
 }
 
 export const YTDLP_CLIENT_EXTRACT = [
-  { client: "web_embedded", formats: "DASH 137/248 + mux 18; 1080p with POT", cookies: true, impersonate: "chrome" },
+  {
+    client: "web_embedded",
+    formats: "DASH 137/248 + mux 18; 1080p with POT",
+    cookies: true,
+    impersonate: "chrome",
+  },
   { client: "tv_simply", formats: "muxed 18 (guest, no cookies)", cookies: false, impersonate: "" },
-  { client: "web_safari", formats: "HLS 96 muxed 1080p (logged-in only since 2026.07)", cookies: true, impersonate: "safari" },
-  { client: "android", formats: "muxed 18/22; SABR-only without POT", cookies: false, impersonate: "" },
+  {
+    client: "web_safari",
+    formats: "HLS 96 muxed 1080p (logged-in only since 2026.07)",
+    cookies: true,
+    impersonate: "safari",
+  },
+  {
+    client: "android",
+    formats: "muxed 18/22; SABR-only without POT",
+    cookies: false,
+    impersonate: "",
+  },
   { client: "mweb", formats: "ultralow + HLS", cookies: true, impersonate: "safari" },
   { client: "web", formats: "WEB dash (needs POT)", cookies: true, impersonate: "chrome" },
-  { client: "tv_downgraded", formats: "TVHTML5 authed default", cookies: true, impersonate: "chrome" },
-  { client: "visionos", formats: "dash ≤240p guest, no mux, no cookies", cookies: false, impersonate: "" },
+  {
+    client: "tv_downgraded",
+    formats: "TVHTML5 authed default",
+    cookies: true,
+    impersonate: "chrome",
+  },
+  {
+    client: "visionos",
+    formats: "dash ≤240p guest, no mux, no cookies",
+    cookies: false,
+    impersonate: "",
+  },
 ] as const;
 
 /** All yt-dlp 2026.08.19 InnerTube clients (INNERTUBE_CLIENTS). android_vr is 403 since 2026.08.17. */
 export const YTDLP_PLAYER_CLIENTS = [
-  { id: "web_embedded", innertube: "WEB_EMBEDDED_PLAYER", cookies: true, js: true, pot: "optional", note: "Guest mux 18; 1080p dash with video-bound GVS POT" },
-  { id: "web", innertube: "WEB", cookies: true, js: true, pot: "gvs required", note: "Default with JS; empty without POT on this host" },
-  { id: "web_safari", innertube: "WEB + Safari UA", cookies: true, js: true, pot: "gvs required", note: "HLS 91–96; logged-out returns no formats since 2026.07" },
-  { id: "mweb", innertube: "MWEB", cookies: true, js: true, pot: "gvs required", note: "iPad UA; ultralow" },
-  { id: "web_music", innertube: "WEB_REMIX", cookies: true, js: true, pot: "gvs required", note: "music.youtube.com only" },
-  { id: "web_creator", innertube: "WEB_CREATOR", cookies: true, js: true, pot: "gvs required", note: "REQUIRE_AUTH; premium age-gate" },
-  { id: "android", innertube: "ANDROID 21.26.364", cookies: false, js: false, pot: "gvs required", note: "SABR-only without POT (issue 12482)" },
-  { id: "android_vr", innertube: "ANDROID_VR 1.65.10", cookies: false, js: false, pot: "alias", note: "Swept 1.43–1.81 on 24 Aug 2026: <1.66 LOGIN_REQUIRED; 1.66–1.81 extract 18 then empty GVS 403. Alias → web_embedded (ftyp OK)" },
-  { id: "ios", innertube: "IOS 21.26.4", cookies: false, js: false, pot: "gvs required", note: "HLS live; empty VOD without POT here" },
-  { id: "visionos", innertube: "VISIONOS", cookies: false, js: false, pot: "optional", note: "yt-dlp guest default; dash ≤240p, no mux" },
-  { id: "tv", innertube: "TVHTML5 Cobalt", cookies: true, js: true, pot: "optional", note: "Often 'page needs to be reloaded'" },
-  { id: "tv_downgraded", innertube: "TVHTML5 5.x", cookies: true, js: true, pot: "optional", note: "Logged-in default with web_embedded" },
-  { id: "tv_simply", innertube: "TVHTML5_SIMPLY", cookies: false, js: true, pot: "gvs recommended", note: "Guest mux 18 without cookies" },
+  {
+    id: "web_embedded",
+    innertube: "WEB_EMBEDDED_PLAYER",
+    cookies: true,
+    js: true,
+    pot: "optional",
+    note: "Guest mux 18; 1080p dash with video-bound GVS POT",
+  },
+  {
+    id: "web",
+    innertube: "WEB",
+    cookies: true,
+    js: true,
+    pot: "gvs required",
+    note: "Default with JS; empty without POT on this host",
+  },
+  {
+    id: "web_safari",
+    innertube: "WEB + Safari UA",
+    cookies: true,
+    js: true,
+    pot: "gvs required",
+    note: "HLS 91–96; logged-out returns no formats since 2026.07",
+  },
+  {
+    id: "mweb",
+    innertube: "MWEB",
+    cookies: true,
+    js: true,
+    pot: "gvs required",
+    note: "iPad UA; ultralow",
+  },
+  {
+    id: "web_music",
+    innertube: "WEB_REMIX",
+    cookies: true,
+    js: true,
+    pot: "gvs required",
+    note: "music.youtube.com only",
+  },
+  {
+    id: "web_creator",
+    innertube: "WEB_CREATOR",
+    cookies: true,
+    js: true,
+    pot: "gvs required",
+    note: "REQUIRE_AUTH; premium age-gate",
+  },
+  {
+    id: "android",
+    innertube: "ANDROID 21.26.364",
+    cookies: false,
+    js: false,
+    pot: "gvs required",
+    note: "SABR-only without POT (issue 12482)",
+  },
+  {
+    id: "android_vr",
+    innertube: "ANDROID_VR 1.65.10",
+    cookies: false,
+    js: false,
+    pot: "alias",
+    note: "Swept 1.43–1.81 on 24 Aug 2026: <1.66 LOGIN_REQUIRED; 1.66–1.81 extract 18 then empty GVS 403. Alias → web_embedded (ftyp OK)",
+  },
+  {
+    id: "ios",
+    innertube: "IOS 21.26.4",
+    cookies: false,
+    js: false,
+    pot: "gvs required",
+    note: "HLS live; empty VOD without POT here",
+  },
+  {
+    id: "visionos",
+    innertube: "VISIONOS",
+    cookies: false,
+    js: false,
+    pot: "optional",
+    note: "yt-dlp guest default; dash ≤240p, no mux",
+  },
+  {
+    id: "tv",
+    innertube: "TVHTML5 Cobalt",
+    cookies: true,
+    js: true,
+    pot: "optional",
+    note: "Often 'page needs to be reloaded'",
+  },
+  {
+    id: "tv_downgraded",
+    innertube: "TVHTML5 5.x",
+    cookies: true,
+    js: true,
+    pot: "optional",
+    note: "Logged-in default with web_embedded",
+  },
+  {
+    id: "tv_simply",
+    innertube: "TVHTML5_SIMPLY",
+    cookies: false,
+    js: true,
+    pot: "gvs recommended",
+    note: "Guest mux 18 without cookies",
+  },
 ] as const;
 
 /**
@@ -201,15 +343,55 @@ export const YTDLP_PLAYER_CLIENTS = [
  * Data API v3 has no streams. youtubei.js clients below are not in yt-dlp.
  */
 export const YOUTUBE_ALT_APIS = [
-  { id: "tv_embedded", via: "youtubei.js", innertube: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", note: "Embed TV; already in Innertube metadata loop" },
-  { id: "android_music", via: "youtubei.js", innertube: "ANDROID_MUSIC 7.x", note: "Raw player POST LOGIN_REQUIRED; still tried with session POT" },
-  { id: "android_creator", via: "youtubei.js", innertube: "ANDROID_CREATOR", note: "YouTube Studio Android; session POT" },
-  { id: "web_kids", via: "youtubei.js", innertube: "WEB_KIDS", note: "Made-for-kids titles; 'reload' on zoo" },
-  { id: "ios", via: "youtubei.js", innertube: "IOS", note: "play=OK but SABR (0 URLs) without POT" },
-  { id: "invidious", via: "public API", innertube: "—", note: "yewtu.be 403, nadeko endpoint disabled, fdn NXDOMAIN" },
+  {
+    id: "tv_embedded",
+    via: "youtubei.js",
+    innertube: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+    note: "Embed TV; already in Innertube metadata loop",
+  },
+  {
+    id: "android_music",
+    via: "youtubei.js",
+    innertube: "ANDROID_MUSIC 7.x",
+    note: "Raw player POST LOGIN_REQUIRED; still tried with session POT",
+  },
+  {
+    id: "android_creator",
+    via: "youtubei.js",
+    innertube: "ANDROID_CREATOR",
+    note: "YouTube Studio Android; session POT",
+  },
+  {
+    id: "web_kids",
+    via: "youtubei.js",
+    innertube: "WEB_KIDS",
+    note: "Made-for-kids titles; 'reload' on zoo",
+  },
+  {
+    id: "ios",
+    via: "youtubei.js",
+    innertube: "IOS",
+    note: "play=OK but SABR (0 URLs) without POT",
+  },
+  {
+    id: "invidious",
+    via: "public API",
+    innertube: "—",
+    note: "yewtu.be 403, nadeko endpoint disabled, fdn NXDOMAIN",
+  },
   { id: "piped", via: "public API", innertube: "—", note: "kavin 502, adminforge timeout" },
-  { id: "cobalt", via: "cobalt.tools", innertube: "—", note: "Turnstile is hostname-bound; cannot mint from this origin" },
-  { id: "data_api_v3", via: "googleapis", innertube: "—", note: "Metadata only — no googlevideo URLs" },
+  {
+    id: "cobalt",
+    via: "cobalt.tools",
+    innertube: "—",
+    note: "Turnstile is hostname-bound; cannot mint from this origin",
+  },
+  {
+    id: "data_api_v3",
+    via: "googleapis",
+    innertube: "—",
+    note: "Metadata only — no googlevideo URLs",
+  },
 ] as const;
 
 export function ytdlpClients(loggedIn: boolean): readonly string[] {
@@ -274,7 +456,11 @@ export const PO_TOKEN_STEPS = [
   { step: "3 GenerateIT", detail: "POST integrity token (request key O43z0dpjhgX20SCx4KAo)" },
   { step: "4 mint", detail: "WebPoMinter binds the token to the video id (player + GVS)" },
   { step: "5 stamp", detail: "yt-dlp youtube:po_token=web_embedded.gvs+X,web_embedded.player+X" },
-  { step: "fallback", detail: "Cold-start token if BotGuard walls; fetch_pot=never only when a token is already stamped" },
+  {
+    step: "fallback",
+    detail:
+      "Cold-start token if BotGuard walls; fetch_pot=never only when a token is already stamped",
+  },
 ] as const;
 
 export function browserCookieArgs(): string[] {
@@ -312,7 +498,14 @@ export function ytdlpArgv(opts: {
   impersonate?: boolean;
 }): string[] {
   const client = resolvePlayerClient(opts.client);
-  const args = ["-m", "yt_dlp", "--no-js-runtimes", "--js-runtimes", "node", ...ytdlpFamilyArgs(opts.proxy)];
+  const args = [
+    "-m",
+    "yt_dlp",
+    "--no-js-runtimes",
+    "--js-runtimes",
+    "node",
+    ...ytdlpFamilyArgs(opts.proxy),
+  ];
   if (opts.proxy) args.push("--proxy", proxyArg(opts.proxy));
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
@@ -333,7 +526,7 @@ export function ytdlpArgv(opts: {
       opts.pot,
       hasCookies ? null : opts.visitorData,
       opts.playerPot,
-      hasCookies ? opts.dataSyncId ?? null : null,
+      hasCookies ? (opts.dataSyncId ?? null) : null,
     ),
     "--no-playlist",
     "--newline",
@@ -353,12 +546,32 @@ export function ytdlpArgv(opts: {
 /** yt-dlp 2026.08.19 YouTube extractor layout (package `yt_dlp.extractor.youtube`). */
 export const YTDLP_EXTRACTOR_LAYERS = [
   { layer: "match", file: "_video.py YoutubeIE", does: "11-char id, youtu.be, embed, shorts" },
-  { layer: "webpage", file: "_video.py _WEBPAGE_CLIENTS", does: "web / web_safari watch HTML + ytcfg" },
-  { layer: "innertube", file: "_base.py INNERTUBE_CLIENTS", does: "player API JSON per player_client" },
+  {
+    layer: "webpage",
+    file: "_video.py _WEBPAGE_CLIENTS",
+    does: "web / web_safari watch HTML + ytcfg",
+  },
+  {
+    layer: "innertube",
+    file: "_base.py INNERTUBE_CLIENTS",
+    does: "player API JSON per player_client",
+  },
   { layer: "jsc", file: "jsc/_director.py", does: "nsig + sig via node ejs challenge solver" },
-  { layer: "pot", file: "pot/_director.py", does: "gvs + player PO tokens (we mint, yt-dlp has none built-in)" },
-  { layer: "formats", file: "_video.py streamingData", does: "itag list; SABR rows have no URL until POT" },
-  { layer: "download", file: "networking urllib+curl_cffi", does: "googlevideo; impersonate only on web clients" },
+  {
+    layer: "pot",
+    file: "pot/_director.py",
+    does: "gvs + player PO tokens (we mint, yt-dlp has none built-in)",
+  },
+  {
+    layer: "formats",
+    file: "_video.py streamingData",
+    does: "itag list; SABR rows have no URL until POT",
+  },
+  {
+    layer: "download",
+    file: "networking urllib+curl_cffi",
+    does: "googlevideo; impersonate only on web clients",
+  },
 ] as const;
 
 /**
@@ -368,11 +581,27 @@ export const YTDLP_EXTRACTOR_LAYERS = [
  */
 export const YTDLP_EXTRACTOR_ARGS = [
   { arg: "player_client", use: "always", note: "web_embedded first; android_vr aliases to it" },
-  { arg: "po_token", use: "when minted", note: "CLIENT.gvs+X,CLIENT.player+X — video-id bind (GVS experiment)" },
+  {
+    arg: "po_token",
+    use: "when minted",
+    note: "CLIENT.gvs+X,CLIENT.player+X — video-id bind (GVS experiment)",
+  },
   { arg: "visitor_data", use: "guest only", note: "never with --cookies / --cookies-from-browser" },
-  { arg: "data_sync_id", use: "logged-in if present", note: "GVS account bind; DATASYNC_ID from the dump" },
-  { arg: "player_js_variant", use: "main", note: "stable player.js; pinning player_js_version breaks nsig" },
-  { arg: "fetch_pot", use: "never iff stamped", note: "omit (auto) when we have no token so yt-dlp can still fetch" },
+  {
+    arg: "data_sync_id",
+    use: "logged-in if present",
+    note: "GVS account bind; DATASYNC_ID from the dump",
+  },
+  {
+    arg: "player_js_variant",
+    use: "main",
+    note: "stable player.js; pinning player_js_version breaks nsig",
+  },
+  {
+    arg: "fetch_pot",
+    use: "never iff stamped",
+    note: "omit (auto) when we have no token so yt-dlp can still fetch",
+  },
   { arg: "use_ad_playback_context", use: "omit", note: "true is the IMA/DAI ad player — never" },
   { arg: "formats", use: "omit missing_pot", note: "would list SABR rows with no URL as 1080p" },
   { arg: "player_skip", use: "omit", note: "need js + configs for nsig" },
@@ -440,8 +669,8 @@ export function looksLikeIpv6Mismatch(text: string): boolean {
 }
 
 export function parseYtdlpLog(text: string): YtdlpExtractLog {
-  const clients = [...text.matchAll(/Downloading ([a-z][a-z0-9_ ]*) player API JSON/gi)].map((row) =>
-    row[1]!.replace(/\s+/g, "_").toLowerCase(),
+  const clients = [...text.matchAll(/Downloading ([a-z][a-z0-9_ ]*) player API JSON/gi)].map(
+    (row) => row[1]!.replace(/\s+/g, "_").toLowerCase(),
   );
   const js = text.match(/JS runtimes:\s*([^\n]+)/i)?.[1]?.trim() ?? null;
   const pot = text.match(/PO Token Providers:\s*([^\n]+)/i)?.[1]?.trim() ?? null;
@@ -503,9 +732,13 @@ export type YtdlpExitInput = {
 };
 
 function lastErrorLine(stderr: string): string {
-  const lines = stderr.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .filter(Boolean);
   const errors = lines.filter(
-    (row) => /^ERROR:/i.test(row) || /\[download\] Got error:/i.test(row) || /^Postprocessing:/i.test(row),
+    (row) =>
+      /^ERROR:/i.test(row) || /\[download\] Got error:/i.test(row) || /^Postprocessing:/i.test(row),
   );
   // Redact proxy userinfo. This string reaches an unauthenticated caller as the
   // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole `user:pass@host`
@@ -549,14 +782,19 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
     return fail("killed", "retry", "process stopped — retry");
   }
   if (code === YTDLP_EXIT.ok) return fail("ok", "stop", "ok");
-  if (code === YTDLP_EXIT.cli) return fail("cli", "stop", `yt-dlp options were rejected: ${line || "exit 2"}`);
+  if (code === YTDLP_EXIT.cli)
+    return fail("cli", "stop", `yt-dlp options were rejected: ${line || "exit 2"}`);
   if (code === YTDLP_EXIT.update) return fail("update", "stop", "yt-dlp self-update failed");
   if (code === YTDLP_EXIT.cancelled || code === YTDLP_EXIT.sigint) {
     return fail("cancelled", "stop", "download cancelled");
   }
 
   if (log.ipv6Mismatch || looksLikeIpv6Mismatch(stderr)) {
-    return fail("ipv6", "next-socks", "IPv6/IPv4 mismatch — YouTube signed a different family than the file hop.");
+    return fail(
+      "ipv6",
+      "next-socks",
+      "IPv6/IPv4 mismatch — YouTube signed a different family than the file hop.",
+    );
   }
   if (/unable to connect|unsupported url scheme/i.test(blob) && /proxy|socks|scheme/i.test(blob)) {
     return fail("network", "next-socks", "proxy hop is dead");
@@ -583,7 +821,9 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
     return fail("pot", "next-client", "PO token missing — remint GVS+player, next client");
   }
   if (
-    /error solving n challenge|n result is invalid|nsig extraction failed|n-sig extraction/i.test(blob)
+    /error solving n challenge|n result is invalid|nsig extraction failed|n-sig extraction/i.test(
+      blob,
+    )
   ) {
     return fail("nsig", "retry", "nsig failed — retry node ejs, then next client");
   }
@@ -621,9 +861,79 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * The Python interpreter that runs yt-dlp.
+ *
+ * A bare `python3` assumes that exact name is on PATH, which is false for a
+ * virtualenv, pyenv, a distro that only ships `python`, and most slim container
+ * images — so a deploy needs a way to name the interpreter it actually has.
+ */
+export function pythonBin(env: NodeJS.ProcessEnv = process.env): string {
+  return env.VELO_PYTHON?.trim() || env.PYTHON_BIN?.trim() || "python3";
+}
+
+/** A spawn that failed because the binary is absent, not because it ran and failed. */
+export function isMissingInterpreterError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "EACCES" || code === "EPERM";
+}
+
+export type PythonProbe =
+  | { ok: true; version: string }
+  | { ok: false; reason: "no-interpreter" | "no-ytdlp" | "broken"; message: string };
+
+/**
+ * Read a `<python> -m yt_dlp --version` probe.
+ *
+ * The distinction that matters is "no interpreter" vs "interpreter but no
+ * yt-dlp": they look identical in a stack trace and have completely different
+ * fixes, and without this the whole thing surfaced as four repetitions of
+ * `spawn python3 ENOENT` after every client had been tried in turn.
+ */
+export function classifyPythonProbe(input: {
+  bin: string;
+  spawnError?: unknown;
+  code?: number;
+  stdout?: string;
+  stderr?: string;
+}): PythonProbe {
+  const { bin, spawnError, code = 0, stdout = "", stderr = "" } = input;
+  if (spawnError !== undefined && spawnError !== null) {
+    if (isMissingInterpreterError(spawnError)) {
+      return {
+        ok: false,
+        reason: "no-interpreter",
+        message: `Python 3 is not available as \`${bin}\`. Install Python 3, or set VELO_PYTHON to the interpreter to use.`,
+      };
+    }
+    return {
+      ok: false,
+      reason: "broken",
+      message: `Could not start \`${bin}\`: ${spawnError instanceof Error ? spawnError.message : String(spawnError)}`,
+    };
+  }
+  if (/no module named ['"]?yt_dlp/i.test(stderr)) {
+    return {
+      ok: false,
+      reason: "no-ytdlp",
+      message: `yt-dlp is not installed for \`${bin}\`. Install it with \`${bin} -m pip install -U yt-dlp\`.`,
+    };
+  }
+  const version = stdout.trim().split("\n").pop()?.trim() ?? "";
+  if (code !== 0 || !version) {
+    return {
+      ok: false,
+      reason: "broken",
+      message:
+        `\`${bin} -m yt_dlp --version\` failed (exit ${code}). ${stderr.trim().split("\n").pop() ?? ""}`.trim(),
+    };
+  }
+  return { ok: true, version };
+}
+
 /** Copy-paste command matching Save. POT is required for 1080p; without it yt-dlp falls to 18. */
 export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): string {
-  return ["python3", ...ytdlpArgv(opts).map(shellQuote)].join(" ");
+  return [pythonBin(), ...ytdlpArgv(opts).map(shellQuote)].join(" ");
 }
 
 /**

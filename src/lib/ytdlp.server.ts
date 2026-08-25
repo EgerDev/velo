@@ -13,6 +13,9 @@ import {
   mapYtdlpExit,
   formatYtdlpFailure,
   isAudioItag,
+  pythonBin,
+  classifyPythonProbe,
+  type PythonProbe,
   type YtdlpFailure,
 } from "@/lib/ytdlp-auth";
 import { markSocksDead, markSocksGood, releaseSocks, takeSocks } from "@/lib/socks-pool.server";
@@ -178,45 +181,83 @@ function runCapture(
   });
 }
 
-let pySocksOk: Promise<boolean> | null = null;
-function ensurePySocks(): Promise<boolean> {
-  if (!pySocksOk) {
-    pySocksOk = (async () => {
-      const check = await run("python3", ["-c", "import socks"], 8_000).catch(() => ({
-        code: 1,
-        timedOut: true,
-        stderr: "",
-        signal: null as NodeJS.Signals | null,
-      }));
-      if (check.code === 0) return true;
-      const install = await run("python3", ["-m", "pip", "install", "--quiet", "PySocks"], 90_000).catch(() => ({
-        code: 1,
-      }));
-      return install.code === 0;
-    })();
-  }
-  return pySocksOk;
+/**
+ * Is the Python side usable at all?
+ *
+ * Without this, a host with no Python ran the whole ladder — every client, then
+ * every SOCKS hop — spawning a process that could never start, and reported it
+ * as `spawn python3 ENOENT · spawn python3 ENOENT · …`. The cause is permanent
+ * and knowable in one spawn, so check once and say which of the two things is
+ * actually missing.
+ *
+ * Success is cached for the process; failure is re-probed after a cooldown, so
+ * installing yt-dlp does not require a restart to take effect.
+ */
+const PROBE_RETRY_MS = 30_000;
+let pythonProbe: { at: number; result: Promise<PythonProbe> } | null = null;
+
+export function ensurePython(): Promise<PythonProbe> {
+  const bin = pythonBin();
+  if (pythonProbe && Date.now() - pythonProbe.at < PROBE_RETRY_MS) return pythonProbe.result;
+  const result = (async (): Promise<PythonProbe> => {
+    try {
+      const probe = await runCapture(bin, ["-m", "yt_dlp", "--version"], 15_000);
+      return classifyPythonProbe({
+        bin,
+        code: probe.code,
+        stdout: probe.stdout,
+        stderr: probe.stderr,
+      });
+    } catch (err) {
+      return classifyPythonProbe({ bin, spawnError: err });
+    }
+  })();
+  pythonProbe = { at: Date.now(), result };
+  // A usable runtime does not change under us; a broken one might be fixed.
+  void result.then((value) => {
+    if (value.ok && pythonProbe) pythonProbe.at = Number.POSITIVE_INFINITY;
+  });
+  return result;
 }
 
-let impersonateOk: Promise<boolean> | null = null;
-function ensureImpersonate(): Promise<boolean> {
-  if (!impersonateOk) {
-    impersonateOk = (async () => {
-      const check = await run("python3", ["-c", "import curl_cffi"], 8_000).catch(() => ({
-        code: 1,
-        timedOut: true,
-        stderr: "",
-        signal: null as NodeJS.Signals | null,
-      }));
+/** Throw the actionable message when Python cannot run yt-dlp. */
+async function requirePython(): Promise<void> {
+  const probe = await ensurePython();
+  if (!probe.ok) throw new Error(probe.message);
+}
+
+/**
+ * Probe for an optional Python package, installing it once if absent.
+ *
+ * Cached per process, but a failure is retried after a cooldown rather than
+ * remembered forever — one transient pip failure otherwise disabled SOCKS (or
+ * impersonation) for the life of the server.
+ */
+function optionalModule(module: string, pipName: string): () => Promise<boolean> {
+  let state: { at: number; result: Promise<boolean> } | null = null;
+  return () => {
+    if (state && Date.now() - state.at < PROBE_RETRY_MS) return state.result;
+    const result = (async () => {
+      const bin = pythonBin();
+      const probe = await ensurePython();
+      if (!probe.ok) return false;
+      const check = await run(bin, ["-c", `import ${module}`], 8_000).catch(() => ({ code: 1 }));
       if (check.code === 0) return true;
-      const install = await run("python3", ["-m", "pip", "install", "--quiet", "curl_cffi"], 90_000).catch(() => ({
-        code: 1,
-      }));
+      const install = await run(bin, ["-m", "pip", "install", "--quiet", pipName], 90_000).catch(
+        () => ({ code: 1 }),
+      );
       return install.code === 0;
     })();
-  }
-  return impersonateOk;
+    state = { at: Date.now(), result };
+    void result.then((ok) => {
+      if (ok && state) state.at = Number.POSITIVE_INFINITY;
+    });
+    return result;
+  };
 }
+
+const ensurePySocks = optionalModule("socks", "PySocks");
+const ensureImpersonate = optionalModule("curl_cffi", "curl_cffi");
 
 async function runClient(opts: {
   dir: string;
@@ -237,17 +278,19 @@ async function runClient(opts: {
     async () => {
       const leftovers = (await readdir(opts.dir)).filter((name) => name.startsWith("media."));
       await Promise.all(leftovers.map((name) => rm(join(opts.dir, name), { force: true })));
-      let result = await run("python3", args, ytdlpRunTimeoutMs(opts), opts.signal);
+      let result = await run(pythonBin(), args, ytdlpRunTimeoutMs(opts), opts.signal);
       if (result.code !== 0 && /requested format is not available/i.test(result.stderr)) {
         const altArgs = [...args];
         const fIdx = altArgs.indexOf("-f");
         if (fIdx >= 0) {
           if (isAudioItag(opts.itag)) {
-            altArgs[fIdx + 1] = `${altArgs[fIdx + 1]}/${opts.itag}-7/${opts.itag}-0/bestaudio[ext=m4a]/251-7/251-0/bestaudio`;
+            altArgs[fIdx + 1] =
+              `${altArgs[fIdx + 1]}/${opts.itag}-7/${opts.itag}-0/bestaudio[ext=m4a]/251-7/251-0/bestaudio`;
           } else {
-            altArgs[fIdx + 1] = `${altArgs[fIdx + 1]}/${opts.itag}+140-7/${opts.itag}+140-0/${opts.itag}+ba[ext=m4a]/${opts.itag}+251-7/${opts.itag}+ba/bv[height<=1080]+ba/270/614/96/${opts.itag}`;
+            altArgs[fIdx + 1] =
+              `${altArgs[fIdx + 1]}/${opts.itag}+140-7/${opts.itag}+140-0/${opts.itag}+ba[ext=m4a]/${opts.itag}+251-7/${opts.itag}+ba/bv[height<=1080]+ba/270/614/96/${opts.itag}`;
           }
-          result = await run("python3", altArgs, ytdlpRunTimeoutMs(opts), opts.signal);
+          result = await run(pythonBin(), altArgs, ytdlpRunTimeoutMs(opts), opts.signal);
         }
       }
       if (result.code !== 0 || result.timedOut) {
@@ -317,6 +360,9 @@ async function muxOne(opts: {
   pot?: string;
   signal?: AbortSignal;
 }): Promise<MuxResult> {
+  // Before the tmpdir, the client ladder and the SOCKS hops: none of that can
+  // succeed if the interpreter cannot run yt-dlp, and the reason is knowable now.
+  await requirePython();
   const dir = await mkdtemp(join(tmpdir(), TMP_PREFIX));
   const errors: string[] = [];
   try {
@@ -479,6 +525,9 @@ export async function downloadWithYtdlp(opts: {
 }
 
 async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
+  // Best-effort enrichment: no Python means no extra formats, but it should not
+  // cost a pool slot, a SOCKS hop and a PO token mint to find that out.
+  if (!(await ensurePython()).ok) return [];
   const release = await acquireYtdlpSlot();
   try {
     await ensurePySocks().catch(() => undefined);
@@ -490,8 +539,12 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
     } catch {
       /* list without POT */
     }
-    const { extractorArgs, ytdlpHeaderArgs, ytdlpImpersonateArgs, ytdlpFamilyArgs: familyArgs } =
-      await import("@/lib/ytdlp-auth");
+    const {
+      extractorArgs,
+      ytdlpHeaderArgs,
+      ytdlpImpersonateArgs,
+      ytdlpFamilyArgs: familyArgs,
+    } = await import("@/lib/ytdlp-auth");
     const { THROTTLE_FLAGS } = await import("@/lib/throttle");
     const clients = ["web_embedded", "tv_simply"];
     for (let hop = 0; hop < 2; hop++) {
@@ -502,7 +555,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
         for (const client of clients) {
           try {
             const result = await runCapture(
-              "python3",
+              pythonBin(),
               [
                 "-m",
                 "yt_dlp",

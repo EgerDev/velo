@@ -35,10 +35,15 @@ import {
   looksLikeIpv6Mismatch,
   poTokenArgs,
   YTDLP_EXIT,
+  pythonBin,
+  classifyPythonProbe,
+  isMissingInterpreterError,
 } from "./ytdlp-auth.ts";
 
 test("account cookies unlock cookie-capable clients, not android/ios", () => {
-  const session = readCookieSession("SID=sidtoken; SAPISID=saptoken; VISITOR_INFO1_LIVE=visitorA; LOGIN_INFO=login");
+  const session = readCookieSession(
+    "SID=sidtoken; SAPISID=saptoken; VISITOR_INFO1_LIVE=visitorA; LOGIN_INFO=login",
+  );
   assert.equal(session?.loggedIn, true);
   assert.equal(session?.visitorData, "visitorA");
   assert.deepEqual(ytdlpClients(true), [...SESSION_CLIENTS]);
@@ -61,7 +66,13 @@ test("anonymous downloads try visionos first (guest dash/mux); android_vr aliase
   assert.equal(vr?.pot, "alias");
   assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "tv_embedded"));
   assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "invidious" && /403/.test(row.note)));
-  const argv = ytdlpArgv({ dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "android_vr", impersonate: true });
+  const argv = ytdlpArgv({
+    dir: "/tmp/x",
+    id: "jNQXAC9IVRw",
+    itag: 18,
+    client: "android_vr",
+    impersonate: true,
+  });
   assert.match(argv[argv.indexOf("--extractor-args") + 1] ?? "", /player_client=web_embedded/);
   assert.equal(argv.includes("--impersonate"), true);
 });
@@ -159,8 +170,14 @@ test("never pass a global User-Agent; InnerTube already stamps per client", () =
   assert.deepEqual(ytdlpUserAgentArgs("android"), []);
   const argv = ytdlpArgv({ dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client: "android" });
   assert.equal(argv.includes("--user-agent"), false);
-  assert.equal(argv.some((flag) => /user-agent/i.test(flag)), false);
-  assert.equal(argv.some((flag) => /^User-Agent:/i.test(flag)), false);
+  assert.equal(
+    argv.some((flag) => /user-agent/i.test(flag)),
+    false,
+  );
+  assert.equal(
+    argv.some((flag) => /^User-Agent:/i.test(flag)),
+    false,
+  );
 });
 
 test("curl_cffi impersonate is chrome/safari on web clients, never android", () => {
@@ -168,9 +185,21 @@ test("curl_cffi impersonate is chrome/safari on web clients, never android", () 
   assert.deepEqual(ytdlpImpersonateArgs("web_safari"), ["--impersonate", "safari"]);
   assert.deepEqual(ytdlpImpersonateArgs("android"), []);
   assert.deepEqual(ytdlpImpersonateArgs("ios"), []);
-  const web = ytdlpArgv({ dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client: "web_embedded", impersonate: true });
+  const web = ytdlpArgv({
+    dir: "/tmp/x",
+    id: "jNQXAC9IVRw",
+    itag: 137,
+    client: "web_embedded",
+    impersonate: true,
+  });
   assert.equal(web[web.indexOf("--impersonate") + 1], "chrome");
-  const android = ytdlpArgv({ dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "android", impersonate: true });
+  const android = ytdlpArgv({
+    dir: "/tmp/x",
+    id: "jNQXAC9IVRw",
+    itag: 18,
+    client: "android",
+    impersonate: true,
+  });
   assert.equal(android.includes("--impersonate"), false);
   assert.ok(YTDLP_CLIENT_EXTRACT.some((row) => row.client === "web_embedded" && row.cookies));
 });
@@ -255,11 +284,16 @@ test("keeps = in visitor_data and does not pin fetch_pot without a token", () =>
   assert.equal(poTokenArgs("android", "WEBPO"), "");
   assert.match(poTokenArgs("web_embedded", "WEBPO"), /web_embedded\.gvs\+WEBPO/);
   assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "data_sync_id"));
-  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && /never iff/.test(row.use)));
+  assert.ok(
+    YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && /never iff/.test(row.use)),
+  );
 });
 
 test("yt-dlp exit codes: SIGKILL/timeout is not a 403", () => {
-  const forbidden = mapYtdlpExit(1, "ERROR: unable to download video data: HTTP Error 403: Forbidden");
+  const forbidden = mapYtdlpExit(
+    1,
+    "ERROR: unable to download video data: HTTP Error 403: Forbidden",
+  );
   assert.equal(forbidden.kind, "forbidden");
   assert.equal(forbidden.retryable, false);
   assert.equal(forbidden.next, "next-socks");
@@ -292,7 +326,7 @@ test("SABR no-formats is next-client; nsig 2026 wording retries", () => {
 
   const nsig = mapYtdlpExit(
     1,
-    'WARNING: Error solving n challenge request using "node" provider: n result is invalid for \'AbCd\'\nERROR: [youtube] x: No video formats found!',
+    "WARNING: Error solving n challenge request using \"node\" provider: n result is invalid for 'AbCd'\nERROR: [youtube] x: No video formats found!",
   );
   assert.equal(nsig.kind, "nsig");
   assert.equal(nsig.retryable, true);
@@ -304,7 +338,10 @@ test("geo vs errno 101 vs exit 101; ffmpeg stop; CLI is 2", () => {
     "ERROR: [youtube] x: The uploader has not made this video available in your country due to geo restriction",
   );
   assert.equal(geo.kind, "geo");
-  const net = mapYtdlpExit(1, "ERROR: Unable to download webpage: <urlopen error [Errno 101] Network is unreachable>");
+  const net = mapYtdlpExit(
+    1,
+    "ERROR: Unable to download webpage: <urlopen error [Errno 101] Network is unreachable>",
+  );
   assert.equal(net.kind, "network");
   const cancelled = mapYtdlpExit(101, "Aborting remaining downloads");
   assert.equal(cancelled.kind, "cancelled");
@@ -331,4 +368,60 @@ test("ULA ip= in the log is an IPv6 mismatch", () => {
   );
   assert.equal(fail.kind, "ipv6");
   assert.equal(fail.next, "next-socks");
+});
+
+test("the interpreter is configurable, since `python3` is not always the name", () => {
+  assert.equal(pythonBin({} as NodeJS.ProcessEnv), "python3");
+  assert.equal(
+    pythonBin({ VELO_PYTHON: "/venv/bin/python" } as NodeJS.ProcessEnv),
+    "/venv/bin/python",
+  );
+  assert.equal(pythonBin({ PYTHON_BIN: "python3.12" } as NodeJS.ProcessEnv), "python3.12");
+  // VELO_PYTHON wins, and blank values fall through rather than becoming "".
+  assert.equal(
+    pythonBin({ VELO_PYTHON: "/a/python", PYTHON_BIN: "/b/python" } as NodeJS.ProcessEnv),
+    "/a/python",
+  );
+  assert.equal(pythonBin({ VELO_PYTHON: "   " } as NodeJS.ProcessEnv), "python3");
+});
+
+test("a missing interpreter is told apart from a missing yt-dlp", () => {
+  const enoent = Object.assign(new Error("spawn python3 ENOENT"), { code: "ENOENT" });
+  const missing = classifyPythonProbe({ bin: "python3", spawnError: enoent });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.ok === false && missing.reason, "no-interpreter");
+  assert.match(missing.ok === false ? missing.message : "", /VELO_PYTHON/);
+
+  const noModule = classifyPythonProbe({
+    bin: "python3",
+    code: 1,
+    stderr: "/usr/bin/python3: No module named yt_dlp\n",
+  });
+  assert.equal(noModule.ok === false && noModule.reason, "no-ytdlp");
+  // The message has to name the fix, and the interpreter it applies to.
+  assert.match(noModule.ok === false ? noModule.message : "", /pip install -U yt-dlp/);
+
+  const ok = classifyPythonProbe({ bin: "python3", code: 0, stdout: "2026.08.19\n" });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.ok === true && ok.version, "2026.08.19");
+});
+
+test("a python that runs but fails is 'broken', not 'missing'", () => {
+  const broken = classifyPythonProbe({ bin: "python3", code: 2, stderr: "Segmentation fault" });
+  assert.equal(broken.ok === false && broken.reason, "broken");
+  // Exit 0 with no version is equally unusable.
+  const empty = classifyPythonProbe({ bin: "python3", code: 0, stdout: "  \n" });
+  assert.equal(empty.ok === false && empty.reason, "broken");
+});
+
+test("only a genuinely absent binary counts as a missing interpreter", () => {
+  assert.equal(isMissingInterpreterError(Object.assign(new Error("x"), { code: "ENOENT" })), true);
+  assert.equal(isMissingInterpreterError(Object.assign(new Error("x"), { code: "EACCES" })), true);
+  // A process that started and was killed is a different failure entirely.
+  assert.equal(
+    isMissingInterpreterError(Object.assign(new Error("x"), { code: "ETIMEDOUT" })),
+    false,
+  );
+  assert.equal(isMissingInterpreterError(new Error("spawn failed")), false);
+  assert.equal(isMissingInterpreterError(null), false);
 });

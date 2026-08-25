@@ -126,6 +126,25 @@ Velo is a modern web application built to inspect, stream, download, and extract
 - **npm**: v10 or later
 - **Python / yt-dlp / ffmpeg** *(optional for local development, pre-configured in sandbox)*
 
+  Velo is TypeScript end to end, but the yt-dlp extraction path shells out to
+  Python (`python3 -m yt_dlp`). Without it the app still runs — the browser
+  hybrid and InnerTube paths cover most videos — but 1080p muxing over SOCKS,
+  the most reliable path, is unavailable. Install with:
+
+  ```bash
+  python3 -m pip install -U yt-dlp
+  ```
+
+  If your interpreter is not on `PATH` as `python3` (a virtualenv, pyenv, or a
+  distro that only ships `python`), point Velo at it:
+
+  ```bash
+  export VELO_PYTHON=/path/to/venv/bin/python   # PYTHON_BIN also works
+  ```
+
+  Velo probes the runtime once per process and reports which piece is missing —
+  the interpreter or the `yt_dlp` module — rather than failing per download.
+
 ### Installation
 
 1. Clone the repository:
