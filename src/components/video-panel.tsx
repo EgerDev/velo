@@ -637,7 +637,7 @@ export function VideoPanel({
         {/* Preset Category Switcher */}
         <div className="mt-6 border-t border-border pt-5">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex rounded-lg bg-surface p-1 border border-border">
+            <div className="flex items-center overflow-x-auto no-scrollbar rounded-lg bg-surface p-1 border border-border max-w-full">
               <button
                 type="button"
                 onClick={() => setActiveTab("video")}

@@ -85,7 +85,8 @@ export function normalizeSocksUrl(raw: string): string | null {
     }
     if (!url.hostname || !url.port) return null;
     if (!/^\d{1,5}$/.test(url.port) || Number(url.port) > 65535) return null;
-    return `socks5h://${url.hostname}:${url.port}`;
+    const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ""}@` : "";
+    return `socks5h://${auth}${url.hostname}:${url.port}`;
   } catch {
     return null;
   }

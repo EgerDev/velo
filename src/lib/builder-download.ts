@@ -27,14 +27,18 @@ async function readBlob(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let loaded = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
-      onBytes?.(loaded, total);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loaded += value.byteLength;
+        onBytes?.(loaded, total);
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(loaded);
   let offset = 0;

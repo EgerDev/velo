@@ -1,13 +1,14 @@
 /* Velo Chrome Extension - Popup Stylesheet */
 
 :root {
+  color-scheme: dark;
   --bg: #09090b;
   --surface: #121216;
   --elevated: #1a1a22;
   --border: rgba(255, 255, 255, 0.1);
   --fg: #f4f4f5;
   --muted: #a1a1aa;
-  --subtle: #71717a;
+  --subtle: #9ca3af;
   --accent: #f43f5e;
   --accent-hover: #fb7185;
   --purple: #a855f7;

@@ -52,7 +52,7 @@ export const Route = createRootRoute({
       <head>
         <HeadContent />
       </head>
-      <body className="min-h-dvh bg-bg text-fg font-sans">
+      <body className="min-h-dvh bg-bg text-fg font-sans" suppressHydrationWarning>
         <PreviewHostBridge />
         <AuthProvider>
           <Outlet />

@@ -39,6 +39,15 @@ export function withAuthHeaders(init?: HeadersInit): Headers {
 
 export const authClient = createAuthClient({
   plugins: [genericOAuthClient()],
+  advanced: {
+    useSecureCookies: false,
+    defaultCookieAttributes: { secure: true, sameSite: "lax", path: "/" },
+    cookies: {
+      session_data: { name: "__Host-grok-auth.session_data" },
+      account_data: { name: "__Host-grok-auth.account_data" },
+      dont_remember: { name: "__Host-grok-auth.dont_remember" },
+    },
+  },
   fetchOptions: {
     auth: {
       type: "Bearer",

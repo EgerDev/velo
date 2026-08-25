@@ -43,6 +43,10 @@ export function isRetryable(err: unknown): boolean {
     msg.includes("522") ||
     msg.includes("failed to fetch") ||
     msg.includes("network") ||
+    msg.includes("econnreset") ||
+    msg.includes("epipe") ||
+    msg.includes("etimedout") ||
+    msg.includes("econnrefused") ||
     msg.includes("empty stream")
   );
 }

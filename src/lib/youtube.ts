@@ -1,5 +1,5 @@
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
-const PLAYLIST_ID_RE = /^(PL|UU|OL|RD|FL)[a-zA-Z0-9_-]{10,}$/;
+const PLAYLIST_ID_RE = /^(PL|UU|OL|RD|FL)[a-zA-Z0-9_-]{2,}$/;
 
 const HOSTS = new Set([
   "youtube.com",
@@ -102,6 +102,16 @@ export function youtubeWatchUrl(id: string): string {
 export function parseClock(text: string | null | undefined): number | null {
   if (!text) return null;
   const cleaned = text.trim();
+
+  // Support ISO 8601 format (e.g. PT1H2M3S, PT5M30S, PT45S)
+  const isoMatch = cleaned.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i);
+  if (isoMatch) {
+    const h = parseInt(isoMatch[1] || "0", 10);
+    const m = parseInt(isoMatch[2] || "0", 10);
+    const s = parseInt(isoMatch[3] || "0", 10);
+    return h * 3600 + m * 60 + s;
+  }
+
   if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(cleaned)) return null;
   const parts = cleaned.split(":").map((n) => Number(n));
   if (parts.some((n) => !Number.isFinite(n))) return null;

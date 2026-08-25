@@ -558,38 +558,48 @@ export async function resolveBulkMetadata(
 export async function searchYoutubeVideos(query: string): Promise<SearchHit[]> {
   const trimmed = query.trim();
   if (!trimmed) throw new Error("Type something to search.");
-  const yt = await getClient();
-  const results = await yt.search(trimmed, { type: "video" });
-  const hits = uniqueHits(
-    [...results.videos]
-      .map((item) => toSearchHit(item))
-      .filter((item): item is SearchHit => item !== null),
-  );
-  return hits.slice(0, 24);
+  try {
+    const yt = await getClient();
+    const results = await yt.search(trimmed, { type: "video" });
+    const hits = uniqueHits(
+      [...(results?.videos || [])]
+        .map((item) => toSearchHit(item))
+        .filter((item): item is SearchHit => item !== null),
+    );
+    return hits.slice(0, 24);
+  } catch (err) {
+    const msg = (err instanceof Error ? err.message : String(err)).replace(/^InnertubeError:\s*/i, "");
+    throw new Error(msg || "Could not search YouTube videos.");
+  }
 }
 
 export async function resolveYoutubePlaylist(input: string): Promise<PlaylistResult> {
   const id = parsePlaylistId(input);
   if (!id) throw new Error("That doesn’t look like a playlist link.");
-  const yt = await getClient();
-  const playlist = await yt.getPlaylist(id);
-  const items = uniqueHits(
-    [...playlist.items]
-      .map((item) => toSearchHit(item))
-      .filter((item): item is SearchHit => item !== null),
-  );
-  if (!items.length) {
-    throw new Error("This playlist is empty or isn’t available.");
+  try {
+    const yt = await getClient();
+    const playlist = await yt.getPlaylist(id);
+    const items = uniqueHits(
+      [...(playlist?.items || [])]
+        .map((item) => toSearchHit(item))
+        .filter((item): item is SearchHit => item !== null),
+    );
+    if (!items.length) {
+      throw new Error("This playlist is empty or isn’t available.");
+    }
+    const info = playlist.info;
+    return {
+      id,
+      title: info?.title?.trim() || "Playlist",
+      author: info?.author?.name?.trim() || "YouTube",
+      thumbnail: info?.thumbnails?.[0]?.url ?? items[0]?.thumbnail ?? null,
+      total: info?.total_items || null,
+      items: items.slice(0, 50),
+    };
+  } catch (err) {
+    const msg = (err instanceof Error ? err.message : String(err)).replace(/^InnertubeError:\s*/i, "");
+    throw new Error(msg || "Could not load playlist information.");
   }
-  const info = playlist.info;
-  return {
-    id,
-    title: info.title?.trim() || "Playlist",
-    author: info.author?.name?.trim() || "YouTube",
-    thumbnail: info.thumbnails?.[0]?.url ?? items[0]?.thumbnail ?? null,
-    total: info.total_items || null,
-    items: items.slice(0, 50),
-  };
 }
 
 export async function streamYoutubeCaptions(
