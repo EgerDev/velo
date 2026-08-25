@@ -518,7 +518,7 @@ function Home() {
         </div>
 
         {viewMode === "transcript" ? (
-          <div className="mt-6">
+          <div className="mt-8">
             <TranscriptStudio
               initialUrl={url}
               onOpenInDownloader={(singleUrl) => {
@@ -529,7 +529,7 @@ function Home() {
             />
           </div>
         ) : viewMode === "bulk" ? (
-          <div className="mt-6">
+          <div className="mt-8">
             <BulkDownloader
               onSelectSingleVideo={(singleUrl) => {
                 updateUrl(singleUrl);

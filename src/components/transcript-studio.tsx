@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ClipboardPaste,
   Clock,
   Copy,
   Download,
@@ -10,6 +11,7 @@ import {
   Film,
   Languages,
   Layers,
+  Link2,
   Loader2,
   RotateCcw,
   Search,
@@ -295,18 +297,25 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
         className="group relative flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-white/10 shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
       >
         <div className="relative flex flex-1 items-center min-w-0">
-          <FileText className="size-4 text-accent shrink-0 ml-3 mr-1.5" />
+          {urlInput ? (
+            <Link2 className="size-4 text-accent shrink-0 ml-3 mr-1" />
+          ) : (
+            <FileText className="size-4 text-subtle shrink-0 ml-3 mr-1 group-focus-within:text-fg transition-colors" />
+          )}
           <input
             type="text"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             placeholder="Paste YouTube link for instant transcript extraction..."
+            aria-label="YouTube link for transcript"
             className="h-11 w-full bg-transparent px-2.5 text-sm sm:text-base text-fg placeholder:text-subtle/60 focus:outline-none font-sans"
+            autoComplete="off"
             spellCheck={false}
           />
           {urlInput ? (
             <button
               type="button"
+              aria-label="Clear input"
               onClick={() => setUrlInput("")}
               className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-white/10 transition-colors mr-1.5 cursor-pointer"
             >
@@ -332,27 +341,28 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
               }
             }}
           >
-            Paste & Fetch
+            <ClipboardPaste className="size-3.5 mr-1.5" />
+            Paste
           </Button>
           <Button
             type="submit"
             disabled={loading}
-            className="h-10 min-w-28 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm"
+            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm"
           >
             {loading ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Sparkles className="size-3.5 mr-1.5" />}
-            {loading ? "Extracting…" : "Get Transcript"}
+            {loading ? "Working…" : "Get Transcript"}
           </Button>
         </div>
       </form>
 
       {/* Quick Curated Podcast & Lecture Presets */}
-      <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap">
+      <div className="mt-4 flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap">
         <span className="text-[11px] font-medium text-subtle shrink-0 mr-1 hidden sm:inline">Try:</span>
         {SAMPLE_PODCASTS.map((sample) => (
           <button
             key={sample.label}
             type="button"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/70 px-3.5 py-1.5 text-xs font-medium text-muted hover:border-accent/50 hover:bg-elevated hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/70 px-3 py-1.5 text-xs font-medium text-muted hover:border-accent/50 hover:bg-elevated hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
             onClick={() => {
               setUrlInput(sample.query);
               void loadVideoTranscript(sample.query);
