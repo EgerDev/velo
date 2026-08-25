@@ -53,7 +53,7 @@ export const Route = createFileRoute("/")({ component: Home });
 
 const SAMPLES = [
   { icon: "🎬", label: "4K HDR Demo", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
-  { icon: "🎙️", label: "Podcast & Transcript", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
+  { icon: "🎙️", label: "Podcast & Notes", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
   { icon: "🎵", label: "High-Bitrate Audio", query: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
   { icon: "🏛️", label: "Me at the zoo", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
 ];
@@ -575,15 +575,15 @@ function Home() {
 
         {/* Quick Sample Presets */}
         <div className="mt-4 flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap">
-          <span className="text-[11px] font-medium text-subtle shrink-0 mr-1 hidden sm:inline">Try:</span>
+          <span className="text-[11px] font-semibold text-subtle/80 uppercase tracking-wider shrink-0 mr-0.5">Try:</span>
           {SAMPLES.map((sample) => (
             <button
               key={sample.label}
               type="button"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/70 px-3 py-1.5 text-xs font-medium text-muted hover:border-accent/50 hover:bg-elevated hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/60 hover:bg-elevated hover:border-accent/40 px-3 py-1.5 text-xs font-medium text-muted hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
               onClick={() => void lookup(sample.query)}
             >
-              <span>{sample.icon}</span>
+              <span className="text-xs leading-none">{sample.icon}</span>
               <span>{sample.label}</span>
             </button>
           ))}
