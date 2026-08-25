@@ -7,6 +7,7 @@ import {
   exportUrlList,
   exportYtdlpBatchScript,
   extractYoutubeLinks,
+  importBatchJson,
   type BulkItem,
 } from "./bulk-download.ts";
 
@@ -190,5 +191,50 @@ describe("calculateQueueStats", () => {
     assert.equal(stats.pending, 1);
     assert.equal(stats.totalProgress, 50); // (100 + 50 + 0) / 3 = 50
     assert.equal(stats.isAllDone, false);
+  });
+});
+
+describe("importBatchJson", () => {
+  it("round-trips an exported manifest, preserving preset and title", () => {
+    const items = createBulkItems(["jNQXAC9IVRw"], "1080p");
+    items[0].title = "Me at the zoo";
+    items[0].preset = "audio";
+    const json = exportBatchJson(items);
+    const result = importBatchJson(json);
+    assert.equal(result.error, null);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].id, "jNQXAC9IVRw");
+    assert.equal(result.items[0].preset, "audio");
+    assert.equal(result.items[0].title, "Me at the zoo");
+  });
+
+  it("accepts a bare JSON array of url objects and dedupes", () => {
+    const json = JSON.stringify([
+      { url: "https://youtu.be/aqz-KE-bpKQ", preset: "720p" },
+      { url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ" },
+      { id: "jNQXAC9IVRw" },
+    ]);
+    const result = importBatchJson(json);
+    assert.equal(result.items.length, 2);
+    assert.equal(result.items[0].preset, "720p");
+  });
+
+  it("falls back to link extraction for non-JSON pastes", () => {
+    const result = importBatchJson("watch these: https://youtu.be/aqz-KE-bpKQ and https://youtu.be/jNQXAC9IVRw");
+    assert.equal(result.error, null);
+    assert.equal(result.items.length, 2);
+  });
+
+  it("reports errors for empty and video-less input", () => {
+    assert.equal(importBatchJson("").items.length, 0);
+    assert.ok(importBatchJson("").error);
+    assert.ok(importBatchJson("[]").error);
+    assert.ok(importBatchJson("just some words").error);
+  });
+
+  it("coerces an unknown preset to the default", () => {
+    const json = JSON.stringify([{ id: "jNQXAC9IVRw", preset: "8k-holographic" }]);
+    const result = importBatchJson(json, "720p");
+    assert.equal(result.items[0].preset, "720p");
   });
 });

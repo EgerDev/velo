@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -16,6 +16,8 @@ import {
   Layers,
   Loader2,
   BookMarked,
+  FileDown,
+  SkipForward,
   Music,
   Play,
   RotateCcw,
@@ -31,7 +33,15 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TranscriptViewer } from "@/components/transcript-viewer";
 import { chaptersToCues, parseChapters } from "@/lib/chapters";
+import { descriptionSidecar, chaptersVttSidecar, type Sidecar } from "@/lib/sidecars";
 import { exportNLETimeline, type NLEExportFormat } from "@/lib/nle-export";
+import {
+  hashVideoIdPrefix,
+  parseSegments,
+  segmentsApiUrl,
+  totalSponsorSeconds,
+  type SponsorSegment,
+} from "@/lib/sponsorblock";
 import {
   captionsHref,
   codecPlayHint,
@@ -243,7 +253,7 @@ export function VideoPanel({
   const [showDescription, setShowDescription] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [activeTab, setActiveTab] = useState<"video" | "audio" | "transcript">("video");
-  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "chapters" | "compare" | "pipeline" | "trimmer" | "thumbnails">("none");
+  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "chapters" | "sponsor" | "compare" | "pipeline" | "trimmer" | "thumbnails">("none");
   const [trimStart, setTrimStart] = useState("00:00");
   const [trimEnd, setTrimEnd] = useState(() => formatTimecode(video.duration || 60));
   const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
@@ -253,21 +263,95 @@ export function VideoPanel({
     [video.description, video.duration],
   );
 
+  const [sponsor, setSponsor] = useState<{
+    status: "idle" | "loading" | "loaded" | "empty" | "error";
+    segments: SponsorSegment[];
+  }>({ status: "idle", segments: [] });
+  // The videoId whose SponsorBlock lookup has already started, so the effect
+  // fetches exactly once per video and can't cancel its own in-flight request.
+  const sponsorFetchedFor = useRef<string | null>(null);
+
+  // SponsorBlock lookup is lazy: only when the section is first opened, and the
+  // privacy-preserving hash-prefix query keeps the exact videoId off the API.
+  useEffect(() => {
+    if (openSection !== "sponsor" || sponsorFetchedFor.current === video.id) return;
+    sponsorFetchedFor.current = video.id;
+    const forVideo = video.id;
+    const live = () => sponsorFetchedFor.current === forVideo;
+    setSponsor({ status: "loading", segments: [] });
+    (async () => {
+      try {
+        const prefix = await hashVideoIdPrefix(forVideo);
+        const response = await fetch(segmentsApiUrl(prefix), { headers: { accept: "application/json" } });
+        if (response.status === 404) {
+          if (live()) setSponsor({ status: "empty", segments: [] });
+          return;
+        }
+        if (!response.ok) throw new Error(`SponsorBlock ${response.status}`);
+        const segments = parseSegments(await response.json(), forVideo);
+        if (live()) setSponsor({ status: segments.length ? "loaded" : "empty", segments });
+      } catch {
+        if (live()) setSponsor({ status: "error", segments: [] });
+      }
+    })();
+  }, [openSection, video.id]);
+
+  // Reset SponsorBlock when the video changes so a stale lookup can't leak across.
+  useEffect(() => {
+    sponsorFetchedFor.current = null;
+    setSponsor({ status: "idle", segments: [] });
+  }, [video.id]);
+
+  function exportSponsorMarkers(format: NLEExportFormat) {
+    const cues = sponsor.segments.map((seg, index) => ({
+      id: index,
+      start: seg.start,
+      end: seg.end,
+      startFormatted: formatDuration(seg.start),
+      endFormatted: formatDuration(seg.end),
+      text: seg.label,
+    }));
+    const result = exportNLETimeline(format, cues, {
+      sequenceTitle: `${video.title} (SponsorBlock)`,
+      fps: 30,
+      markerNameFromText: true,
+    });
+    triggerSidecarDownload({ content: result.content, filename: result.filename, mimeType: result.mimeType });
+    toast.success(`Exported ${result.filename}`);
+  }
+
+  function triggerSidecarDownload(sidecar: Sidecar) {
+    const blob = new Blob([sidecar.content], { type: sidecar.mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = sidecar.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function saveSidecars() {
+    const bundle = [
+      descriptionSidecar(video.title, video.description),
+      chaptersVttSidecar(video.title, chapters),
+    ].filter((sidecar): sidecar is Sidecar => sidecar != null);
+    if (!bundle.length) {
+      toast.error("Nothing to export — no description or chapters on this video.");
+      return;
+    }
+    for (const sidecar of bundle) triggerSidecarDownload(sidecar);
+    toast.success(`Saved ${bundle.length} sidecar file${bundle.length > 1 ? "s" : ""}`);
+  }
+
   function exportChapterMarkers(format: NLEExportFormat) {
     const result = exportNLETimeline(format, chaptersToCues(chapters), {
       sequenceTitle: video.title,
       fps: 30,
       markerNameFromText: true,
     });
-    const blob = new Blob([result.content], { type: result.mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = result.filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    triggerSidecarDownload({ content: result.content, filename: result.filename, mimeType: result.mimeType });
     toast.success(`Exported ${result.filename}`);
   }
 
@@ -402,7 +486,7 @@ export function VideoPanel({
   }
 
   const toggleSection = (
-    section: "formats" | "captions" | "chapters" | "compare" | "pipeline" | "trimmer" | "thumbnails",
+    section: "formats" | "captions" | "chapters" | "sponsor" | "compare" | "pipeline" | "trimmer" | "thumbnails",
   ) => {
     setOpenSection((current) => (current === section ? "none" : section));
   };
@@ -1080,12 +1164,115 @@ export function VideoPanel({
                       <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportChapterMarkers("audacity")}>
                         Audacity labels
                       </Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={saveSidecars}>
+                        <FileDown className="size-3 mr-1" />
+                        Description + VTT
+                      </Button>
                     </div>
                   </div>
                 </div>
               ) : null}
             </div>
           ) : null}
+
+          {/* SponsorBlock Segments */}
+          <div className="rounded-lg border border-border bg-surface overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection("sponsor")}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-medium text-fg hover:bg-elevated/40 transition-colors cursor-pointer"
+              aria-expanded={openSection === "sponsor"}
+            >
+              <span className="flex items-center gap-2">
+                <SkipForward className="size-4 text-subtle" />
+                SponsorBlock Segments
+                {sponsor.status === "loaded" ? (
+                  <span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10px] text-accent">
+                    {sponsor.segments.length} · {formatDuration(totalSponsorSeconds(sponsor.segments))}
+                  </span>
+                ) : null}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-subtle transition-transform duration-[var(--motion-quick)]",
+                  openSection === "sponsor" && "rotate-180",
+                )}
+              />
+            </button>
+
+            {openSection === "sponsor" ? (
+              <div className="border-t border-border p-4 space-y-3 text-xs">
+                {sponsor.status === "loading" ? (
+                  <p className="flex items-center gap-2 text-muted">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Checking SponsorBlock…
+                  </p>
+                ) : sponsor.status === "error" ? (
+                  <p className="text-subtle">Couldn’t reach SponsorBlock. Try again in a moment.</p>
+                ) : sponsor.status === "empty" ? (
+                  <p className="text-subtle">
+                    No community-submitted segments for this video — nothing to skip.
+                  </p>
+                ) : sponsor.status === "loaded" ? (
+                  <>
+                    <p className="text-muted leading-relaxed">
+                      Community-labeled segments (sponsors, intros, self-promo). Export them as editor
+                      markers to cut them, or use the timecodes to skip on playback.
+                    </p>
+                    <ul className="divide-y divide-border/60">
+                      {sponsor.segments.map((segment) => (
+                        <li key={segment.uuid} className="flex items-center gap-3 py-1.5">
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-baseline gap-3 text-left cursor-pointer group"
+                            onClick={() => {
+                              setSeekTime(segment.start);
+                              setPlaying(true);
+                            }}
+                            title="Preview from this segment"
+                          >
+                            <span className="shrink-0 font-mono text-[11px] tabular-nums text-accent">
+                              {formatDuration(segment.start)}
+                            </span>
+                            <span className="truncate text-muted transition-colors group-hover:text-fg">
+                              {segment.label}
+                            </span>
+                          </button>
+                          <span className="shrink-0 font-mono text-[10px] text-subtle">
+                            {formatDuration(segment.end - segment.start)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-[11px] shrink-0"
+                            onClick={() => clipChapter(segment.start, segment.end)}
+                            aria-label={`Trim to ${segment.label}`}
+                          >
+                            <Scissors className="size-3 mr-1" />
+                            Clip
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="pt-3 border-t border-border/40">
+                      <p className="text-muted mb-2">Export as sponsor markers:</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportSponsorMarkers("davinci")}>
+                          DaVinci CSV
+                        </Button>
+                        <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportSponsorMarkers("premiere")}>
+                          Premiere EDL
+                        </Button>
+                        <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportSponsorMarkers("fcpxml")}>
+                          Final Cut FCPXML
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
           {/* 2. Codec & Size Comparison */}
           {sizeRows.length >= 2 ? (

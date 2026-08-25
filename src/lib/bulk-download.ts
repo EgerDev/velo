@@ -130,6 +130,59 @@ export function createBulkItems(
   }));
 }
 
+const VALID_PRESETS: BulkQualityPreset[] = ["1080p", "720p", "360p", "audio", "transcript"];
+
+function coercePreset(value: unknown, fallback: BulkQualityPreset): BulkQualityPreset {
+  return typeof value === "string" && (VALID_PRESETS as string[]).includes(value)
+    ? (value as BulkQualityPreset)
+    : fallback;
+}
+
+export type BulkImportResult = {
+  items: BulkItem[];
+  error: string | null;
+};
+
+/**
+ * Import a batch manifest previously produced by exportBatchJson (or any JSON
+ * array of `{ url | id, preset?, title?, author? }`). Preserves per-item preset
+ * and any known metadata so a saved queue round-trips, unlike a raw URL paste.
+ * Falls back to plain link extraction when the text is not our JSON shape.
+ */
+export function importBatchJson(text: string, defaultPreset: BulkQualityPreset = "1080p"): BulkImportResult {
+  const trimmed = text?.trim() ?? "";
+  if (!trimmed) return { items: [], error: "Nothing to import." };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    // Not JSON — fall back to link extraction so a pasted URL list still works.
+    const { videoIds } = extractYoutubeLinks(trimmed);
+    if (!videoIds.length) return { items: [], error: "No videos found in that text." };
+    return { items: createBulkItems(videoIds, defaultPreset), error: null };
+  }
+
+  const rows = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { items?: unknown[] })?.items) ? (parsed as { items: unknown[] }).items : null;
+  if (!rows) return { items: [], error: "Expected a JSON array of items." };
+
+  const byId = new Map<string, BulkItem>();
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    const source = typeof record.url === "string" ? record.url : typeof record.id === "string" ? record.id : "";
+    const id = parseVideoId(source);
+    if (!id || byId.has(id)) continue;
+    const [item] = createBulkItems([id], coercePreset(record.preset, defaultPreset));
+    if (typeof record.title === "string") item.title = record.title;
+    if (typeof record.author === "string") item.author = record.author;
+    byId.set(id, item);
+  }
+
+  if (!byId.size) return { items: [], error: "No valid YouTube videos in that manifest." };
+  return { items: [...byId.values()], error: null };
+}
+
 /**
  * Configuration for concurrency, staggering, and rate-limit mitigation
  */
