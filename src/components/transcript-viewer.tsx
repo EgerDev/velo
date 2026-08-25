@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
   Clock,
   Copy,
+  Download,
   FileText,
+  Film,
   Languages,
   Loader2,
   Play,
@@ -23,6 +26,10 @@ import {
   cuesToVtt,
   type TranscriptCue,
 } from "@/lib/transcript";
+import {
+  exportNLETimeline,
+  type NLEExportFormat,
+} from "@/lib/nle-export";
 import type { CaptionTrack } from "@/lib/youtube";
 import { fetchTranscript } from "@/lib/resolve-video";
 
@@ -32,6 +39,53 @@ type TranscriptViewerProps = {
   captions: CaptionTrack[];
   onSeek?: (seconds: number) => void;
 };
+
+const NLE_FORMAT_OPTIONS: {
+  id: NLEExportFormat;
+  name: string;
+  app: string;
+  ext: string;
+  desc: string;
+  badge: string;
+  color: string;
+}[] = [
+  {
+    id: "davinci",
+    name: "DaVinci Resolve Marker CSV",
+    app: "DaVinci Resolve",
+    ext: ".csv",
+    desc: "SMPTE Timecode In/Out, Marker Name, Notes & Colors",
+    badge: "Resolve CSV",
+    color: "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  },
+  {
+    id: "fcpxml",
+    name: "Final Cut Pro XML",
+    app: "Final Cut Pro",
+    ext: ".fcpxml",
+    desc: "FCPXML 1.9 Timeline Sequence with <marker> tags",
+    badge: "FCPXML",
+    color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+  },
+  {
+    id: "premiere",
+    name: "Adobe Premiere Pro EDL",
+    app: "Premiere Pro",
+    ext: ".edl",
+    desc: "CMX 3600 compliant marker list with clip comments",
+    badge: "Premiere EDL",
+    color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  },
+  {
+    id: "audacity",
+    name: "Audacity Label Track",
+    app: "Audacity / DAW",
+    ext: ".txt",
+    desc: "Tab-separated high precision start, end, label",
+    badge: "Audacity Labels",
+    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  },
+];
 
 export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: TranscriptViewerProps) {
   const [selectedTrack, setSelectedTrack] = useState<CaptionTrack | null>(() => {
@@ -47,10 +101,27 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
   const [searchQuery, setSearchQuery] = useState("");
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [showAiPrompts, setShowAiPrompts] = useState(false);
+  const [showNleMenu, setShowNleMenu] = useState(false);
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [activeCueId, setActiveCueId] = useState<number | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const nleMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close NLE menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (nleMenuRef.current && !nleMenuRef.current.contains(event.target as Node)) {
+        setShowNleMenu(false);
+      }
+    }
+    if (showNleMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showNleMenu]);
 
   // Fetch transcript when video or track changes
   useEffect(() => {
@@ -121,7 +192,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
     }
   };
 
-  // Download helper
+  // Subtitle / text download helper
   const handleDownload = (format: "txt" | "srt" | "vtt" | "json") => {
     if (!cues.length) return;
     try {
@@ -153,6 +224,36 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
       toast.success(`Downloaded .${format} transcript`);
     } catch {
       toast.error(`Could not download .${format} file.`);
+    }
+  };
+
+  // NLE Timeline & Marker Export Helper
+  const handleNleExport = (format: NLEExportFormat) => {
+    if (!cues.length) {
+      toast.error("No transcript cues available to export.");
+      return;
+    }
+    try {
+      const result = exportNLETimeline(format, cues, {
+        sequenceTitle: videoTitle,
+        fps: 24,
+      });
+
+      const blob = new Blob([result.content], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const target = NLE_FORMAT_OPTIONS.find((f) => f.id === format);
+      toast.success(`Exported ${target?.name || format} (${cues.length} cues)`);
+      setShowNleMenu(false);
+    } catch (err) {
+      toast.error(`Failed to export NLE markers: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
@@ -274,6 +375,67 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
               <Sparkles className="size-3.5 mr-1.5 text-amber-400" />
               AI Prompts
             </Button>
+
+            {/* NLE Marker & Timeline Exporter Dropdown */}
+            <div className="relative" ref={nleMenuRef}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNleMenu(!showNleMenu)}
+                className={cn(
+                  "text-xs h-8 px-2.5 font-medium transition-colors",
+                  showNleMenu ? "bg-accent/15 border-accent text-accent" : "text-fg hover:text-accent hover:border-accent/40",
+                )}
+                title="Export markers for DaVinci Resolve, Final Cut Pro, Premiere Pro, Audacity"
+              >
+                <Film className="size-3.5 mr-1.5 text-sky-400" />
+                Export NLE Markers
+                <ChevronDown className={cn("size-3 ml-1 transition-transform", showNleMenu && "rotate-180")} />
+              </Button>
+
+              {/* NLE Dropdown Popover */}
+              {showNleMenu ? (
+                <div className="absolute right-0 top-full mt-1.5 z-30 w-72 rounded-xl bg-surface border border-border shadow-2xl p-2 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-2.5 py-1.5 border-b border-border/70 mb-1 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-fg tracking-wide uppercase">
+                      Export NLE Markers & Timeline
+                    </span>
+                    <span className="text-[10px] text-subtle font-mono">{cues.length} cues</span>
+                  </div>
+                  <div className="space-y-1">
+                    {NLE_FORMAT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => handleNleExport(opt.id)}
+                        className="w-full text-left rounded-lg p-2 hover:bg-elevated transition-colors flex items-start gap-2.5 group cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-fg group-hover:text-accent">
+                              {opt.name}
+                            </span>
+                            <span
+                              className={cn(
+                                "text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border",
+                                opt.color,
+                              )}
+                            >
+                              {opt.ext}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-muted line-clamp-1 mt-0.5">{opt.desc}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-border/70 px-2 text-[10px] text-subtle flex items-center justify-between">
+                    <span>Includes exact SMPTE frame alignment</span>
+                    <Download className="size-3 text-subtle" />
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             {/* Quick Copy Menu */}
             <div className="flex items-center rounded-lg bg-surface border border-border p-0.5">

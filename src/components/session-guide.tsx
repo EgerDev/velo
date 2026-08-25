@@ -10,12 +10,25 @@ import {
   Laptop,
   Smartphone,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export const VELO_EXTENSION_ZIP = "/extensions/velo-session.zip";
+
+export const INGEST_BOOKMARKLET_CODE = `javascript:(function(){window.open('https://'+window.location.host+'/?v='+encodeURIComponent(window.location.href));})();`;
+
+export function getIngestBookmarkletCode(origin?: string): string {
+  if (typeof window !== "undefined" && !origin && window.location?.origin) {
+    origin = window.location.origin;
+  }
+  if (origin) {
+    return `javascript:(function(){window.open('${origin}/?v='+encodeURIComponent(window.location.href));})();`;
+  }
+  return INGEST_BOOKMARKLET_CODE;
+}
 
 /** Open-source exporters that keep cookies on-device (yt-dlp community standard). */
 const TOOLS = {
@@ -47,13 +60,27 @@ export function SessionGuide({
   onBrowser: (tab: BrowserTab) => void;
 }) {
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedIngestCode, setCopiedIngestCode] = useState(false);
+
+  const ingestCode = typeof window !== "undefined" ? getIngestBookmarkletCode() : INGEST_BOOKMARKLET_CODE;
 
   const copyBookmarklet = async () => {
     try {
       await navigator.clipboard.writeText(BOOKMARKLET_CODE);
       setCopiedCode(true);
-      toast.success("Bookmarklet code copied to clipboard");
+      toast.success("Cookie exporter bookmarklet code copied to clipboard");
       setTimeout(() => setCopiedCode(false), 2500);
+    } catch {
+      toast.error("Could not copy bookmarklet code.");
+    }
+  };
+
+  const copyIngestBookmarklet = async () => {
+    try {
+      await navigator.clipboard.writeText(ingestCode);
+      setCopiedIngestCode(true);
+      toast.success("'⚡ Open in Velo' bookmarklet code copied to clipboard");
+      setTimeout(() => setCopiedIngestCode(false), 2500);
     } catch {
       toast.error("Could not copy bookmarklet code.");
     }

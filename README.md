@@ -29,7 +29,19 @@ Velo is a modern web application built to inspect, stream, download, and extract
   - ✅ **Action Items & Checklist** (Extracts tools, guides, and practical steps)
   - 🧵 **Social Media Thread** (Engaging Twitter/X or LinkedIn summary thread)
 
-### 3. Anti-Throttle Bulk & Playlist Ingest Engine
+### 3. Creator & Video Editor Ingest Suite
+- **NLE Timeline Marker Exporters**:
+  - **DaVinci Resolve Marker CSV**: SMPTE timecodes (`HH:MM:SS:FF`), cue names, notes, and color tagging.
+  - **Final Cut Pro XML (`.fcpxml`)**: Full project sequence with timed `<marker>` and `<chapter-marker>` tags.
+  - **Adobe Premiere Pro EDL (`.edl`)**: CMX 3600 compliant marker event lists with clip comments.
+  - **Audacity Label Tracks (`.txt`)**: Tab-delimited high-precision time markers for DAWs.
+- **Precision Time-Range Clipper (Clip & Cut)**:
+  - Custom `Start Time` and `End Time` inputs with quick presets (`Full Video`, `First 60s`, `First 5 Mins`).
+  - Proportional clip file size calculation and 1-click `yt-dlp --download-sections` command generator.
+- **High-Res Artwork & Thumbnail Extractor**:
+  - 1-click downloads for uncompressed 1080p MaxRes JPG (`maxresdefault.jpg`), high-efficiency WebP, SD, and HQ assets.
+
+### 4. Anti-Throttle Bulk & Playlist Ingest Engine
 - **Intelligent Link Extractor**: Parses freeform text, multi-line pastes, CSVs, markdown, and playlists to extract unique YouTube videos while skipping duplicates.
 - **Playlist Auto-Expansion**: Automatically fetches and unpacks playlist items into individual queue rows.
 - **Anti-Burst Concurrency & Pacing**:
@@ -42,7 +54,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
   - **Clean URL List**: Formatted for IDM, JDownloader, aria2, or curl.
   - **Structured JSON**: Complete queue metadata with titles, durations, and statuses.
 
-### 4. Resilient Multi-Tier Fallback Ladder
+### 5. Resilient Multi-Tier Fallback Ladder
 - **InnerTube Multi-Client Routing**: Dynamic switching between `WEB_EMBEDDED`, `VISIONOS`, `TV_SIMPLY`, `WEB`, and `ANDROID` clients.
 - **Proof-of-Origin (PO Token)**: Automated WebPO token minting and validation to prevent bot-detection blocks.
 - **Throttling Bypass & nsig Deciphering**: Live transformation of YouTube's `n` parameter to prevent 40 KB/s stream choking.

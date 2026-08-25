@@ -18,10 +18,12 @@ import {
   Music,
   Play,
   RotateCcw,
+  Scissors,
   ShieldCheck,
   Sparkles,
   Subtitles,
   Zap,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,14 @@ import {
 import { formatSpeed } from "@/lib/speed-probe";
 import type { DownloadProgress } from "@/lib/download-client";
 import { StepLog } from "@/components/step-log";
+import {
+  estimateClipSize,
+  formatTimecode,
+  formatYtdlpSection,
+  parseTimecode,
+  validateTimeRange,
+} from "@/lib/time-trimmer";
+import { resolveThumbnailBundle } from "@/lib/thumbnail-assets";
 
 type VideoPanelProps = {
   video: ResolvedVideo;
@@ -220,7 +230,16 @@ export function VideoPanel({
   const [showDescription, setShowDescription] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [activeTab, setActiveTab] = useState<"video" | "audio" | "transcript">("video");
-  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "compare" | "pipeline">("none");
+  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "compare" | "pipeline" | "trimmer" | "thumbnails">("none");
+  const [trimStart, setTrimStart] = useState("00:00");
+  const [trimEnd, setTrimEnd] = useState(() => formatTimecode(video.duration || 60));
+
+  const thumbnailBundle = useMemo(() => resolveThumbnailBundle(video.id), [video.id]);
+
+  const parsedStart = parseTimecode(trimStart) ?? 0;
+  const parsedEnd = parseTimecode(trimEnd) ?? (video.duration || 60);
+  const trimValidation = validateTimeRange(parsedStart, parsedEnd, video.duration || undefined);
+  const clipSizeEstimate = estimateClipSize(selected?.size, video.duration || 60, trimValidation.duration);
 
   const formats = useMemo(() => sortFormats(video.formats), [video.formats]);
   const videoPresets = useMemo(() => video.presets.filter((p) => p.kind !== "audio"), [video.presets]);
@@ -338,7 +357,9 @@ export function VideoPanel({
     }
   }
 
-  const toggleSection = (section: "formats" | "captions" | "compare" | "pipeline") => {
+  const toggleSection = (
+    section: "formats" | "captions" | "compare" | "pipeline" | "trimmer" | "thumbnails",
+  ) => {
     setOpenSection((current) => (current === section ? "none" : section));
   };
 
@@ -1083,6 +1104,181 @@ export function VideoPanel({
                     </li>
                   ))}
                 </ul>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Precision Time-Range Clipper */}
+          <div className="rounded-lg border border-border bg-surface overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection("trimmer")}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-medium text-fg hover:bg-elevated/40 transition-colors cursor-pointer"
+              aria-expanded={openSection === "trimmer"}
+            >
+              <span className="flex items-center gap-2">
+                <Scissors className="size-4 text-accent" />
+                <span>Precision Time-Range Trimmer (Clip & Cut)</span>
+                <span className="rounded bg-accent/15 text-accent px-1.5 py-0.5 text-[10px] font-mono">
+                  {trimValidation.valid ? `${formatDuration(trimValidation.duration)} clip` : "Custom"}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-subtle transition-transform duration-[var(--motion-quick)]",
+                  openSection === "trimmer" && "rotate-180",
+                )}
+              />
+            </button>
+
+            {openSection === "trimmer" ? (
+              <div className="border-t border-border p-4 space-y-4 text-xs">
+                <p className="text-muted leading-relaxed">
+                  Extract specific time slices without downloading the entire video stream.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-subtle font-medium block mb-1">Start Time (MM:SS)</label>
+                    <input
+                      type="text"
+                      value={trimStart}
+                      onChange={(e) => setTrimStart(e.target.value)}
+                      placeholder="00:00"
+                      className="w-full rounded-md border border-border bg-elevated px-3 py-1.5 text-fg font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-subtle font-medium block mb-1">End Time (MM:SS)</label>
+                    <input
+                      type="text"
+                      value={trimEnd}
+                      onChange={(e) => setTrimEnd(e.target.value)}
+                      placeholder="01:30"
+                      className="w-full rounded-md border border-border bg-elevated px-3 py-1.5 text-fg font-mono text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Range Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[11px] text-subtle mr-1">Quick Range:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTrimStart("00:00");
+                      setTrimEnd(formatTimecode(video.duration || 60));
+                    }}
+                    className="rounded bg-elevated px-2 py-1 text-[11px] text-fg hover:bg-border transition-colors cursor-pointer"
+                  >
+                    Full ({formatDuration(video.duration || 0)})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTrimStart("00:00");
+                      setTrimEnd(formatTimecode(Math.min(60, video.duration || 60)));
+                    }}
+                    className="rounded bg-elevated px-2 py-1 text-[11px] text-fg hover:bg-border transition-colors cursor-pointer"
+                  >
+                    First 60s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTrimStart("00:00");
+                      setTrimEnd(formatTimecode(Math.min(300, video.duration || 300)));
+                    }}
+                    className="rounded bg-elevated px-2 py-1 text-[11px] text-fg hover:bg-border transition-colors cursor-pointer"
+                  >
+                    First 5 Mins
+                  </button>
+                </div>
+
+                {/* Validation status / size indicator */}
+                <div className="flex items-center justify-between pt-2 border-t border-border/60 text-[11px]">
+                  <div>
+                    {trimValidation.valid ? (
+                      <span className="text-emerald-400 font-medium">
+                        ✓ Valid Range ({formatTimecode(trimValidation.start)} → {formatTimecode(trimValidation.end)})
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 font-medium">{trimValidation.error}</span>
+                    )}
+                  </div>
+                  {clipSizeEstimate ? (
+                    <div className="text-subtle">
+                      Est. Clip Size: <span className="font-mono text-fg font-medium">{formatBytes(clipSizeEstimate)}</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Copy Section Flag */}
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={async () => {
+                      const section = formatYtdlpSection(parsedStart, parsedEnd);
+                      const cmd = `yt-dlp --download-sections "${section}" --force-keyframes-at-cuts "${video.url}"`;
+                      await navigator.clipboard.writeText(cmd);
+                      toast.success("yt-dlp range command copied to clipboard!");
+                    }}
+                  >
+                    <Copy className="size-3 mr-1.5" />
+                    Copy Range yt-dlp Command ({formatYtdlpSection(parsedStart, parsedEnd)})
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* High-Res Thumbnails & Artwork */}
+          <div className="rounded-lg border border-border bg-surface overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection("thumbnails")}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-medium text-fg hover:bg-elevated/40 transition-colors cursor-pointer"
+              aria-expanded={openSection === "thumbnails"}
+            >
+              <span className="flex items-center gap-2">
+                <ImageIcon className="size-4 text-subtle" />
+                High-Res Artwork & Thumbnails
+                <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
+                  1080p Master
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-subtle transition-transform duration-[var(--motion-quick)]",
+                  openSection === "thumbnails" && "rotate-180",
+                )}
+              />
+            </button>
+
+            {openSection === "thumbnails" ? (
+              <div className="border-t border-border p-4 space-y-3 text-xs">
+                <p className="text-muted leading-relaxed">
+                  Download uncompressed YouTube cover artwork and thumbnails directly:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {thumbnailBundle.items.map((item) => (
+                    <a
+                      key={item.label}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-elevated/40 hover:bg-elevated transition-colors text-xs text-fg group"
+                    >
+                      <div>
+                        <p className="font-medium text-fg">{item.label}</p>
+                        <p className="text-[11px] text-muted font-mono">{item.resolution} · .{item.ext}</p>
+                      </div>
+                      <ExternalLink className="size-3.5 text-subtle group-hover:text-fg transition-colors" />
+                    </a>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>

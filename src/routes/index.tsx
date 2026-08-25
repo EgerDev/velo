@@ -46,6 +46,7 @@ import { persistStorage } from "@/lib/media-cache";
 import { classifyDownloadError, downloadHint, isUserAbort, shouldEscalateSave } from "@/lib/download-error";
 import { useAccountScope, useHistoryHydrated, useHistoryStore, type HistoryItem } from "@/lib/history-store";
 import { GUEST } from "@/lib/guest-copy";
+import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -99,10 +100,20 @@ function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
   const statusRef = useRef(status);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   urlRef.current = url;
   statusRef.current = status;
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const deepLink = params.get("v") || params.get("url") || params.get("q");
+      if (deepLink && !urlRef.current) {
+        updateUrl(deepLink);
+        void lookup(deepLink);
+        return;
+      }
+    }
     const saved = readDraftUrl();
     if (saved && !urlRef.current) setUrl(saved);
     return () => abortRef.current?.abort();
@@ -122,6 +133,29 @@ function Home() {
     if (!video) return null;
     return video.presets.find((p) => p.id === presetId) ?? pickBestPreset(video.presets) ?? video.presets[0] ?? null;
   }, [video, presetId]);
+
+  useKeyboardShortcuts({
+    onFocusSearch: () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    },
+    onDownload: () => {
+      if (video && selected && !downloading) {
+        void runDownload(video, selected);
+      }
+    },
+    onSwitchMode: (mode) => setViewMode(mode),
+    onClear: () => {
+      if (video || results) {
+        setVideo(null);
+        setResults(null);
+        setError(null);
+        setStatus("idle");
+      } else {
+        updateUrl("");
+      }
+    },
+  });
 
   const submitKind = useMemo(() => {
     if (parseVideoId(url)) return "fetch" as const;
@@ -487,6 +521,7 @@ function Home() {
               <Search className="size-4 text-subtle shrink-0 ml-3 mr-1 group-focus-within:text-fg transition-colors" />
             )}
             <input
+              ref={searchInputRef}
               name="url"
               value={url}
               onChange={(event) => updateUrl(event.target.value)}
