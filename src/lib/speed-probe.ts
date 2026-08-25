@@ -15,12 +15,19 @@ export function createSpeedProbe(): {
   let lastT = started;
   let lastLoaded = 0;
   let ema = 0;
+  let initialized = false;
   return {
     push(loaded: number, total = 0): SpeedSample {
       const now = Date.now();
       const dt = Math.max(1, now - lastT);
-      const inst = ((loaded - lastLoaded) / dt) * 1000;
-      ema = ema === 0 ? inst : ema * 0.72 + inst * 0.28;
+      if (loaded < lastLoaded) {
+        lastLoaded = loaded;
+        ema = 0;
+        initialized = false;
+      }
+      const inst = Math.max(0, ((loaded - lastLoaded) / dt) * 1000);
+      ema = !initialized ? inst : ema * 0.72 + inst * 0.28;
+      initialized = true;
       lastT = now;
       lastLoaded = loaded;
       const elapsed = now - started;

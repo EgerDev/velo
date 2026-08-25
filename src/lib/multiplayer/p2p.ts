@@ -136,6 +136,7 @@ export class P2PRoom {
     if (this.pingTimer) clearInterval(this.pingTimer);
     for (const slot of this.peers.values()) slot.pc.close();
     this.peers.clear();
+    this.signalQueues.clear();
     // Leaving the roster is the teardown broadcast: everyone's next poll
     // drops this peer and closes their side of the pair.
     void fetch("/api/rtc", {
@@ -236,6 +237,7 @@ export class P2PRoom {
       if (!alive.has(id)) {
         slot.pc.close();
         this.peers.delete(id);
+        this.signalQueues.delete(id);
       }
     }
     this.emitPeers();
@@ -322,6 +324,7 @@ export class P2PRoom {
       let msg: { t: string; d?: unknown };
       try {
         msg = JSON.parse(e.data as string) as { t: string; d?: unknown };
+        if (!msg || typeof msg !== "object") return;
       } catch {
         return;
       }
@@ -392,12 +395,14 @@ export class P2PRoom {
           if (kind !== "offer" || slot.recreatedForOffer) throw err;
           const attempts = slot.recoveryAttempts;
           const name = slot.info.name;
+          const pending = slot.pendingCandidates;
           slot.pc.close();
           this.peers.delete(from);
           const fresh = this.connectTo(from, name, false);
           if (!fresh) return;
           fresh.recoveryAttempts = attempts;
           fresh.recreatedForOffer = true;
+          fresh.pendingCandidates = pending;
           slot = fresh;
           await slot.pc.setRemoteDescription(description);
         }
@@ -451,6 +456,7 @@ export class P2PRoom {
         const res = await fetch("/api/rtc", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          signal: AbortSignal.timeout(6000),
           body: JSON.stringify({
             op: "signal",
             room: this.opts.room,

@@ -41,6 +41,6 @@ export function pendingMigrations(paths, applied) {
   return [...paths]
     .filter(isMigrationFile)
     .map((path) => ({ name: migrationName(path), path }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
     .filter(({ name }) => !done.has(name));
 }
