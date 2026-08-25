@@ -229,3 +229,22 @@ describe("newSince", () => {
     assert.equal(newSince(videos, 999999).length, 0);
   });
 });
+
+describe("parseChannelFeed UC-prefix normalization", () => {
+  it("restores a UC prefix the feed header dropped", () => {
+    const xml = `<?xml version="1.0"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+  <yt:channelId>BJycsmduvYEL83R_U4JriQ</yt:channelId>
+  <title>Marques Brownlee</title>
+  <entry><yt:videoId>ngPkbaZliaU</yt:videoId><title>A video</title><published>2026-08-24T20:27:50+00:00</published></entry>
+</feed>`;
+    const feed = parseChannelFeed(xml);
+    assert.equal(feed.channelId, "UCBJycsmduvYEL83R_U4JriQ");
+    assert.equal(feed.videos.length, 1);
+  });
+
+  it("leaves an already-prefixed id untouched", () => {
+    const xml = `<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"><yt:channelId>UCBJycsmduvYEL83R_U4JriQ</yt:channelId><title>X</title><entry><yt:videoId>ngPkbaZliaU</yt:videoId><published>2026-08-24T20:27:50+00:00</published></entry></feed>`;
+    assert.equal(parseChannelFeed(xml).channelId, "UCBJycsmduvYEL83R_U4JriQ");
+  });
+});

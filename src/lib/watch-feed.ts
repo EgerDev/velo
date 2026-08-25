@@ -112,6 +112,17 @@ export function parseChannelFeed(xml: string): ChannelFeed {
   const channelId = tagText(header, "yt:channelId");
   const channelTitle = tagText(header, "title");
 
+  // YouTube's feed header sometimes drops the "UC" prefix on yt:channelId
+  // (returning the 22-char body alone). Restore it so the id round-trips
+  // through feedUrlForChannelId, which requires the full UC… form.
+  const normalizeChannelId = (raw: string | null): string | null => {
+    if (raw == null) return null;
+    const trimmed = decodeEntities(raw).trim();
+    if (CHANNEL_ID_RE.test(trimmed)) return trimmed;
+    if (/^[A-Za-z0-9_-]{22}$/.test(trimmed)) return `UC${trimmed}`;
+    return trimmed || null;
+  };
+
   const videos: FeedVideo[] = [];
   for (const match of xml.matchAll(/<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/g)) {
     const entry = match[1];
@@ -140,7 +151,7 @@ export function parseChannelFeed(xml: string): ChannelFeed {
   videos.sort((a, b) => b.publishedMs - a.publishedMs);
 
   return {
-    channelId: channelId ? decodeEntities(channelId).trim() : null,
+    channelId: normalizeChannelId(channelId),
     channelTitle: channelTitle != null ? decodeEntities(channelTitle).trim() : null,
     videos,
   };

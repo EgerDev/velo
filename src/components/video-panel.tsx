@@ -66,6 +66,7 @@ import {
   type VideoPreset,
 } from "@/lib/youtube";
 import { formatSpeed } from "@/lib/speed-probe";
+import { adviseThrottle } from "@/lib/throttle-advisor";
 import type { DownloadProgress } from "@/lib/download-client";
 import { StepLog } from "@/components/step-log";
 import {
@@ -261,6 +262,16 @@ export function VideoPanel({
   const chapters = useMemo(
     () => parseChapters(video.description, video.duration || undefined),
     [video.description, video.duration],
+  );
+
+  // Plain-language read on the live download speed. `improving` keeps a
+  // still-ramping transfer (percent under ~40%) from being called slow early.
+  const speedAdvice = useMemo(
+    () =>
+      downloading && progress?.bytesPerSec
+        ? adviseThrottle(progress.bytesPerSec, { improving: (progress.percent ?? 0) < 40 })
+        : null,
+    [downloading, progress?.bytesPerSec, progress?.percent],
   );
 
   const [sponsor, setSponsor] = useState<{
@@ -1003,6 +1014,12 @@ export function VideoPanel({
                   {progress.total ? ` / ${formatBytes(progress.total)}` : ""}
                 </span>
               </div>
+            ) : null}
+            {speedAdvice && speedAdvice.verdict !== "healthy" && speedAdvice.verdict !== "unknown" ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-subtle">
+                {speedAdvice.summary}
+                {speedAdvice.action ? <span className="text-muted"> {speedAdvice.action}</span> : null}
+              </p>
             ) : null}
           </div>
         ) : null}

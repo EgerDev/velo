@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   AlertTriangle,
+  Bell,
   Download as DownloadIcon,
   FileText,
   Film,
@@ -26,6 +27,7 @@ import { VideoPanel } from "@/components/video-panel";
 import { SaveStage } from "@/components/save-stage";
 import { BulkDownloader } from "@/components/bulk-downloader";
 import { TranscriptStudio } from "@/components/transcript-studio";
+import { WatchPanel } from "@/components/watch-panel";
 import { cn } from "@/lib/utils";
 import {
   matchAudioTrack,
@@ -83,12 +85,13 @@ type ResultsView =
   | { kind: "search"; query: string; items: SearchHit[] }
   | { kind: "playlist"; playlist: PlaylistResult };
 
-type ViewMode = "single" | "bulk" | "transcript";
+type ViewMode = "single" | "bulk" | "transcript" | "watch";
 
 const MODE_TABS = [
   { mode: "single", icon: Film, label: "Single video" },
   { mode: "bulk", icon: ListPlus, label: "Bulk & playlists" },
   { mode: "transcript", icon: FileText, label: "Transcript", chip: "AI" },
+  { mode: "watch", icon: Bell, label: "Channels" },
 ] as const;
 
 /**
@@ -207,7 +210,7 @@ function Home() {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [offer, setOffer] = useState<OfferedFile[] | null>(null);
-  const [viewMode, setViewMode] = useState<"single" | "bulk" | "transcript">("single");
+  const [viewMode, setViewMode] = useState<ViewMode>("single");
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
@@ -221,7 +224,7 @@ function Home() {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
       const batchParam = params.get("batch");
-      if (tab === "bulk" || tab === "transcript") {
+      if (tab === "bulk" || tab === "transcript" || tab === "watch") {
         setViewMode(tab);
       } else if (batchParam) {
         setViewMode("bulk");
@@ -580,6 +583,16 @@ function Home() {
           <div className="mt-8">
             <BulkDownloader
               onSelectSingleVideo={(singleUrl) => {
+                updateUrl(singleUrl);
+                setViewMode("single");
+                void lookup(singleUrl);
+              }}
+            />
+          </div>
+        ) : viewMode === "watch" ? (
+          <div className="mt-8">
+            <WatchPanel
+              onSelectVideo={(singleUrl) => {
                 updateUrl(singleUrl);
                 setViewMode("single");
                 void lookup(singleUrl);
