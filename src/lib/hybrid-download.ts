@@ -8,6 +8,7 @@ import { isBuilderPreview, isSandboxHost } from "@/lib/builder-env";
 import { saveMediaBlob, type PendingSave } from "@/lib/builder-save";
 import { isAudioItag, isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { isImaUrl } from "@/lib/ima";
+import { linkAbort } from "@/lib/abort-link";
 
 export type HybridStep = {
   id: string;
@@ -82,14 +83,20 @@ async function readBlob(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let loaded = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
-      onBytes?.(loaded, total);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loaded += value.byteLength;
+        onBytes?.(loaded, total);
+      }
     }
+  } finally {
+    // A rejected read (relay drop, mid-transfer abort) would otherwise leave the
+    // body locked and the socket held. `builder-download.ts` already does this.
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(loaded);
   let offset = 0;
@@ -211,15 +218,20 @@ async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
   } catch (err) {
     if (method === "GET" && !init?.signal?.aborted) {
       const hung = abortAfter(20_000, init?.signal ?? undefined);
-      const local = await fetch(localRelayUrl(url), {
-        redirect: "error",
-        ...init,
-        headers: downloadHeaders(init?.headers),
-        signal: hung.signal,
-      });
-      hung.disarm();
-      if (local.ok && !(mode === "media" && isBlockPage(local))) return local;
-      void local.body?.cancel();
+      // `finally`, so a throwing fetch does not leak the timer and the parent
+      // abort listener along with it.
+      try {
+        const local = await fetch(localRelayUrl(url), {
+          redirect: "error",
+          ...init,
+          headers: downloadHeaders(init?.headers),
+          signal: hung.signal,
+        });
+        if (local.ok && !(mode === "media" && isBlockPage(local))) return local;
+        void local.body?.cancel();
+      } finally {
+        hung.disarm();
+      }
     }
     throw err;
   }
@@ -311,15 +323,22 @@ async function ytdlpBlob(
 ): Promise<Blob> {
   const headers = downloadHeaders({ "content-type": "application/json" });
   const hung = abortAfter(180_000, signal);
-  const response = await fetch("/api/ytdlp", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ id: videoId, itag, cookies: cookies || "", pot: pot || "" }),
-    signal: hung.signal,
-  });
-  hung.disarm();
-  if (!response.ok) throw await errorFromResponse(response, "yt-dlp");
-  return blobFromResponse(response);
+  // Disarm only once the body is drained. `disarm` also detaches the parent
+  // listener, so calling it right after the headers arrive left the whole
+  // file transfer uncancellable — Pause and Clear queue would report stopped
+  // while every worker kept downloading to completion.
+  try {
+    const response = await fetch("/api/ytdlp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: videoId, itag, cookies: cookies || "", pot: pot || "" }),
+      signal: hung.signal,
+    });
+    if (!response.ok) throw await errorFromResponse(response, "yt-dlp");
+    return await blobFromResponse(response);
+  } finally {
+    hung.disarm();
+  }
 }
 
 function raceFirstBlob(
@@ -329,11 +348,8 @@ function raceFirstBlob(
   parent?: AbortSignal,
 ): Promise<Blob> {
   const abort = new AbortController();
-  if (parent) {
-    if (parent.aborted) abort.abort();
-    else parent.addEventListener("abort", () => abort.abort(), { once: true });
-  }
-  return new Promise((resolve, reject) => {
+  const detach = linkAbort(parent, abort);
+  return new Promise<Blob>((resolve, reject) => {
     let open = attempts.length;
     let winner = false;
     if (abort.signal.aborted) {
@@ -369,7 +385,7 @@ function raceFirstBlob(
         }
       });
     }
-  });
+  }).finally(detach);
 }
 
 function saveBlob(

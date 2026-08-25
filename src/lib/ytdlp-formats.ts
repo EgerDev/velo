@@ -12,6 +12,8 @@ export type YtDlpJsonFormat = {
   filesize_approx?: number | null;
   tbr?: number;
   protocol?: string;
+  language?: string | null;
+  format_note?: string;
 };
 
 function ytdlpCodec(vcodec?: string, acodec?: string): string | null {
@@ -38,6 +40,14 @@ export function ytdlpJsonToFormats(formats: YtDlpJsonFormat[]): VideoFormat[] {
     const height = hasVideo && raw.height ? raw.height : null;
     const ext = raw.ext || (hasVideo ? "mp4" : "m4a");
     const codec = ytdlpCodec(raw.vcodec, raw.acodec);
+    // yt-dlp carries the audio track's role in `format_note` ("original",
+    // "Dubbed (auto)", "descriptive"). Hardcoding every track as original left
+    // `matchAudioTrack`'s dub penalties inert, so a slightly higher-bitrate
+    // auto-dub outranked the real audio.
+    const note = (raw.format_note ?? "").toLowerCase();
+    const isAutoDubbed = note.includes("dubbed (auto)");
+    const isDubbed = isAutoDubbed || note.includes("dubbed");
+    const isDescriptive = note.includes("descriptive");
     out.push({
       itag,
       kind,
@@ -45,19 +55,55 @@ export function ytdlpJsonToFormats(formats: YtDlpJsonFormat[]): VideoFormat[] {
       height,
       fps: raw.fps ?? null,
       ext,
-      mime: ext === "webm" ? (hasVideo ? "video/webm" : "audio/webm") : hasVideo ? "video/mp4" : "audio/mp4",
+      mime:
+        ext === "webm"
+          ? hasVideo
+            ? "video/webm"
+            : "audio/webm"
+          : hasVideo
+            ? "video/mp4"
+            : "audio/mp4",
       codec,
       bitrate: Math.round((raw.tbr ?? 0) * 1000),
       size: raw.filesize ?? raw.filesize_approx ?? null,
       hasAudio,
       hasVideo,
-      language: null,
-      isOriginal: true,
-      isDubbed: false,
-      isAutoDubbed: false,
-      isDescriptive: false,
+      language: raw.language ?? null,
+      isOriginal: note.includes("original") || (!isDubbed && !isDescriptive),
+      isDubbed,
+      isAutoDubbed,
+      isDescriptive,
       isSecondary: false,
     });
   }
-  return out;
+  return dedupeByItag(out);
+}
+
+/**
+ * Collapse multi-track variants that share one itag.
+ *
+ * yt-dlp distinguishes audio tracks as `140-0` / `140-1`, but the itag alone is
+ * what ends up in a preset — so on a multi-language video two entries claimed
+ * itag 140 and the one the download actually got was arbitrary. Keep the track
+ * a bare itag will really resolve to: the original, then the highest bitrate.
+ */
+function dedupeByItag(formats: VideoFormat[]): VideoFormat[] {
+  const best = new Map<string, VideoFormat>();
+  for (const format of formats) {
+    const key = `${format.itag}:${format.kind}`;
+    const prev = best.get(key);
+    if (!prev) {
+      best.set(key, format);
+      continue;
+    }
+    const rank = (f: VideoFormat) =>
+      f.isAutoDubbed ? 0 : f.isDubbed ? 1 : f.isDescriptive ? 2 : 3;
+    if (
+      rank(format) > rank(prev) ||
+      (rank(format) === rank(prev) && format.bitrate > prev.bitrate)
+    ) {
+      best.set(key, format);
+    }
+  }
+  return [...best.values()];
 }

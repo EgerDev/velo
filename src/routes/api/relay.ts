@@ -3,16 +3,45 @@ import { createFileRoute } from "@tanstack/react-router";
 import { isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
 import { isVideoplaybackUrl } from "@/lib/bypass-parse";
 
+/**
+ * The upstream headers worth forwarding to the client.
+ *
+ * `Range` is forwarded upstream and the status is passed straight through, so a
+ * 206 must carry its `Content-Range` — without it the client sees a partial body
+ * described as a complete one, which breaks seeking and resume-after-failure.
+ *
+ * `Content-Length` is only safe when upstream sent identity: `fetch` has already
+ * decoded gzip/br, so a compressed length would truncate the body. Media is
+ * normally uncompressed, so progress reporting still gets a length.
+ */
+function relayHeaders(upstream: Response, relayHost: string): Record<string, string> {
+  const out: Record<string, string> = { "Cache-Control": "no-store", "X-Velo-Relay": relayHost };
+  const copy = (from: string, to: string) => {
+    const value = upstream.headers.get(from);
+    if (value) out[to] = value;
+  };
+  copy("content-type", "Content-Type");
+  copy("content-range", "Content-Range");
+  copy("accept-ranges", "Accept-Ranges");
+  copy("content-disposition", "Content-Disposition");
+  if (!upstream.headers.get("content-encoding")) copy("content-length", "Content-Length");
+  return out;
+}
+
 export const Route = createFileRoute("/api/relay")({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const target = new URL(request.url).searchParams.get("url") ?? "";
         if (!isRelayTarget(target)) {
-          return Response.json({ error: "Relay only fetches YouTube / googlevideo HTTPS URLs." }, { status: 400 });
+          return Response.json(
+            { error: "Relay only fetches YouTube / googlevideo HTTPS URLs." },
+            { status: 400 },
+          );
         }
 
-        const { downloadQuotaResponse, downloadQuotaRefund } = await import("@/lib/guest-limit.server");
+        const { downloadQuotaResponse, downloadQuotaRefund } =
+          await import("@/lib/guest-limit.server");
         const media = isVideoplaybackUrl(target);
         if (media) {
           const limited = await downloadQuotaResponse(request, 1);
@@ -40,7 +69,10 @@ export const Route = createFileRoute("/api/relay")({
                 errors.push(`${new URL(href).hostname} redirect`);
                 continue;
               }
-              const hopped = await fetch(new URL(location, href).toString(), { headers, redirect: "manual" });
+              const hopped = await fetch(new URL(location, href).toString(), {
+                headers,
+                redirect: "manual",
+              });
               if (hopped.status >= 300 && hopped.status < 400) {
                 await hopped.body?.cancel().catch(() => undefined);
                 errors.push(`${new URL(href).hostname} extra-redirect`);
@@ -51,13 +83,10 @@ export const Route = createFileRoute("/api/relay")({
                 await hopped.body?.cancel().catch(() => undefined);
                 continue;
               }
-              const hopType = hopped.headers.get("content-type") ?? "";
-              const hopOut: Record<string, string> = {
-                "Cache-Control": "no-store",
-                "X-Velo-Relay": new URL(href).hostname,
-              };
-              if (hopType) hopOut["Content-Type"] = hopType;
-              return new Response(hopped.body, { status: hopped.status, headers: hopOut });
+              return new Response(hopped.body, {
+                status: hopped.status,
+                headers: relayHeaders(hopped, new URL(href).hostname),
+              });
             }
             const type = upstream.headers.get("content-type") ?? "";
             if (!upstream.ok) {
@@ -70,23 +99,20 @@ export const Route = createFileRoute("/api/relay")({
               await upstream.body?.cancel().catch(() => undefined);
               continue;
             }
-            const out: Record<string, string> = {
-              "Cache-Control": "no-store",
-              "X-Velo-Relay": new URL(href).hostname,
-            };
-            if (type) out["Content-Type"] = type;
-            const length = upstream.headers.get("content-length");
-            if (length) out["Content-Length"] = length;
-            const disposition = upstream.headers.get("content-disposition");
-            if (disposition) out["Content-Disposition"] = disposition;
-            return new Response(upstream.body, { status: upstream.status, headers: out });
+            return new Response(upstream.body, {
+              status: upstream.status,
+              headers: relayHeaders(upstream, new URL(href).hostname),
+            });
           } catch (err) {
             errors.push(err instanceof Error ? err.message : "relay failed");
           }
         }
 
         if (media) await downloadQuotaRefund(request, 1);
-        return Response.json({ error: errors.slice(0, 4).join(" · ") || "Every relay missed." }, { status: 502 });
+        return Response.json(
+          { error: errors.slice(0, 4).join(" · ") || "Every relay missed." },
+          { status: 502 },
+        );
       },
     },
   },

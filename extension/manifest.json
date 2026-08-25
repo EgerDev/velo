@@ -16,8 +16,7 @@
     "https://m.youtube.com/*",
     "https://*.googlevideo.com/*",
     "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*",
-    "https://*.vercel.app/*"
+    "http://127.0.0.1:8080/*"
   ],
   "background": {
     "service_worker": "background.js"

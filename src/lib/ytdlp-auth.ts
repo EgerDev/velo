@@ -507,7 +507,12 @@ function lastErrorLine(stderr: string): string {
   const errors = lines.filter(
     (row) => /^ERROR:/i.test(row) || /\[download\] Got error:/i.test(row) || /^Postprocessing:/i.test(row),
   );
-  return (errors.at(-1) ?? lines.at(-1) ?? stderr.trim()).replace(/^ERROR:\s*/i, "");
+  // Redact proxy userinfo. This string reaches an unauthenticated caller as the
+  // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole `user:pass@host`
+  // into yt-dlp's stderr verbatim.
+  return (errors.at(-1) ?? lines.at(-1) ?? stderr.trim())
+    .replace(/^ERROR:\s*/i, "")
+    .replace(/\b(socks[45]h?|https?):\/\/[^\s/@]+@/gi, "$1://***@");
 }
 
 /**

@@ -164,18 +164,24 @@ async function addToQueue(item) {
   }));
 }
 
+// Every queue mutation goes through `queueLock`. The popup dispatches QUEUE_ADD
+// and QUEUE_REMOVE independently, so an unserialized read-modify-write here
+// loses the removal to a concurrent add holding a stale array.
 async function removeFromQueue(id) {
-  let queue = await getQueue();
-  queue = queue.filter((i) => i.id !== id);
-  await chrome.storage.local.set({ velo_queue: queue });
-  await updateQueueBadge();
-  return queue;
+  return (queueLock = queueLock.then(async () => {
+    const queue = (await getQueue()).filter((i) => i.id !== id);
+    await chrome.storage.local.set({ velo_queue: queue });
+    await updateQueueBadge();
+    return queue;
+  }));
 }
 
 async function clearQueue() {
-  await chrome.storage.local.set({ velo_queue: [] });
-  await updateQueueBadge();
-  return [];
+  return (queueLock = queueLock.then(async () => {
+    await chrome.storage.local.set({ velo_queue: [] });
+    await updateQueueBadge();
+    return [];
+  }));
 }
 
 async function updateQueueBadge() {

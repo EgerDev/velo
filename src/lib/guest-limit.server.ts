@@ -6,7 +6,13 @@
  * exactly `windowMs` later so a client cannot sit on a fixed-window edge and
  * double the rate. Identity is user id when signed in, otherwise a per-browser
  * guest id (x-velo-guest / cookie) so 100 grok.me tabs on one NAT are not one
- * bucket. IP is last-resort only.
+ * bucket.
+ *
+ * That guest id is client-set and unsigned, so it is a fairness key, NOT a cap:
+ * on its own, rotating the header once per request buys unlimited downloads.
+ * Guests therefore clear a coarse per-IP backstop FIRST (`IP_PLAN`), and only
+ * then their own bucket. Charging in that order also means a refused caller
+ * never mints a bucket, which is what keeps the map bounded under a flood.
  *
  * On grok.me the session rides a bearer token (partitioned cookies). Quota and
  * cookie gates must read Authorization from the download request itself.
@@ -19,9 +25,27 @@ type Bucket = {
   tokens: number;
   updatedAt: number;
   spends: Spend[];
+  /** Kept per row so eviction can tell a spent bucket from a fully refilled one. */
+  plan: QuotaPlan;
 };
 
+/**
+ * Per-browser and per-user buckets, keyed `guest:<id>` / `user:<id>`.
+ *
+ * Separate from `ipBuckets` on purpose: guest ids are attacker-chosen and
+ * unbounded, so a flood of them must not be able to force the eviction of the
+ * per-IP row that is the thing actually capping that flood.
+ */
 const buckets = new Map<string, Bucket>();
+
+/** Per-IP backstop buckets, bounded by real networks rather than by header values. */
+const ipBuckets = new Map<string, Bucket>();
+
+const bucketsFor = (plan: QuotaPlan): Map<string, Bucket> =>
+  plan.name === IP_PLAN.name ? ipBuckets : buckets;
+
+/** What each in-flight request actually spent, so a refund cannot land elsewhere. */
+const charged = new WeakMap<Request, Array<{ key: string; plan: QuotaPlan }>>();
 
 export type QuotaPlan = {
   name: string;
@@ -49,6 +73,23 @@ export const USER_PLAN: QuotaPlan = {
   windowMs: 10 * 60_000,
 };
 
+/**
+ * Coarse per-IP backstop for guests.
+ *
+ * The per-browser guest id is what keeps 100 tabs on one NAT from sharing a
+ * bucket, and that fairness goal is real — but `x-velo-guest` is set by ordinary
+ * client JS with no signature, so on its own it caps nothing: rotating the
+ * header once per request buys unlimited downloads. This sits behind it, sized
+ * well above an honest shared NAT and low enough to bound one host's cost.
+ */
+export const IP_PLAN: QuotaPlan = {
+  name: "ip",
+  capacity: 24,
+  refillPerMs: 120 / (10 * 60_000),
+  windowMax: 120,
+  windowMs: 10 * 60_000,
+};
+
 const GUEST_ID_RE = /^[a-z0-9_-]{8,64}$/i;
 
 export function clientIp(request: Request): string {
@@ -59,7 +100,10 @@ export function clientIp(request: Request): string {
   if (real) return real;
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
-    const hops = forwarded.split(",").map((hop) => hop.trim()).filter(Boolean);
+    const hops = forwarded
+      .split(",")
+      .map((hop) => hop.trim())
+      .filter(Boolean);
     return hops.at(-1) || hops[0] || "local";
   }
   return "local";
@@ -104,7 +148,10 @@ export function quotaIdentity(
 function refill(bucket: Bucket, plan: QuotaPlan, now: number) {
   const elapsed = Math.max(0, now - bucket.updatedAt);
   bucket.tokens = Math.min(plan.capacity, bucket.tokens + elapsed * plan.refillPerMs);
-  bucket.updatedAt = now;
+  // Never move the marker backwards. A backwards clock step (NTP, VM resume)
+  // would otherwise leave `updatedAt` in the future, and the next refill would
+  // compute a huge elapsed and hand back the whole bucket.
+  if (now > bucket.updatedAt) bucket.updatedAt = now;
 }
 
 export function pruneSpends(spends: Spend[], now: number, windowMs: number): Spend[] {
@@ -135,21 +182,70 @@ export function slidingRetryAfterSec(
   return Math.max(1, Math.ceil((waitUntil - now) / 1000));
 }
 
+/** Seconds until one more burst token exists — what a caller at zero must wait. */
+function retryAfterOneToken(plan: QuotaPlan): number {
+  return Math.max(1, Math.ceil(1 / Math.max(plan.refillPerMs, 1e-9) / 1000));
+}
+
+const MAX_BUCKETS = 4000;
+
+/**
+ * A row that would be recreated identically if dropped, and so caps nothing.
+ * Anything below capacity is load-bearing: evicting it hands back the tokens
+ * its owner has already spent.
+ */
+function carriesNoDebt(row: Bucket, now: number): boolean {
+  const elapsed = Math.max(0, now - row.updatedAt);
+  return (
+    row.tokens + elapsed * row.plan.refillPerMs >= row.plan.capacity &&
+    pruneSpends(row.spends, now, row.plan.windowMs).length === 0
+  );
+}
+
+/**
+ * Keep the map bounded without handing an attacker a reset.
+ *
+ * Order matters: dropping the least-recently-used row first would evict the
+ * per-IP backstop — long-lived and drained — while keeping the one-shot keys
+ * of the flood that triggered the eviction. So spent rows are preserved until
+ * everything refundable is gone.
+ */
+function evict(map: Map<string, Bucket>, now: number, keep: string): void {
+  for (const [id, row] of map) {
+    if (id !== keep && carriesNoDebt(row, now)) map.delete(id);
+  }
+  // Still over: every remaining row is genuinely in debt, so there is no
+  // harmless choice left and least-recently-used is the least-bad one.
+  while (map.size > MAX_BUCKETS) {
+    const stalest = map.keys().next().value;
+    if (stalest === undefined || stalest === keep) break;
+    map.delete(stalest);
+  }
+}
+
 export function takeTokens(
   key: string,
   plan: QuotaPlan,
   cost: number,
   now = Date.now(),
-): { ok: boolean; remaining: number; retryAfterSec: number; limit: number; reason: "ok" | "burst" | "window" } {
-  let bucket = buckets.get(key);
-  if (!bucket) {
-    bucket = { tokens: plan.capacity, updatedAt: now, spends: [] };
-    buckets.set(key, bucket);
-    if (buckets.size > 4000) {
-      for (const [id, row] of buckets) {
-        if (now - row.updatedAt > plan.windowMs * 2) buckets.delete(id);
-      }
-    }
+): {
+  ok: boolean;
+  remaining: number;
+  retryAfterSec: number;
+  limit: number;
+  reason: "ok" | "burst" | "window";
+} {
+  const map = bucketsFor(plan);
+  let bucket = map.get(key);
+  if (bucket) {
+    // Re-insert so Map iteration order is least-recently-USED, not
+    // least-recently-created; eviction below relies on that ordering.
+    map.delete(key);
+    map.set(key, bucket);
+  } else {
+    bucket = { tokens: plan.capacity, updatedAt: now, spends: [], plan };
+    map.set(key, bucket);
+    if (map.size > MAX_BUCKETS) evict(map, now, key);
   }
   refill(bucket, plan, now);
   bucket.spends = pruneSpends(bucket.spends, now, plan.windowMs);
@@ -178,8 +274,11 @@ export function takeTokens(
   bucket.spends.push({ at: now, cost });
   return {
     ok: true,
-    remaining: Math.max(0, plan.windowMax - (load + cost)),
-    retryAfterSec: retryBurst,
+    // Report whichever constraint actually binds. Advertising sliding-window
+    // room while the burst bucket is empty tells a well-behaved client it has
+    // budget and then 429s it on the very next request.
+    remaining: Math.max(0, Math.min(plan.windowMax - (load + cost), Math.floor(bucket.tokens))),
+    retryAfterSec: bucket.tokens < 1 ? retryAfterOneToken(plan) : 1,
     limit: plan.windowMax,
     reason: "ok",
   };
@@ -209,7 +308,10 @@ export async function userIdFromDownloadRequest(request: Request): Promise<strin
   }
 }
 
-export async function cookiesNeedSession(request: Request, cookies?: string): Promise<Response | null> {
+export async function cookiesNeedSession(
+  request: Request,
+  cookies?: string,
+): Promise<Response | null> {
   if (!cookies?.trim()) return null;
   const userId = await userIdFromDownloadRequest(request);
   if (userId) return null;
@@ -222,18 +324,53 @@ export async function cookiesNeedSession(request: Request, cookies?: string): Pr
 export async function downloadQuotaResponse(request: Request, cost = 1): Promise<Response | null> {
   const userId = await userIdFromDownloadRequest(request);
   const ident = quotaIdentity(request, userId);
+
+  // Guests clear the per-IP backstop FIRST. The per-browser bucket exists so
+  // 100 tabs on one NAT are not one bucket, but `x-velo-guest` is client-set
+  // and unsigned, so it caps nothing on its own. Charging it first would also
+  // let a rotating header mint one bucket per request before being refused.
+  let ipCharge: { key: string; plan: QuotaPlan } | null = null;
+  if (!ident.signedIn) {
+    const ipKey = `ip:${clientIp(request)}`;
+    const ip = takeTokens(ipKey, IP_PLAN, cost);
+    if (!ip.ok) {
+      return Response.json(
+        {
+          error:
+            "Too many guest downloads from this network. Wait a few minutes, or sign in for a higher cap.",
+          code: "rate",
+        },
+        { status: 429, headers: quotaHeaders(ip) },
+      );
+    }
+    ipCharge = { key: ipKey, plan: IP_PLAN };
+  }
+
   const quota = takeTokens(ident.key, ident.plan, cost);
-  if (quota.ok) return null;
+  if (quota.ok) {
+    charged.set(
+      request,
+      ipCharge
+        ? [{ key: ident.key, plan: ident.plan }, ipCharge]
+        : [{ key: ident.key, plan: ident.plan }],
+    );
+    return null;
+  }
+  // This browser is capped but the network was not — give the IP token back.
+  if (ipCharge) refundTokens(ipCharge.key, ipCharge.plan, cost);
   const message = ident.signedIn
     ? "Too many downloads on this account. Wait a few minutes, then try again."
     : quota.reason === "burst"
       ? "Guest burst cap hit (one Full HD save uses a few slots). Wait a minute, or sign in for a higher cap."
       : "Guest download cap reached (about 12 files every 10 minutes). Sign in for a higher cap, or wait.";
-  return Response.json({ error: message, code: "rate" }, { status: 429, headers: quotaHeaders(quota) });
+  return Response.json(
+    { error: message, code: "rate" },
+    { status: 429, headers: quotaHeaders(quota) },
+  );
 }
 
 export function refundTokens(key: string, plan: QuotaPlan, cost: number, now = Date.now()): void {
-  const bucket = buckets.get(key);
+  const bucket = bucketsFor(plan).get(key);
   if (!bucket) return;
   refill(bucket, plan, now);
   bucket.tokens = Math.min(plan.capacity, bucket.tokens + cost);
@@ -245,8 +382,17 @@ export function refundTokens(key: string, plan: QuotaPlan, cost: number, now = D
   }
 }
 
+/**
+ * Credit back exactly what this request was charged.
+ *
+ * Re-resolving the identity here would be wrong: `userIdFromDownloadRequest`
+ * swallows every error and returns null, so one transient session lookup
+ * failure would credit the guest bucket for a spend made against the user
+ * bucket — losing the user's token and minting a free one somewhere else.
+ */
 export async function downloadQuotaRefund(request: Request, cost = 1): Promise<void> {
-  const userId = await userIdFromDownloadRequest(request);
-  const ident = quotaIdentity(request, userId);
-  refundTokens(ident.key, ident.plan, cost);
+  const spent = charged.get(request);
+  if (!spent) return;
+  charged.delete(request);
+  for (const { key, plan } of spent) refundTokens(key, plan, cost);
 }

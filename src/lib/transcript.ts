@@ -131,7 +131,10 @@ export function parseWebVttIntoCues(vttText: string): TranscriptCue[] {
 
       i++;
       const textLines: string[] = [];
-      while (i < lines.length && lines[i].trim() !== "" && !lines[i].match(timePattern)) {
+      // A cue ends at a genuinely empty line. YouTube's ASR vtt opens rolling
+      // cues with a whitespace-only line, and treating that as the terminator
+      // dropped the whole cue; `cleanSubtitleText` discards it harmlessly below.
+      while (i < lines.length && lines[i] !== "" && !lines[i].match(timePattern)) {
         const cleaned = cleanSubtitleText(lines[i]);
         if (cleaned) textLines.push(cleaned);
         i++;

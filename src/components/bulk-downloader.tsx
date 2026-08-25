@@ -176,6 +176,11 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
     if (isProcessing) return;
     setIsProcessing(true);
     setIsPaused(false);
+    // The refs otherwise only sync during render, but worker 0 is started
+    // synchronously below — it would read the stale `false` and exit its loop
+    // immediately, so concurrency 1 downloaded nothing and still reported done.
+    isProcessingRef.current = true;
+    isPausedRef.current = false;
     abortControllerRef.current = new AbortController();
 
     toast.info(`Starting batch download queue (Concurrency: ${queueOptions.maxConcurrency})...`);
@@ -325,6 +330,9 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
   const pauseQueue = () => {
     setIsPaused(true);
     setIsProcessing(false);
+    // Land the stop in the running workers now rather than a render later.
+    isPausedRef.current = true;
+    isProcessingRef.current = false;
     abortControllerRef.current?.abort();
     toast.info("Batch download queue paused.");
   };
@@ -336,6 +344,8 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
     setItems([]);
     setIsProcessing(false);
     setIsPaused(false);
+    isProcessingRef.current = false;
+    isPausedRef.current = false;
     toast.info("Queue cleared.");
   };
 

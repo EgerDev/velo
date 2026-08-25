@@ -18,6 +18,21 @@
 export const nsigCache = new Map<string, string>();
 const MAX_NSIG_CACHE = 500;
 
+/**
+ * player.js rotates roughly daily, and a solved `n` from the previous build is
+ * simply wrong — but it is indistinguishable from a good one, since the only
+ * other staleness signal is the identity transform. Age the whole map out
+ * rather than serve a wrong token until the process restarts.
+ */
+const NSIG_TTL_MS = 6 * 60 * 60 * 1000;
+let nsigCacheStamp = Date.now();
+
+function expireNsigCache(now = Date.now()): void {
+  if (now - nsigCacheStamp < NSIG_TTL_MS) return;
+  nsigCache.clear();
+  nsigCacheStamp = now;
+}
+
 export type NsigReport = {
   raw: string | null;
   solved: string | null;
@@ -31,12 +46,21 @@ export function readNParam(url: string | undefined | null): string | null {
     const value = new URL(url).searchParams.get("n");
     return value && value.length > 0 ? value : null;
   } catch {
-    const match = /[?&]n=([^&]+)/.exec(url);
-    return match?.[1] ? decodeURIComponent(match[1]) : null;
+    // `#` would otherwise capture a fragment into the token, and a bare
+    // `decodeURIComponent` throws URIError on a malformed escape — out of a
+    // function both callers treat as total.
+    const match = /[?&]n=([^&#]+)/.exec(url);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
   }
 }
 
 export function nsigCacheLookup(raw: string | null, cache = nsigCache): { hit: string } | { miss: true; stale?: boolean } {
+  if (cache === nsigCache) expireNsigCache();
   if (!raw) return { miss: true };
   const solved = cache.get(raw);
   if (!solved) return { miss: true };
@@ -76,7 +100,10 @@ export function nsigReport(
     raw,
     solved,
     transformed,
-    cache: !transformed && raw ? "miss" : cacheState,
+    // A cache HIT that failed to transform means player.js rotated under a
+    // still-cached entry — that is stale, not a miss, and `describeNsig` has a
+    // distinct message for it that was otherwise unreachable.
+    cache: !transformed && raw ? (cacheState === "hit" ? "stale" : "miss") : cacheState,
   };
 }
 

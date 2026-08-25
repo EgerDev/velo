@@ -41,6 +41,33 @@
     }, 3000);
   }
 
+  /**
+   * Run a handler that talks to the extension, surfacing the one failure a user
+   * will actually hit: after Velo updates or reloads, every content script
+   * already injected into an open tab is orphaned and every `chrome.*` call
+   * rejects with "Extension context invalidated". Unguarded, the buttons just
+   * go dead with no feedback at all.
+   */
+  function withExtensionContext(handler) {
+    return async (event) => {
+      try {
+        await handler(event);
+      } catch (err) {
+        if (String(err?.message || err).includes("Extension context invalidated")) {
+          showToast("Velo was updated — reload this page.", "⚠️");
+        } else {
+          showToast("Velo could not complete that action.", "⚠️");
+        }
+      }
+    };
+  }
+
+  /** The configured Velo origin, or the local default. */
+  async function veloServerUrl() {
+    const { settings } = await chrome.storage.sync.get("settings");
+    return settings?.veloServerUrl || "http://127.0.0.1:8080";
+  }
+
   // 2. Inject Velo Buttons Under Standard Video Player
   function injectPlayerButtons() {
     const videoId = extractVideoId();
@@ -73,11 +100,9 @@
       </svg>
       <span>Velo 1080p</span>
     `;
-    downloadBtn.onclick = async () => {
-      const { settings } = await chrome.storage.sync.get("settings");
-      const serverUrl = settings?.veloServerUrl || "http://127.0.0.1:8080";
-      window.open(`${serverUrl}/?v=${videoId}&auto=1`, "_blank");
-    };
+    downloadBtn.onclick = withExtensionContext(async () => {
+      window.open(`${await veloServerUrl()}/?v=${videoId}&auto=1`, "_blank");
+    });
 
     // 2. Velo Transcript Button
     const transcriptBtn = document.createElement("button");
@@ -92,11 +117,9 @@
       </svg>
       <span>Transcript AI</span>
     `;
-    transcriptBtn.onclick = async () => {
-      const { settings } = await chrome.storage.sync.get("settings");
-      const serverUrl = settings?.veloServerUrl || "http://127.0.0.1:8080";
-      window.open(`${serverUrl}/?v=${videoId}&tab=transcript`, "_blank");
-    };
+    transcriptBtn.onclick = withExtensionContext(async () => {
+      window.open(`${await veloServerUrl()}/?v=${videoId}&tab=transcript`, "_blank");
+    });
 
     // 3. Velo Queue Button
     const queueBtn = document.createElement("button");
@@ -109,7 +132,7 @@
       </svg>
       <span>Queue</span>
     `;
-    queueBtn.onclick = async () => {
+    queueBtn.onclick = withExtensionContext(async () => {
       const title = document.querySelector("h1.ytd-watch-metadata")?.textContent?.trim() || document.title.replace(" - YouTube", "");
       const author = document.querySelector("#channel-name")?.textContent?.trim() || "";
       await chrome.runtime.sendMessage({
@@ -123,7 +146,7 @@
         },
       });
       showToast("Added to Velo Download Queue!", "📑");
-    };
+    });
 
     btnGroup.appendChild(downloadBtn);
     btnGroup.appendChild(transcriptBtn);
@@ -156,11 +179,9 @@
         <span>Velo Short</span>
       </div>
     `;
-    shortsBtn.onclick = async () => {
-      const { settings } = await chrome.storage.sync.get("settings");
-      const serverUrl = settings?.veloServerUrl || "http://127.0.0.1:8080";
-      window.open(`${serverUrl}/?v=${videoId}&auto=1`, "_blank");
-    };
+    shortsBtn.onclick = withExtensionContext(async () => {
+      window.open(`${await veloServerUrl()}/?v=${videoId}&auto=1`, "_blank");
+    });
 
     shortsContainer.appendChild(shortsBtn);
   }
@@ -180,7 +201,7 @@
       badge.className = VELO_THUMBNAIL_CLASS;
       badge.title = "Add video to Velo queue";
       badge.innerHTML = `+ Velo`;
-      badge.onclick = async (e) => {
+      badge.onclick = withExtensionContext(async (e) => {
         e.preventDefault();
         e.stopPropagation();
 
@@ -199,7 +220,7 @@
           },
         });
         showToast("Added to Velo Queue!", "📑");
-      };
+      });
 
       thumb.appendChild(badge);
     });

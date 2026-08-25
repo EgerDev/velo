@@ -145,6 +145,10 @@ export function parseTrunDataOffset(data: Uint8Array, moofOffset: number): { dat
     pos += 4;
   }
   let sample0Size: number | null = null;
+  // first_sample_flags sits between data_offset and the per-sample array
+  // (ISO/IEC 14496-12). ffmpeg and Bento4 set it to mark sample 0 as a sync
+  // sample, so skipping it reads the flags word itself as a sample size.
+  if (flags & 0x4) pos += 4;
   if (flags & 0x100) pos += 4;
   if (flags & 0x200 && pos + 4 <= box.length) {
     sample0Size = new DataView(box.buffer, box.byteOffset + pos, 4).getUint32(0);

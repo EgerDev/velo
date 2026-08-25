@@ -41,7 +41,11 @@ export async function markSocksGood(proxy: string) {
   if (!url) return;
   const prev = await readGood();
   const next = [url, ...prev.filter((item) => item !== url)].slice(0, 8);
-  await writeFile(GOOD_FILE, JSON.stringify(next), "utf8").catch(() => undefined);
+  // These files can carry `user:pass@` for a credentialed hop, and tmpdir is
+  // shared, so they must not be world-readable.
+  await writeFile(GOOD_FILE, JSON.stringify(next), { encoding: "utf8", mode: 0o600 }).catch(
+    () => undefined,
+  );
   if (cache) {
     const existing = cache.socks.find((row) => row.url === url);
     if (existing) existing.deadUntil = 0;
@@ -75,16 +79,17 @@ async function readDead(): Promise<Record<string, number>> {
 
 export function normalizeSocksUrl(raw: string): string | null {
   const trimmed = raw.trim();
-  const withScheme = /^(socks5h?|socks4a?|socks):\/\//i.test(trimmed)
-    ? trimmed
-    : `socks5://${trimmed}`;
+  // SOCKS4 has no v5 handshake, so relabelling it `socks5h` just fails at
+  // version negotiation later. Refuse it here where the reason is still visible.
+  if (/^socks4a?:\/\//i.test(trimmed)) return null;
+  const withScheme = /^(socks5h?|socks):\/\//i.test(trimmed) ? trimmed : `socks5://${trimmed}`;
   try {
     const url = new URL(withScheme);
     if (!/^socks5h?$/i.test(url.protocol.replace(":", ""))) {
       url.protocol = "socks5:";
     }
     if (!url.hostname || !url.port) return null;
-    if (!/^\d{1,5}$/.test(url.port) || Number(url.port) > 65535) return null;
+    if (!/^\d{1,5}$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535) return null;
     const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ""}@` : "";
     return `socks5h://${auth}${url.hostname}:${url.port}`;
   } catch {
@@ -204,8 +209,15 @@ export async function markSocksDead(proxy: string) {
   }
   inUse.delete(url);
   const dead = await readDead();
+  // The source is a public free-proxy list, so without this the dead map grows
+  // without bound; `refresh` filters expired rows but never removes them.
+  for (const [key, at] of Object.entries(dead)) if (at < Date.now()) delete dead[key];
   dead[url] = until;
-  await writeFile(DEAD_FILE, JSON.stringify(dead), "utf8").catch(() => undefined);
+  await writeFile(DEAD_FILE, JSON.stringify(dead), { encoding: "utf8", mode: 0o600 }).catch(
+    () => undefined,
+  );
   const good = (await readGood()).filter((item) => item !== url);
-  await writeFile(GOOD_FILE, JSON.stringify(good), "utf8").catch(() => undefined);
+  await writeFile(GOOD_FILE, JSON.stringify(good), { encoding: "utf8", mode: 0o600 }).catch(
+    () => undefined,
+  );
 }

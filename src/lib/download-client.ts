@@ -2,6 +2,7 @@ import { fileBasename, type VideoPreset } from "@/lib/youtube";
 import type { HybridStep } from "@/lib/hybrid-download";
 import { classifyDownloadError, isUserAbort, shouldEscalateSave, type DownloadErrorCode } from "@/lib/download-error";
 import { beginBuilderSave, saveMediaBlob, type PendingSave } from "@/lib/builder-save";
+import { linkAbort } from "@/lib/abort-link";
 
 export type DownloadProgress = {
   label: string;
@@ -47,10 +48,7 @@ async function hybridMux(opts: {
   const { cookiesForDownload } = await import("@/lib/cookie-store");
   const cookies = cookiesForDownload(opts.signedIn);
   const abort = new AbortController();
-  if (opts.signal) {
-    if (opts.signal.aborted) abort.abort();
-    else opts.signal.addEventListener("abort", () => abort.abort(), { once: true });
-  }
+  const detach = linkAbort(opts.signal, abort);
   onProgress({ label: "Hybrid: PO token + cookies + relays", percent: 8 });
   try {
     const [videoBlob, audioBlob] = await Promise.all([
@@ -91,6 +89,8 @@ async function hybridMux(opts: {
   } catch (err) {
     abort.abort();
     throw err;
+  } finally {
+    detach();
   }
 }
 

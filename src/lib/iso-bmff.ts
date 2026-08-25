@@ -50,10 +50,16 @@ export type SidxIndex = {
 };
 
 export function parseSidx(data: Uint8Array, box: Box): SidxIndex | null {
-  if (box.type !== "sidx" || box.size < 32 || box.offset + 12 > data.length) return null;
+  if (box.type !== "sidx" || box.size < 32) return null;
+  // The DataView spans only the bytes we actually have, but the header reads
+  // below are unbounded and the reference loop is bounded by the DECLARED size.
+  // Parsing the head of a fragmented MP4 — the whole point of this module —
+  // therefore threw RangeError instead of returning what it could read.
   const actualLen = Math.min(box.size, data.length - box.offset);
+  if (actualLen < 32) return null;
   const view = new DataView(data.buffer, data.byteOffset + box.offset, actualLen);
   const version = view.getUint8(8);
+  if (version !== 0 && actualLen < 40) return null;
   let cursor = 12;
   cursor += 4;
   const timescale = view.getUint32(cursor);
@@ -76,7 +82,8 @@ export function parseSidx(data: Uint8Array, box: Box): SidxIndex | null {
   const sidxEnd = box.offset + box.size;
   let start = sidxEnd + firstOffset;
   const refs: SidxRef[] = [];
-  for (let i = 0; i < count && cursor + 12 <= box.size; i++) {
+  // Bounded by what we HAVE as well as by what the box claims.
+  for (let i = 0; i < count && cursor + 12 <= box.size && cursor + 8 <= actualLen; i++) {
     const word = view.getUint32(cursor);
     cursor += 4;
     const size = word & 0x7fff_ffff;
@@ -126,6 +133,8 @@ export function looksLikeFragment(data: Uint8Array): "fmp4" | "ts" | "webm" | "m
 
 export function hlsContainer(init: string | undefined, firstSegment: string | undefined): "fmp4" | "ts" {
   if (init) return "fmp4";
-  if (firstSegment && /seg\.ts(\?|$)|\/file\/seg\.ts/i.test(firstSegment)) return "ts";
+  // Test for fMP4, not for TS: both arms of the old check returned "ts", so a
+  // playlist of .m4s segments with no EXT-X-MAP was reported as MPEG-TS.
+  if (firstSegment && /\.(m4s|mp4|cmf[va])(\?|$)/i.test(firstSegment)) return "fmp4";
   return "ts";
 }

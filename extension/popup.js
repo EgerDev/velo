@@ -316,14 +316,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     setTimeout(() => (btnCopyPlain.textContent = "Copy Text"), 1500);
   });
 
+  /**
+   * SubRip demands HH:MM:SS,mmm. `startFormatted` is an M:SS display string, so
+   * interpolating it produced "0:03,000" and "62:05,000" — no hours field and no
+   * wrap at 60 minutes, which no player will load.
+   */
+  function srtTime(seconds) {
+    const ms = Math.max(0, Math.round(seconds * 1000));
+    const pad = (n, width) => String(n).padStart(width, "0");
+    return `${pad(Math.floor(ms / 3600000), 2)}:${pad(Math.floor((ms % 3600000) / 60000), 2)}:${pad(Math.floor((ms % 60000) / 1000), 2)},${pad(ms % 1000, 3)}`;
+  }
+
+  /** Each cue runs until the next one, not for a hardcoded 500 ms. */
+  function cueEnd(index) {
+    return activeTranscriptCues[index + 1]?.start ?? activeTranscriptCues[index].start + 2;
+  }
+
   btnCopySrt?.addEventListener("click", async () => {
     if (!activeTranscriptCues.length) return;
     const srt = activeTranscriptCues
-      .map((c, i) => `${i + 1}\n${c.startFormatted},000 --> ${c.startFormatted},500\n${c.text}\n`)
+      .map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(cueEnd(i))}\n${c.text}\n`)
       .join("\n");
     await copyToClipboard(srt);
     btnCopySrt.textContent = "✓ Copied";
     setTimeout(() => (btnCopySrt.textContent = "Copy .SRT"), 1500);
+  });
+
+  btnExportVtt?.addEventListener("click", async () => {
+    if (!activeTranscriptCues.length) return;
+    const body = activeTranscriptCues
+      .map(
+        (c, i) =>
+          `${srtTime(c.start).replace(",", ".")} --> ${srtTime(cueEnd(i)).replace(",", ".")}\n${c.text}`,
+      )
+      .join("\n\n");
+    await copyToClipboard(`WEBVTT\n\n${body}`);
+    btnExportVtt.textContent = "✓ Copied";
+    setTimeout(() => (btnExportVtt.textContent = "Download .VTT"), 1500);
   });
 
   // 5. Queue Tab Logic
@@ -393,8 +422,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnSyncSession.classList.add("spinning");
     const cookieRes = await chrome.runtime.sendMessage({ type: "GET_SESSION_COOKIES" });
     if (cookieRes?.cookieHeader) {
-      // Store in storage and open Velo to sync
-      await chrome.storage.local.set({ velo_synced_cookies: cookieRes.cookieHeader });
+      // Hand the session over through the clipboard and let Velo's own cookie
+      // import take it. Nothing reads a stored copy, so writing SID / SAPISID /
+      // __Secure-3PAPISID to extension storage only left Google account
+      // credentials sitting at rest indefinitely for no benefit.
+      await copyToClipboard(cookieRes.cookieHeader);
+      await chrome.storage.local.remove("velo_synced_cookies");
       window.open(`${currentSettings.veloServerUrl}/?cookie_sync=1`, "_blank");
     }
     setTimeout(() => btnSyncSession.classList.remove("spinning"), 1000);

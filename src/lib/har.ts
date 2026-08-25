@@ -158,8 +158,31 @@ function headerValues(headers: HarHeader[] | undefined, name: string): string[] 
     .filter(Boolean);
 }
 
+/** True only for these hosts. A `.google.com` suffix check, not a substring one. */
+function isYoutubeDomain(domain: string): boolean {
+  const host = domain.replace(/^\./, "").toLowerCase();
+  return (
+    host === "youtube.com" ||
+    host.endsWith(".youtube.com") ||
+    host === "google.com" ||
+    host.endsWith(".google.com") ||
+    host === "youtube-nocookie.com" ||
+    host.endsWith(".youtube-nocookie.com")
+  );
+}
+
+/**
+ * Match on the HOST, not anywhere in the URL string — a substring test says yes
+ * to `https://tracker.example.net/p?dest=youtube.com` and pulls that site's
+ * session cookies into the jar. Mirrors `cookies.ts`.
+ */
 function isYoutubeUrl(url: string): boolean {
-  return /youtube\.com|googlevideo\.com|youtube-nocookie\.com|google\.com/i.test(url);
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return isYoutubeDomain(host) || host === "googlevideo.com" || host.endsWith(".googlevideo.com");
+  } catch {
+    return false;
+  }
 }
 
 function pushVideoId(ids: Set<string>, value: string | null | undefined) {
@@ -195,7 +218,8 @@ function collectCookiePairs(entries: HarEntry[]): Array<{ name: string; value: s
   const pairs: Array<{ name: string; value: string; domain?: string }> = [];
   for (const entry of entries) {
     const url = entry.request?.url ?? "";
-    if (url && !isYoutubeUrl(url)) continue;
+    // An entry with no usable URL is not a free pass on a credential path.
+    if (!isYoutubeUrl(url)) continue;
     for (const cookie of [...(entry.request?.cookies ?? []), ...(entry.response?.cookies ?? [])]) {
       if (!cookie.name || cookie.value == null || REDACTED.test(cookie.value)) continue;
       pairs.push({ name: cookie.name, value: String(cookie.value), domain: cookie.domain });
@@ -223,14 +247,19 @@ function cookiesFromPairs(pairs: Array<{ name: string; value: string; domain?: s
   const lines = ["# Netscape HTTP Cookie File", "# Parsed from HAR"];
   const header: string[] = [];
   const seen = new Set<string>();
+  const clean = (value: string) => value.replace(/[\t\r\n]/g, "");
   for (const cookie of pairs) {
     const domain = cookie.domain || ".youtube.com";
+    // A HAR carries whatever domain the browser recorded, so an entry can name
+    // an unrelated site. Without this the jar — which is POSTed to the server —
+    // would carry other sites' session cookies.
+    if (!isYoutubeDomain(domain)) continue;
     const key = `${domain}:${cookie.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const host = domain.startsWith(".") ? domain : `.${domain.replace(/^\./, "")}`;
-    lines.push(`${host}\tTRUE\t/\tTRUE\t0\t${cookie.name}\t${cookie.value}`);
-    header.push(`${cookie.name}=${cookie.value}`);
+    lines.push(`${host}\tTRUE\t/\tTRUE\t0\t${clean(cookie.name)}\t${clean(cookie.value)}`);
+    header.push(`${clean(cookie.name)}=${clean(cookie.value)}`);
   }
   if (!header.length) return null;
   return { netscape: `${lines.join("\n")}\n`, header: header.join("; "), count: header.length };
@@ -290,7 +319,8 @@ function analyzeHeaders(entries: HarEntry[], cookieNames: string[]): HarHeaderRe
 
   for (const entry of entries) {
     const url = entry.request?.url ?? "";
-    if (url && !isYoutubeUrl(url)) continue;
+    // An entry with no usable URL is not a free pass on a credential path.
+    if (!isYoutubeUrl(url)) continue;
     for (const header of entry.request?.headers ?? []) {
       const name = (header.name ?? "").toLowerCase();
       const value = header.value ?? "";

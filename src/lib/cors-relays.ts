@@ -12,8 +12,10 @@ export type RelaySpec = {
 export const PUBLIC_RELAYS: RelaySpec[] = [
   {
     id: "corsfix",
-    // Do not encodeURIComponent — corsfix 400s encoded googlevideo URLs.
-    wrap: (url) => `https://proxy.corsfix.com/?${url}`,
+    // Do not encodeURIComponent — corsfix 400s encoded googlevideo URLs. A raw
+    // '#' would still terminate our own query and silently truncate the target,
+    // so escape that one byte.
+    wrap: (url) => `https://proxy.corsfix.com/?${url.replace(/#/g, "%23")}`,
   },
   {
     id: "cors.sh",

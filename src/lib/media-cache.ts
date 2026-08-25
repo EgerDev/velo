@@ -142,8 +142,14 @@ export async function putCachedMedia(opts: {
       cacheBudget(status.quota, Math.max(0, status.usage - ownBytes), status.persisted),
       opts.blob.size,
     );
+    // Exclude the row we are about to overwrite. `store.put` replaces it, so
+    // counting it as an insert made a re-download silently drop a different
+    // cached video.
+    const replacing = cacheKey(opts.videoId, opts.itag);
     const evict = pickEvictions(
-      mine.map((row) => ({ key: row.key, savedAt: row.savedAt, size: row.blob?.size ?? 0 })),
+      mine
+        .filter((row) => row.key !== replacing)
+        .map((row) => ({ key: row.key, savedAt: row.savedAt, size: row.blob?.size ?? 0 })),
       opts.blob.size,
       MAX_CACHE_ITEMS,
       Math.min(MAX_CACHE_BYTES, budget),

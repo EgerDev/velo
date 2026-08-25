@@ -72,7 +72,12 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
 
   const lastCue = cues[cues.length - 1];
   const totalDuration = lastCue ? Math.ceil(lastCue.end + 5) : 3600;
-  const frameDuration = `100/${Math.round(fps * 100)}s`;
+  // FCPX wants the exact NTSC rational for 29.97 / 59.94 — 1001/30000s, not
+  // 100/2997s, which is a different number — and names those formats "2997" /
+  // "5994" rather than with a decimal point. Both are one click away in the UI.
+  const ntsc = Math.abs(fps - Math.round(fps)) > 0.001;
+  const frameDuration = ntsc ? `1001/${Math.round(fps) * 1000}s` : `100/${Math.round(fps * 100)}s`;
+  const formatName = `FFVideoFormat1080p${ntsc ? `${Math.round(fps)}97` : Math.round(fps)}`;
 
   let markersXml = "";
   cues.forEach((cue, index) => {
@@ -96,7 +101,7 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
   <resources>
-    <format id="r1" name="FFVideoFormat1080p${fps}" frameDuration="${frameDuration}" width="1920" height="1080" />
+    <format id="r1" name="${formatName}" frameDuration="${frameDuration}" width="1920" height="1080" />
   </resources>
   <library>
     <event name="Velo Ingest">

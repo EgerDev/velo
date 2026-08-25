@@ -633,8 +633,11 @@ export async function streamYoutubeCaptions(
     "Content-Disposition": contentDisposition(`${title}.${lang}`, "vtt"),
     "Cache-Control": "no-store",
   };
+  // `fetch` already decoded the body, so upstream's content-length counts
+  // COMPRESSED bytes and would truncate the file. timedtext is served br/gzip
+  // essentially always, so this header is only safe when upstream sent identity.
   const length = upstream.headers.get("content-length");
-  if (length) headers["Content-Length"] = length;
+  if (length && !upstream.headers.get("content-encoding")) headers["Content-Length"] = length;
   return new Response(upstream.body, { status: 200, headers });
 }
 

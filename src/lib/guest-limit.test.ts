@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   GUEST_PLAN,
+  IP_PLAN,
   USER_PLAN,
   clientIp,
   pruneSpends,
@@ -129,4 +130,52 @@ test("signed-in quota keys are unique per person and ignore the shared guest id"
   assert.notEqual(alice.key, guest.key);
   assert.equal(alice.signedIn, true);
   assert.equal(guest.signedIn, false);
+});
+
+test("rotating the guest header cannot outrun the per-IP backstop", () => {
+  // `x-velo-guest` is set by ordinary client JS, so a fresh id per request
+  // costs an attacker nothing. The IP bucket is what actually caps them.
+  const now = 7_000_000;
+  const ip = "ip:203.0.113.77";
+  let allowed = 0;
+  for (let i = 0; i < 5_000; i++) {
+    const guest = takeTokens(`guest:rot${String(i).padStart(8, "0")}`, GUEST_PLAN, 1, now);
+    if (!guest.ok) continue;
+    if (takeTokens(ip, IP_PLAN, 1, now).ok) allowed++;
+  }
+  assert.equal(allowed, IP_PLAN.capacity);
+});
+
+test("an honest guest still gets the documented burst behind the backstop", () => {
+  const now = 7_100_000;
+  let allowed = 0;
+  for (let i = 0; i < 10; i++) {
+    const guest = takeTokens("guest:honest-browser-1", GUEST_PLAN, 1, now);
+    if (guest.ok && takeTokens("ip:198.51.100.9", IP_PLAN, 1, now).ok) allowed++;
+  }
+  assert.equal(allowed, GUEST_PLAN.capacity);
+});
+
+test("a flood of one-shot keys does not evict the bucket doing the limiting", () => {
+  // Eviction ordered by insertion would drop the long-lived IP bucket — created
+  // early, only ever mutated — and hand the flood a fresh full bucket.
+  const now = 7_200_000;
+  const ip = "ip:198.51.100.200";
+  takeTokens(ip, IP_PLAN, IP_PLAN.capacity, now);
+  for (let i = 0; i < 6_000; i++) takeTokens(`guest:evict${i}`, GUEST_PLAN, 1, now);
+  assert.equal(takeTokens(ip, IP_PLAN, 1, now).ok, false, "IP bucket must survive the flood");
+});
+
+test("a backwards clock step does not refill a drained bucket", () => {
+  const now = 7_300_000;
+  const key = "guest:clock-step";
+  assert.equal(takeTokens(key, GUEST_PLAN, GUEST_PLAN.capacity, now).ok, true);
+  assert.equal(takeTokens(key, GUEST_PLAN, 1, now).ok, false);
+  // NTP correction / VM resume: an hour into the past, then back.
+  takeTokens(key, GUEST_PLAN, 1, now - 3_600_000);
+  assert.equal(
+    takeTokens(key, GUEST_PLAN, 1, now + 1000).ok,
+    false,
+    "still drained a second later",
+  );
 });

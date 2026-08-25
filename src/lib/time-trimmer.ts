@@ -121,9 +121,14 @@ export function validateTimeRange(
  * Example: "*01:23-04:56"
  */
 export function formatYtdlpSection(startSec: number, endSec: number): string {
-  const startStr = formatTimecode(startSec);
-  const endStr = formatTimecode(endSec);
-  return `*${startStr}-${endStr}`;
+  // `formatTimecode` floors to whole seconds, but `parseTimecode` accepts
+  // fractions and yt-dlp's --download-sections does too — so flooring silently
+  // shifted each end of the clip by up to a second.
+  const precise = (seconds: number) => {
+    const frac = Math.max(0, seconds) % 1;
+    return frac ? `${formatTimecode(seconds)}${frac.toFixed(2).slice(1)}` : formatTimecode(seconds);
+  };
+  return `*${precise(startSec)}-${precise(endSec)}`;
 }
 
 /**

@@ -20,27 +20,46 @@ export type PlayerSnapshot = {
   dashManifestUrl?: string;
 };
 
-export function extractJsonObject(html: string, marker: string): unknown {
+/**
+ * The first `{…}` object after `marker`, as raw source.
+ *
+ * Brace counting has to skip string contents: a `}` in any value — a video
+ * title is the common one — would otherwise close the object early. Matching
+ * braces rather than pattern-matching the call site also means the surrounding
+ * syntax is irrelevant, so `f({…})`, `f({…}, 1)`, `f(\n{…}\n)` and a missing
+ * trailing semicolon all read the same.
+ */
+export function sliceBalancedObject(html: string, marker: string): string | null {
   const idx = html.indexOf(marker);
   if (idx < 0) return null;
   const start = html.indexOf("{", idx);
   if (start < 0) return null;
   let depth = 0;
+  let inString = false;
+  let escaped = false;
   for (let i = start; i < html.length; i++) {
     const ch = html[i];
-    if (ch === "{") depth++;
+    if (escaped) escaped = false;
+    else if (ch === "\\") escaped = true;
+    else if (ch === '"') inString = !inString;
+    else if (inString) continue;
+    else if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(html.slice(start, i + 1));
-        } catch {
-          return null;
-        }
-      }
+      if (depth === 0) return html.slice(start, i + 1);
     }
   }
   return null;
+}
+
+export function extractJsonObject(html: string, marker: string): unknown {
+  const raw = sliceBalancedObject(html, marker);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function extractPlayerResponse(html: string): PlayerSnapshot | null {
@@ -72,7 +91,9 @@ export function extractPlayerResponse(html: string): PlayerSnapshot | null {
     const formats = [
       ...(player.streamingData?.formats ?? []),
       ...(player.streamingData?.adaptiveFormats ?? []),
-    ].filter((item) => !isImaUrl(item.url) && !isImaUrl(item.signatureCipher) && !isImaUrl(item.cipher));
+    ].filter(
+      (item) => !isImaUrl(item.url) && !isImaUrl(item.signatureCipher) && !isImaUrl(item.cipher),
+    );
     if (!formats.length && !player.streamingData?.hlsManifestUrl) {
       from = idx + marker.length;
       continue;

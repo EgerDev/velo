@@ -171,16 +171,19 @@ export async function muxCachePut(
 ): Promise<FileHit> {
   await mkdir(CACHE_DIR, { recursive: true });
   const info = await stat(srcPath);
-  await evictIfNeeded(info.size);
-  const dest = join(CACHE_DIR, `${cacheKey(id, itag)}-${Date.now()}${extOf(filename)}`);
-  await copyFile(srcPath, dest);
-  const hit: FileHit = { path: dest, filename, size: info.size };
+  // Drop our own previous row BEFORE evicting: re-saving an already-cached
+  // video is a replacement, and counting it as an insert evicted an unrelated
+  // video that then had to be re-muxed from scratch.
   const key = cacheKey(id, itag);
   const prev = cacheIndex.find((item) => item.key === key);
   if (prev) {
     cacheIndex.splice(cacheIndex.indexOf(prev), 1);
     await unlink(prev.path).catch(() => undefined);
   }
+  await evictIfNeeded(info.size);
+  const dest = join(CACHE_DIR, `${key}-${Date.now()}${extOf(filename)}`);
+  await copyFile(srcPath, dest);
+  const hit: FileHit = { path: dest, filename, size: info.size };
   cacheIndex.push({ ...hit, key, at: Date.now() });
   return hit;
 }

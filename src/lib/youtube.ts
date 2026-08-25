@@ -44,9 +44,12 @@ export function parseVideoId(input: string): string | null {
   if (!raw) return null;
   if (VIDEO_ID_RE.test(raw)) return raw;
 
-  // Direct shorts match (e.g. shorts/3jz_K5qX52o)
-  const shortsDirect = raw.match(/(?:^|\/|\.)shorts\/([a-zA-Z0-9_-]{11})/i);
-  if (shortsDirect && shortsDirect[1]) return shortsDirect[1];
+  // Direct shorts match (e.g. shorts/3jz_K5qX52o). Bare paths only — a full URL
+  // still has to clear the host allowlist below, the same as `watch?v=` does.
+  if (!/^https?:\/\//i.test(raw)) {
+    const shortsDirect = raw.match(/(?:^|\/|\.)shorts\/([a-zA-Z0-9_-]{11})/i);
+    if (shortsDirect && shortsDirect[1]) return shortsDirect[1];
+  }
 
   const url = asYoutubeUrl(raw);
   if (!url) return null;
@@ -63,6 +66,9 @@ export function parseVideoId(input: string): string | null {
   const parts = url.pathname.split("/").filter(Boolean);
   const kind = parts[0];
   const maybeId = parts[1];
+  // /embed/videoseries?list=… is a playlist embed. The sentinel is coincidentally
+  // 11 characters, so it matches VIDEO_ID_RE and would be resolved as a video.
+  if (maybeId === "videoseries") return null;
   if (
     maybeId &&
     VIDEO_ID_RE.test(maybeId) &&

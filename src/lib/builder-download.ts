@@ -8,6 +8,7 @@ import { fileBasename, type VideoPreset } from "@/lib/youtube";
 import type { DownloadProgress } from "@/lib/download-client";
 import { createSpeedProbe, formatSpeed } from "@/lib/speed-probe";
 import { isVideoOnlyItag } from "@/lib/ytdlp-auth";
+import { linkAbort } from "@/lib/abort-link";
 
 function assertMedia(blob: Blob, type: string | null): Blob {
   const mime = type ?? blob.type;
@@ -81,11 +82,8 @@ function raceBlobs(
   parent?: AbortSignal,
 ): Promise<Blob> {
   const abort = new AbortController();
-  if (parent) {
-    if (parent.aborted) abort.abort();
-    else parent.addEventListener("abort", () => abort.abort(), { once: true });
-  }
-  return new Promise((resolve, reject) => {
+  const detach = linkAbort(parent, abort);
+  return new Promise<Blob>((resolve, reject) => {
     const errors: string[] = [];
     let open = tasks.length;
     let won = false;
@@ -116,7 +114,7 @@ function raceBlobs(
         },
       );
     }
-  });
+  }).finally(detach);
 }
 
 export async function fetchBuilderBlob(opts: {

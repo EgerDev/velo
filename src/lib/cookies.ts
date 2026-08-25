@@ -47,8 +47,21 @@ function isYoutubeDomain(domain: string): boolean {
   );
 }
 
+/**
+ * Match on the HOST, not anywhere in the URL string.
+ *
+ * A substring test says yes to `https://tracker.example.net/p?dest=youtube.com`,
+ * and the header cookies on such an entry are pushed with no domain — so they
+ * inherit the `.google.com` / `.youtube.com` default and get shipped to YouTube
+ * as if they were Google's. Third-party session cookies must never survive this.
+ */
 function isYoutubeUrl(url: string): boolean {
-  return /youtube\.com|googlevideo\.com|youtube-nocookie\.com|google\.com/i.test(url);
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return isYoutubeDomain(host) || host === "googlevideo.com" || host.endsWith(".googlevideo.com");
+  } catch {
+    return false;
+  }
 }
 
 const GOOGLE_COOKIE_NAMES = /^(SID|HSID|SSID|APISID|SAPISID|__SECURE-1PSID|__SECURE-3PSID|__SECURE-1PAPISID|__SECURE-3PAPISID)$/i;
@@ -70,14 +83,17 @@ type CookiePair = {
 function netscapeLine(cookie: CookiePair) {
   const domain = cookie.domain && isYoutubeDomain(cookie.domain) ? cookie.domain : defaultCookieDomain(cookie.name);
   const host = domain.startsWith(".") ? domain : `.${domain.replace(/^\./, "")}`;
+  // The jar is tab-delimited and newline-separated, so an unsanitized value
+  // forges extra rows for arbitrary domains and desyncs the reported count.
+  const clean = (value: string) => value.replace(/[\t\r\n]/g, "");
   const fields = [
     host,
     "TRUE",
-    cookie.path || "/",
+    clean(cookie.path || "/"),
     cookie.secure === false ? "FALSE" : "TRUE",
     String(Math.max(0, Math.floor(cookie.expires ?? 0))),
-    cookie.name,
-    cookie.value,
+    clean(cookie.name),
+    clean(cookie.value),
   ].join("\t");
   return cookie.httpOnly ? `#HttpOnly_${fields}` : fields;
 }
@@ -163,7 +179,8 @@ function fromHar(parsed: HarFile): ParsedCookies {
   let redacted = false;
   for (const entry of entries) {
     const url = entry.request?.url ?? "";
-    if (url && !isYoutubeUrl(url)) continue;
+    // An entry with no usable URL is not a free pass on a credential path.
+    if (!isYoutubeUrl(url)) continue;
     for (const cookie of [...(entry.request?.cookies ?? []), ...(entry.response?.cookies ?? [])]) {
       if (!cookie.name || cookie.value == null) continue;
       if (/^\[redacted\]$/i.test(String(cookie.value))) {

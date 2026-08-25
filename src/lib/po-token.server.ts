@@ -3,6 +3,7 @@ import type { WebPoSignalOutput } from "bgutils-js/shared-types";
 import { buildURL, getHeaders, parseLooseJSON, USER_AGENT } from "bgutils-js/utils";
 import { createColdStartToken, WebPoMinter } from "bgutils-js/webpo";
 import { JSDOM } from "jsdom";
+import { sliceBalancedObject } from "@/lib/bypass-parse";
 import "@/lib/ipv4-bind.server";
 
 type Minter = {
@@ -29,7 +30,10 @@ const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
 let minterPromise: Promise<Minter> | null = null;
 let minterCreatedAt = 0;
 let lastMinterError: string | null = null;
-const tokenCache = new Map<string, { token: string; expires: number; method: PoTokenInfo["method"] }>();
+const tokenCache = new Map<
+  string,
+  { token: string; expires: number; method: PoTokenInfo["method"] }
+>();
 const MAX_TOKEN_CACHE = 400;
 
 function evictTokenCache() {
@@ -84,8 +88,9 @@ function withBgWindow<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function stubCanvas(window: { HTMLCanvasElement?: { prototype: { getContext?: unknown } } }) {
-  const proto = (window as unknown as { HTMLCanvasElement?: { prototype: { getContext?: unknown } } })
-    .HTMLCanvasElement?.prototype;
+  const proto = (
+    window as unknown as { HTMLCanvasElement?: { prototype: { getContext?: unknown } } }
+  ).HTMLCanvasElement?.prototype;
   if (!proto || typeof proto.getContext === "function") return;
   proto.getContext = function getContext() {
     const _canvas = this as { width?: number; height?: number };
@@ -107,7 +112,11 @@ function stubCanvas(window: { HTMLCanvasElement?: { prototype: { getContext?: un
       },
       drawImage() {},
       getImageData(_x: number, _y: number, w: number, h: number) {
-        return { data: new Uint8ClampedArray(Math.max(1, w) * Math.max(1, h) * 4), width: w, height: h };
+        return {
+          data: new Uint8ClampedArray(Math.max(1, w) * Math.max(1, h) * 4),
+          width: w,
+          height: h,
+        };
       },
       putImageData() {},
       createImageData(w: number, h: number) {
@@ -156,20 +165,43 @@ async function createMinter(): Promise<Minter> {
       throw new Error("YouTube served a bot wall instead of BotGuard.");
     }
 
-    const ytConfig = pageHtml.match(/ytcfg\.set\(({.+?})\);/s)?.[1];
+    // These two extractions are the module's only contact surface with
+    // YouTube's markup, so they match braces rather than the call syntax around
+    // them — `ytcfg.set({…}, 1)`, a missing semicolon and a wrapped line are all
+    // shapes YouTube ships, and a regex pinned to one of them fails the whole
+    // mint (silently downgrading to the weaker cold-start token).
+    const ytConfig = sliceBalancedObject(pageHtml, "ytcfg.set(");
     if (!ytConfig) throw new Error("Missing ytcfg on homepage.");
-    window.yt = { config_: JSON.parse(ytConfig) };
+    let ytConfigParsed: unknown;
+    try {
+      ytConfigParsed = JSON.parse(ytConfig);
+    } catch {
+      // Otherwise this surfaces as a bare SyntaxError with no hint of the cause.
+      throw new Error("ytcfg on the homepage was not JSON — player HTML shape changed.");
+    }
+    window.yt = { config_: ytConfigParsed };
 
-    const attestation = pageHtml.match(/window\.ytAtN\(\s*({[\s\S]*?})\s*\)/);
+    const attestation = sliceBalancedObject(pageHtml, "ytAtN");
     if (!attestation) throw new Error("Missing BotGuard challenge (ytAtN).");
-    const parsed = parseLooseJSON(attestation[1]) as { R?: ChallengeResponse };
+    const parsed = parseLooseJSON(attestation) as { R?: ChallengeResponse };
     const challenge = parsed.R?.bgChallenge;
     if (!challenge) throw new Error("Missing bgChallenge program.");
 
-    const interpreterUrl = challenge.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
+    const interpreterUrl =
+      challenge.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
     const script = await (await fetch(`https:${interpreterUrl}`)).text();
-    if (!script.includes("function") && script.length < 100) throw new Error("Empty BotGuard VM script.");
-    const vm = new Function("window", "self", "globalThis", "document", "location", "navigator", "yt", script);
+    if (!script.includes("function") && script.length < 100)
+      throw new Error("Empty BotGuard VM script.");
+    const vm = new Function(
+      "window",
+      "self",
+      "globalThis",
+      "document",
+      "location",
+      "navigator",
+      "yt",
+      script,
+    );
     vm(window, window, window, window.document, window.location, window.navigator, window.yt);
 
     const botGuardClient = await BotGuardClient.create({
@@ -188,8 +220,14 @@ async function createMinter(): Promise<Minter> {
       body: JSON.stringify([REQUEST_KEY, botguardResponse]),
     });
     if (!integrityTokenResponse.ok) throw new Error(`GenerateIT ${integrityTokenResponse.status}`);
-    const integrityTokenJson = (await integrityTokenResponse.json()) as [string, number, number, string];
-    const [integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken] = integrityTokenJson;
+    const integrityTokenJson = (await integrityTokenResponse.json()) as [
+      string,
+      number,
+      number,
+      string,
+    ];
+    const [integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken] =
+      integrityTokenJson;
     if (!integrityToken) throw new Error("Empty integrity token.");
 
     return await WebPoMinter.create(
@@ -224,7 +262,12 @@ function getMinter(): Promise<Minter> {
 export async function mintDualPoTokens(opts: {
   visitor?: string | null;
   videoId?: string | null;
-}): Promise<{ player: string | null; gvs: string | null; method: PoTokenInfo["method"]; error: string | null }> {
+}): Promise<{
+  player: string | null;
+  gvs: string | null;
+  method: PoTokenInfo["method"];
+  error: string | null;
+}> {
   /**
    * Bindings (yt-dlp 2026.08 + html5_generate_content_po_token):
    * - player and GVS both bind to the video id
@@ -253,7 +296,10 @@ export async function mintContentPoToken(videoId: string): Promise<string | null
 
 const mintInflight = new Map<string, Promise<PoTokenInfo>>();
 
-export async function mintPoTokenDetailed(videoId: string, slot: "player" | "gvs" | "content" = "content"): Promise<PoTokenInfo> {
+export async function mintPoTokenDetailed(
+  videoId: string,
+  slot: "player" | "gvs" | "content" = "content",
+): Promise<PoTokenInfo> {
   const cacheKey = `${slot}:${videoId}`;
   const cached = tokenCache.get(cacheKey);
   if (cached && cached.expires > Date.now()) {

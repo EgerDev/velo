@@ -110,7 +110,9 @@ export function parseSps(nal: Uint8Array): SpsInfo | null {
     b.ue();
     b.ue();
     const n = b.ue();
-    for (let i = 0; i <= n; i++) b.ue();
+    // H.264 §7.3.2.1.1: i < num_ref_frames_in_pic_order_cnt_cycle. Consuming one
+    // extra code here shifts every later field — including width and height.
+    for (let i = 0; i < n; i++) b.ue();
   }
   b.ue();
   b.u(1);
@@ -186,12 +188,14 @@ export function parseHvcC(data: Uint8Array): HvcC | null {
       break;
     }
   }
-  if (idx < 0 || idx + 22 >= data.length) return null;
+  if (idx < 0 || idx + 17 > data.length) return null;
   const box = data.subarray(idx);
   const profileByte = box[5]!;
   const profile = profileByte & 0x1f;
   const tier = profileByte & 0x20 ? "high" : "main";
-  const level = box[21] ?? 0;
+  // The record starts at box[4], and general_level_idc is record byte 12
+  // (ISO/IEC 14496-15 §8.3.3.1). box[21] is record[17], the bit-depth byte.
+  const level = box[16] ?? 0;
   return {
     version: box[4] ?? 0,
     profile,
