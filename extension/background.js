@@ -27,45 +27,62 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
+    const handleErr = () => chrome.runtime.lastError;
+
     // Parent Menu
-    chrome.contextMenus.create({
-      id: "velo_root",
-      title: "Velo YouTube Tools",
-      contexts: ["page", "link", "video"],
-      documentUrlPatterns: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
-    });
+    chrome.contextMenus.create(
+      {
+        id: "velo_root",
+        title: "Velo YouTube Tools",
+        contexts: ["page", "link", "video"],
+        documentUrlPatterns: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      },
+      handleErr,
+    );
 
     // 1. Download 1080p Video
-    chrome.contextMenus.create({
-      id: "velo_download_1080p",
-      parentId: "velo_root",
-      title: "⚡ Download 1080p Video",
-      contexts: ["page", "link", "video"],
-    });
+    chrome.contextMenus.create(
+      {
+        id: "velo_download_1080p",
+        parentId: "velo_root",
+        title: "⚡ Download 1080p Video",
+        contexts: ["page", "link", "video"],
+      },
+      handleErr,
+    );
 
     // 2. Download Audio Only
-    chrome.contextMenus.create({
-      id: "velo_download_audio",
-      parentId: "velo_root",
-      title: "🎵 Download Audio (MP3/M4A)",
-      contexts: ["page", "link", "video"],
-    });
+    chrome.contextMenus.create(
+      {
+        id: "velo_download_audio",
+        parentId: "velo_root",
+        title: "🎵 Download Audio (MP3/M4A)",
+        contexts: ["page", "link", "video"],
+      },
+      handleErr,
+    );
 
     // 3. Add to Queue
-    chrome.contextMenus.create({
-      id: "velo_add_queue",
-      parentId: "velo_root",
-      title: "➕ Save to Download Queue",
-      contexts: ["page", "link", "video"],
-    });
+    chrome.contextMenus.create(
+      {
+        id: "velo_add_queue",
+        parentId: "velo_root",
+        title: "➕ Save to Download Queue",
+        contexts: ["page", "link", "video"],
+      },
+      handleErr,
+    );
 
     // 4. Open in Velo Web App
-    chrome.contextMenus.create({
-      id: "velo_open_web",
-      parentId: "velo_root",
-      title: "🚀 Open in Velo Studio",
-      contexts: ["page", "link", "video"],
-    });
+    chrome.contextMenus.create(
+      {
+        id: "velo_open_web",
+        parentId: "velo_root",
+        title: "🚀 Open in Velo Studio",
+        contexts: ["page", "link", "video"],
+      },
+      handleErr,
+    );
   });
 }
 
@@ -190,27 +207,37 @@ async function getYouTubeSessionCookies() {
 // 6. Message Listener from Content Scripts and Popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "QUEUE_ADD") {
-    addToQueue(request.item).then((queue) => sendResponse({ ok: true, queue }));
+    addToQueue(request.item)
+      .then((queue) => sendResponse({ ok: true, queue }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
   if (request.type === "QUEUE_GET") {
-    getQueue().then((queue) => sendResponse({ ok: true, queue }));
+    getQueue()
+      .then((queue) => sendResponse({ ok: true, queue }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
   if (request.type === "QUEUE_REMOVE") {
-    removeFromQueue(request.id).then((queue) => sendResponse({ ok: true, queue }));
+    removeFromQueue(request.id)
+      .then((queue) => sendResponse({ ok: true, queue }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
   if (request.type === "QUEUE_CLEAR") {
-    clearQueue().then(() => sendResponse({ ok: true, queue: [] }));
+    clearQueue()
+      .then(() => sendResponse({ ok: true, queue: [] }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
   if (request.type === "GET_SESSION_COOKIES") {
-    getYouTubeSessionCookies().then((res) => sendResponse(res));
+    getYouTubeSessionCookies()
+      .then((res) => sendResponse(res))
+      .catch((err) => sendResponse({ cookieHeader: "", hasLogin: false, error: err.message }));
     return true;
   }
 

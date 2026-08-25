@@ -252,6 +252,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderCues(filtered);
   });
 
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
   // 1-Click AI Prompts
   aiPromptBtns.forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -276,7 +297,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const fullPrompt = `${promptInstr}\n\nVIDEO: ${activeVideo.title}\n\nTRANSCRIPT:\n${transcriptText}`;
-      await navigator.clipboard.writeText(fullPrompt);
+      await copyToClipboard(fullPrompt);
       const originalText = btn.innerHTML;
       btn.innerHTML = "<span>✓ Copied!</span>";
       setTimeout(() => (btn.innerHTML = originalText), 1500);
@@ -286,7 +307,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   btnCopyPlain?.addEventListener("click", async () => {
     if (!activeTranscriptCues.length) return;
     const text = activeTranscriptCues.map((c) => c.text).join(" ");
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     btnCopyPlain.textContent = "✓ Copied";
     setTimeout(() => (btnCopyPlain.textContent = "Copy Text"), 1500);
   });
@@ -296,15 +317,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     const srt = activeTranscriptCues
       .map((c, i) => `${i + 1}\n${c.startFormatted},000 --> ${c.startFormatted},500\n${c.text}\n`)
       .join("\n");
-    await navigator.clipboard.writeText(srt);
+    await copyToClipboard(srt);
     btnCopySrt.textContent = "✓ Copied";
     setTimeout(() => (btnCopySrt.textContent = "Copy .SRT"), 1500);
   });
 
   // 5. Queue Tab Logic
   async function loadQueueUI() {
-    const res = await chrome.runtime.sendMessage({ type: "QUEUE_GET" });
-    const queue = res?.queue || [];
+    let queue = [];
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "QUEUE_GET" });
+      queue = res?.queue || [];
+    } catch (err) {
+      console.warn("[Velo] Failed to fetch queue from background worker:", err);
+    }
     queueCountLabel.textContent = `${queue.length} video(s) in queue`;
     queueBadge.textContent = String(queue.length);
 

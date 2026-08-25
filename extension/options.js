@@ -20,8 +20,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Save on submit
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    let rawUrl = serverInput.value.trim().replace(/\/$/, "");
+    if (rawUrl && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+      rawUrl = "http://" + rawUrl;
+    }
+    rawUrl = rawUrl.replace("localhost", "127.0.0.1");
+
+    try {
+      new URL(rawUrl);
+    } catch {
+      rawUrl = "http://127.0.0.1:8080";
+    }
+    serverInput.value = rawUrl;
+
     const updated = {
-      veloServerUrl: serverInput.value.trim().replace(/\/$/, ""),
+      veloServerUrl: rawUrl,
       defaultPreset: presetSelect.value,
       defaultLang: langSelect.value,
     };

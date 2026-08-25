@@ -74,6 +74,15 @@ export function validateTimeRange(
   let end = endSec;
 
   if (maxDuration && maxDuration > 0) {
+    if (start >= maxDuration) {
+      return {
+        valid: false,
+        start,
+        end,
+        duration: 0,
+        error: "Start time exceeds video duration.",
+      };
+    }
     end = Math.min(end, maxDuration);
   }
 

@@ -710,7 +710,7 @@ function sanitizeFilename(title: string): string {
 function contentDisposition(title: string, ext: string): string {
   const base = sanitizeFilename(title);
   const ascii = `${base.replace(/[^\x20-\x7E]/g, "_")}.${ext}`;
-  const encoded = encodeURIComponent(`${base}.${ext}`);
+  const encoded = encodeURIComponent(`${base}.${ext}`).replace(/'/g, "%27");
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 

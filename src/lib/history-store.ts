@@ -97,8 +97,19 @@ export function readPersistedShelf(ownerId: string): HistoryShelf {
 
 export function writePersistedShelf(ownerId: string, shelf: HistoryShelf) {
   const store = historyStorage();
-  store.setItem(shelfStorageKey(ownerId), JSON.stringify(shelf));
-  store.setItem(OWNER_POINTER, ownerId);
+  try {
+    store.setItem(shelfStorageKey(ownerId), JSON.stringify(shelf));
+    store.setItem(OWNER_POINTER, ownerId);
+  } catch {
+    // If quota exceeded, attempt to prune to last 10 items
+    try {
+      const pruned = { ...shelf, items: shelf.items.slice(0, 10) };
+      store.setItem(shelfStorageKey(ownerId), JSON.stringify(pruned));
+      store.setItem(OWNER_POINTER, ownerId);
+    } catch {
+      /* ignore storage failure */
+    }
+  }
 }
 
 function splitLegacyBlob() {
