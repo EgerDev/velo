@@ -199,6 +199,11 @@ function formatElapsed(seconds: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
 }
 
+/** Finished-run duration: a tenth of a second matters for a short download. */
+function formatRunTime(seconds: number): string {
+  return seconds < 60 ? `${seconds.toFixed(1)}s` : formatElapsed(Math.round(seconds));
+}
+
 function formatBitrate(bps: number): string {
   if (!bps || bps <= 0) return "—";
   return bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1)} Mbps` : `${Math.round(bps / 1000)} kbps`;
@@ -315,18 +320,42 @@ export function VideoPanel({
 
   // Elapsed time is the one honest number during that wait.
   const [elapsedSec, setElapsedSec] = useState(0);
+  const startedAtRef = useRef<number | null>(null);
+  // Read at completion without making the effect depend on every progress tick.
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+  const selectedSizeRef = useRef(selected?.size ?? null);
+  selectedSizeRef.current = selected?.size ?? null;
+
+  /** What the last finished download actually cost, in plain numbers. */
+  const [lastRun, setLastRun] = useState<{ bytes: number | null; seconds: number } | null>(null);
+
   useEffect(() => {
-    if (!downloading) {
+    if (downloading) {
+      startedAtRef.current = Date.now();
+      setLastRun(null);
       setElapsedSec(0);
-      return;
+      const timer = window.setInterval(
+        () => setElapsedSec(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000)),
+        1000,
+      );
+      return () => window.clearInterval(timer);
     }
-    const startedAt = Date.now();
-    const timer = window.setInterval(
-      () => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)),
-      1000,
-    );
-    return () => window.clearInterval(timer);
+    // Just finished: capture the summary before the timer state resets.
+    const startedAt = startedAtRef.current;
+    startedAtRef.current = null;
+    setElapsedSec(0);
+    if (startedAt == null) return;
+    const finished = progressRef.current;
+    if (finished?.failed) return;
+    setLastRun({
+      bytes: finished?.loaded ?? finished?.total ?? selectedSizeRef.current,
+      seconds: (Date.now() - startedAt) / 1000,
+    });
   }, [downloading]);
+
+  // A different video means the previous run's numbers no longer apply.
+  useEffect(() => setLastRun(null), [video.id]);
 
   const [sponsor, setSponsor] = useState<{
     status: "idle" | "loading" | "loaded" | "empty" | "error";
@@ -1108,6 +1137,31 @@ export function VideoPanel({
                 {speedAdvice.summary}
                 {speedAdvice.action ? <span className="text-muted"> {speedAdvice.action}</span> : null}
               </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* What that download actually cost — size, time, and average speed. */}
+        {!downloading && lastRun ? (
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface p-3 text-xs rise">
+            <span className="flex items-center gap-1.5 font-medium text-success">
+              <Check className="size-3.5" />
+              Saved
+            </span>
+            {lastRun.bytes ? (
+              <span className="font-mono tabular-nums text-fg">{formatBytes(lastRun.bytes)}</span>
+            ) : null}
+            <span className="text-muted">
+              in <span className="font-mono tabular-nums text-fg">{formatRunTime(lastRun.seconds)}</span>
+            </span>
+            {lastRun.bytes && lastRun.seconds > 0 ? (
+              <span className="text-muted">
+                ·{" "}
+                <span className="font-mono tabular-nums text-fg">
+                  {formatSpeed(lastRun.bytes / lastRun.seconds)}
+                </span>{" "}
+                average
+              </span>
             ) : null}
           </div>
         ) : null}
