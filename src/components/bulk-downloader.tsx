@@ -133,7 +133,10 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
           if (!match) return item;
           if (match.ok && match.video) {
             const v = match.video;
-            const best = pickBestPreset(v.presets);
+            const targetPreset =
+              v.presets.find(
+                (p) => p.id === item.preset || (item.preset === "audio" && p.kind === "audio"),
+              ) ?? pickBestPreset(v.presets);
             return {
               ...item,
               title: v.title,
@@ -144,10 +147,12 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                 : null,
               thumbnail: v.thumbnail,
               status: "ready",
-              selectedItag: best?.itag ?? 137,
-              selectedAudioItag: best?.audioItag ?? 140,
-              sizeFormatted: best?.size ? `${(best.size / (1024 * 1024)).toFixed(1)} MB` : null,
-              filename: `${v.title}.${best?.ext || "mp4"}`,
+              selectedItag: targetPreset?.itag ?? 137,
+              selectedAudioItag: targetPreset?.audioItag ?? null,
+              sizeFormatted: targetPreset?.size
+                ? `${(targetPreset.size / (1024 * 1024)).toFixed(1)} MB`
+                : null,
+              filename: `${v.title}.${targetPreset?.ext || "mp4"}`,
             };
           } else {
             return {
@@ -215,9 +220,9 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
           continue;
         }
 
-        // Process this item
+        // Process this item with proper worker concurrency gating
         const itemToProcess: BulkItem = nextItem;
-        void processSingleItem(itemToProcess);
+        await processSingleItem(itemToProcess);
 
         // Anti-throttling stagger delay between launching successive downloads
         await new Promise((r) => setTimeout(r, queueOptions.staggerDelayMs));
@@ -235,16 +240,21 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
       // 1. Resolve video details if not already resolved
       let title = item.title;
       let targetPresetItag = item.selectedItag ?? 137;
-      let targetAudioItag = item.selectedAudioItag ?? 140;
+      let targetAudioItag: number | null | undefined = item.selectedAudioItag;
       let ext = "mp4";
+      let isAudio = item.preset === "audio";
 
       if (!title) {
         const v = await resolveVideo({ data: { url: item.url } });
         title = v.title;
-        const best = pickBestPreset(v.presets);
-        targetPresetItag = best?.itag ?? 137;
-        targetAudioItag = best?.audioItag ?? 140;
-        ext = best?.ext ?? "mp4";
+        const targetPreset =
+          v.presets.find(
+            (p) => p.id === item.preset || (item.preset === "audio" && p.kind === "audio"),
+          ) ?? pickBestPreset(v.presets);
+        targetPresetItag = targetPreset?.itag ?? 137;
+        targetAudioItag = targetPreset?.audioItag;
+        ext = targetPreset?.ext ?? "mp4";
+        isAudio = targetPreset?.kind === "audio";
       }
 
       const filename = `${title || `video-${item.id}`}.${ext}`;
@@ -253,17 +263,17 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
       const presetObj: VideoPreset = {
         id: `bulk-${targetPresetItag}`,
         itag: targetPresetItag,
-        audioItag: targetAudioItag,
-        kind: "video",
+        audioItag: targetAudioItag ?? undefined,
+        kind: isAudio ? "audio" : "video",
         title: item.preset,
         hint: ext,
         ext,
         codec: null,
         size: null,
         height: null,
-        hasAudio: true,
-        availability: "muxed",
-        streamType: "dash-mux",
+        hasAudio: isAudio || Boolean(targetAudioItag),
+        availability: isAudio ? "ready" : targetAudioItag ? "muxed" : "ready",
+        streamType: targetAudioItag ? "dash-mux" : "direct",
         recommended: true,
       };
 

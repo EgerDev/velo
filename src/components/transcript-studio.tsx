@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -168,17 +168,39 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
     }
   }
 
+  const reqIdRef = useRef(0);
+
+  function seekTo(time: number) {
+    setPlayingTime(time);
+    const iframe = document.getElementById("transcript-studio-iframe") as HTMLIFrameElement | null;
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        JSON.stringify({
+          event: "command",
+          func: "seekTo",
+          args: [time, true],
+        }),
+        "*",
+      );
+    }
+  }
+
   async function loadCaptionContent(videoId: string, vssId: string) {
+    const currentReq = ++reqIdRef.current;
     setLoadingTranscript(true);
     setDeletedCueIds(new Set());
     try {
       const res = await fetchTranscript({ data: { id: videoId, vssId } });
+      if (currentReq !== reqIdRef.current) return;
       setCues(res.cues);
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       toast.error(err instanceof Error ? err.message : "Could not fetch transcript text.");
       setCues([]);
     } finally {
-      setLoadingTranscript(false);
+      if (currentReq === reqIdRef.current) {
+        setLoadingTranscript(false);
+      }
     }
   }
 
@@ -273,7 +295,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
   async function copyAiPrompt(template: (typeof AI_PROMPT_TEMPLATES)[0]) {
     if (!activeCues.length || !video) return;
     const plainTranscript = cuesToPlainText(activeCues);
-    const fullPrompt = `${template.prompt}\n\n---\nVIDEO TITLE: ${video.title}\nCHANNEL: ${video.author}\n\nTRANSCRIPT:\n${plainTranscript}`;
+    const fullPrompt = template.prompt(video.title, plainTranscript);
 
     try {
       await navigator.clipboard.writeText(fullPrompt);
@@ -443,9 +465,10 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
               <div className="panel overflow-hidden">
                 <div className="relative aspect-video bg-black/60">
                   <iframe
-                    key={`studio-player-${playingTime}`}
+                    key={`studio-player-${video.id}`}
+                    id="transcript-studio-iframe"
                     title={`Transcript Player ${video.title}`}
-                    src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=0&rel=0${playingTime != null ? `&start=${Math.floor(playingTime)}` : ""}`}
+                    src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=0&rel=0&enablejsapi=1${playingTime != null ? `&start=${Math.floor(playingTime)}` : ""}`}
                     className="size-full"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
@@ -704,22 +727,23 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                         >
                           <button
                             type="button"
-                            onClick={() => setPlayingTime(cue.start)}
-                            className="font-mono text-xs text-accent font-semibold hover:underline shrink-0 pt-0.5 cursor-pointer"
+                            onClick={() => seekTo(cue.start)}
+                            className="font-mono text-xs text-accent font-semibold hover:underline shrink-0 pt-0.5 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-accent rounded-sm"
                             title={`Jump video to ${cue.startFormatted}`}
                           >
                             {cue.startFormatted}
                           </button>
-                          <p
-                            className="text-xs text-fg leading-relaxed flex-1 cursor-pointer"
-                            onClick={() => setPlayingTime(cue.start)}
+                          <button
+                            type="button"
+                            className="text-xs text-fg text-left leading-relaxed flex-1 cursor-pointer hover:text-white transition-colors bg-transparent border-0 p-0 focus:outline-hidden focus:ring-1 focus:ring-accent/40 rounded-sm"
+                            onClick={() => seekTo(cue.start)}
                           >
                             {cue.text}
-                          </p>
+                          </button>
                           <button
                             type="button"
                             onClick={() => toggleDeleteCue(cue.id)}
-                            className="text-subtle hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer"
+                            className="text-subtle hover:text-rose-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer rounded-sm"
                             title={isDeleted ? "Restore cue" : "Remove unwanted section"}
                           >
                             {isDeleted ? <RotateCcw className="size-3.5" /> : <Trash2 className="size-3.5" />}

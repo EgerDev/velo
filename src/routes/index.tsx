@@ -107,6 +107,14 @@ function Home() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      const batchParam = params.get("batch");
+      if (tab === "bulk" || tab === "transcript") {
+        setViewMode(tab);
+      } else if (batchParam) {
+        setViewMode("bulk");
+      }
+
       const deepLink = params.get("v") || params.get("url") || params.get("q");
       if (deepLink && !urlRef.current) {
         updateUrl(deepLink);

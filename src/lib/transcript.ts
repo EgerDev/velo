@@ -131,7 +131,7 @@ export function parseWebVttIntoCues(vttText: string): TranscriptCue[] {
 
       i++;
       const textLines: string[] = [];
-      while (i < lines.length && lines[i].trim() !== "" && !lines[i].includes("-->")) {
+      while (i < lines.length && lines[i].trim() !== "" && !lines[i].match(timePattern)) {
         const cleaned = cleanSubtitleText(lines[i]);
         if (cleaned) textLines.push(cleaned);
         i++;

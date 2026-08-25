@@ -180,9 +180,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   async function loadTranscripts(videoId) {
     transcriptCuesList.innerHTML = `<div class="loading-spinner">Fetching transcript text…</div>`;
     try {
-      // Direct YouTube timedtext fetch or Velo API
-      const url = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
-      const res = await fetch(url);
+      // Direct YouTube timedtext fetch with ASR fallback
+      let res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`);
+      if (!res.ok) {
+        res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`);
+      }
       if (!res.ok) throw new Error("No English captions returned directly");
       const data = await res.json();
       
@@ -325,12 +327,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       )
       .join("");
 
-    // Hook remove buttons
+    // Hook remove buttons with robust event handling
     document.querySelectorAll("[data-remove]").forEach((b) => {
       b.addEventListener("click", async (e) => {
-        const id = e.target.getAttribute("data-remove");
-        await chrome.runtime.sendMessage({ type: "QUEUE_REMOVE", id });
-        loadQueueUI();
+        const btn = e.target && e.target.closest ? e.target.closest("[data-remove]") : e.target;
+        const id = btn ? btn.getAttribute("data-remove") : null;
+        if (id) {
+          await chrome.runtime.sendMessage({ type: "QUEUE_REMOVE", id });
+          loadQueueUI();
+        }
       });
     });
   }

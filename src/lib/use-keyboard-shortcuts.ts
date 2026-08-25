@@ -25,8 +25,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
           target.isContentEditable ||
           target.getAttribute("role") === "textbox");
 
-      // 1. Esc: Clear / Escape
+      // 1. Esc: Clear / Escape (if typing, blur input first)
       if (e.key === "Escape") {
+        if (isInput) {
+          target?.blur();
+          return;
+        }
         handlers.onClear?.();
         return;
       }

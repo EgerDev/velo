@@ -18,15 +18,16 @@ export type NLEExportResult = {
  */
 export function secondsToTimecode(seconds: number, fps = 30): string {
   const safeSeconds = Math.max(0, seconds);
+  const fpsBase = Math.max(1, Math.round(fps));
   const totalFrames = Math.round(safeSeconds * fps);
   
-  const frames = totalFrames % fps;
+  const frames = totalFrames % fpsBase;
   const totalSec = Math.floor(totalFrames / fps);
   const s = totalSec % 60;
   const m = Math.floor(totalSec / 60) % 60;
   const h = Math.floor(totalSec / 3600);
 
-  const pad = (n: number, z = 2) => String(n).padStart(z, "0");
+  const pad = (n: number, z = 2) => String(Math.floor(n)).padStart(z, "0");
   return `${pad(h)}:${pad(m)}:${pad(s)}:${pad(frames)}`;
 }
 

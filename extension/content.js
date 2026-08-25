@@ -46,8 +46,10 @@
     const videoId = extractVideoId();
     if (!videoId || window.location.pathname.startsWith("/shorts/")) return;
 
-    // Check if already injected
-    if (document.querySelector(`.${VELO_BUTTON_CLASS}`)) return;
+    // Check if already injected for this exact video
+    const existing = document.querySelector(`.${VELO_BUTTON_CLASS}`);
+    if (existing && existing.getAttribute("data-video-id") === videoId) return;
+    if (existing) existing.remove();
 
     const targetBar =
       document.querySelector("#top-level-buttons-computed") ||
@@ -58,6 +60,7 @@
 
     const btnGroup = document.createElement("div");
     btnGroup.className = `${VELO_BUTTON_CLASS} velo-action-group`;
+    btnGroup.setAttribute("data-video-id", videoId);
 
     // 1. Velo Download Button
     const downloadBtn = document.createElement("button");
@@ -134,13 +137,16 @@
     const videoId = extractVideoId();
     if (!videoId) return;
 
-    if (document.querySelector(`.${VELO_SHORTS_CLASS}`)) return;
+    const existing = document.querySelector(`.${VELO_SHORTS_CLASS}`);
+    if (existing && existing.getAttribute("data-shorts-id") === videoId) return;
+    if (existing) existing.remove();
 
     const shortsContainer = document.querySelector("ytd-shorts #actions") || document.body;
     if (!shortsContainer) return;
 
     const shortsBtn = document.createElement("button");
     shortsBtn.className = `${VELO_SHORTS_CLASS} velo-shorts-floating-btn`;
+    shortsBtn.setAttribute("data-shorts-id", videoId);
     shortsBtn.title = "Download Short in 1080p Full HD";
     shortsBtn.innerHTML = `
       <div class="velo-shorts-inner">
