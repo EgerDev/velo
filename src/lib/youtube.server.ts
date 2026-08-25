@@ -517,6 +517,34 @@ export async function resolveYoutubeVideo(input: string): Promise<ResolvedVideo>
   };
 }
 
+export async function resolveBulkMetadata(
+  ids: string[],
+): Promise<Array<{ id: string; ok: boolean; video?: ResolvedVideo; error?: string }>> {
+  const results: Array<{ id: string; ok: boolean; video?: ResolvedVideo; error?: string }> = [];
+  const chunkSize = 3;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const chunkPromises = chunk.map(async (id) => {
+      try {
+        const video = await resolveYoutubeVideo(id);
+        return { id, ok: true, video };
+      } catch (err) {
+        return {
+          id,
+          ok: false,
+          error: err instanceof Error ? err.message : "Failed to load video metadata.",
+        };
+      }
+    });
+    const chunkResults = await Promise.all(chunkPromises);
+    results.push(...chunkResults);
+    if (i + chunkSize < ids.length) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  return results;
+}
+
 export async function searchYoutubeVideos(query: string): Promise<SearchHit[]> {
   const trimmed = query.trim();
   if (!trimmed) throw new Error("Type something to search.");

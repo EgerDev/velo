@@ -1,6 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ClipboardPaste, Download as DownloadIcon, Gauge, Link2, Loader2, Search, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ClipboardPaste,
+  Download as DownloadIcon,
+  Film,
+  Gauge,
+  Link2,
+  ListPlus,
+  Loader2,
+  Search,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +23,8 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { ResultList } from "@/components/result-list";
 import { VideoPanel } from "@/components/video-panel";
 import { SaveStage } from "@/components/save-stage";
+import { BulkDownloader } from "@/components/bulk-downloader";
+import { cn } from "@/lib/utils";
 import {
   matchAudioTrack,
   mergedExt,
@@ -81,6 +94,7 @@ function Home() {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [offer, setOffer] = useState<OfferedFile[] | null>(null);
+  const [viewMode, setViewMode] = useState<"single" | "bulk">("single");
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
@@ -405,8 +419,60 @@ function Home() {
           <p className="mt-3 max-w-lg text-base leading-relaxed text-muted">{GUEST.hero}</p>
         </div>
 
-        <form
-          className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-white/10 shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
+        {/* Mode Switcher Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-elevated/70 border border-border/80 rounded-2xl w-fit mt-7 shadow-xs">
+          <button
+            type="button"
+            onClick={() => setViewMode("single")}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer",
+              viewMode === "single"
+                ? "bg-accent text-accent-fg shadow-sm"
+                : "text-muted hover:text-fg hover:bg-white/5",
+            )}
+          >
+            <Film className="size-3.5" />
+            Single Video & Search
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("bulk")}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer",
+              viewMode === "bulk"
+                ? "bg-accent text-accent-fg shadow-sm"
+                : "text-muted hover:text-fg hover:bg-white/5",
+            )}
+          >
+            <ListPlus className="size-3.5" />
+            Bulk & Playlist Downloader
+            <span
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded-full font-mono font-semibold",
+                viewMode === "bulk"
+                  ? "bg-black/25 text-white"
+                  : "bg-accent/15 text-accent",
+              )}
+            >
+              Batch
+            </span>
+          </button>
+        </div>
+
+        {viewMode === "bulk" ? (
+          <div className="mt-6">
+            <BulkDownloader
+              onSelectSingleVideo={(singleUrl) => {
+                updateUrl(singleUrl);
+                setViewMode("single");
+                void lookup(singleUrl);
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            <form
+              className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-white/10 shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
           onSubmit={(event) => {
             event.preventDefault();
             const field = event.currentTarget.elements.namedItem("url");
@@ -600,6 +666,8 @@ function Home() {
             onPick={(item) => void lookup(`https://www.youtube.com/watch?v=${item.id}`)}
           />
         ) : null}
+          </>
+        )}
 
         <CookieImport />
 

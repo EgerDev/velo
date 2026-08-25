@@ -29,13 +29,26 @@ Velo is a modern web application built to inspect, stream, download, and extract
   - ✅ **Action Items & Checklist** (Extracts tools, guides, and practical steps)
   - 🧵 **Social Media Thread** (Engaging Twitter/X or LinkedIn summary thread)
 
-### 3. Resilient Multi-Tier Fallback Ladder
+### 3. Anti-Throttle Bulk & Playlist Ingest Engine
+- **Intelligent Link Extractor**: Parses freeform text, multi-line pastes, CSVs, markdown, and playlists to extract unique YouTube videos while skipping duplicates.
+- **Playlist Auto-Expansion**: Automatically fetches and unpacks playlist items into individual queue rows.
+- **Anti-Burst Concurrency & Pacing**:
+  - Configurable concurrency workers (1, 2, or 3 concurrent streams).
+  - Staggered launch delays (1.0s - 3.0s) between successive requests to prevent YouTube 429 rate limits and BotGuard burst triggers.
+  - Progressive exponential backoff with auto-retry on transient failures.
+- **Global & Per-Item Quality Presets**: Apply 1080p Full HD, 720p HD, Audio-Only, or Subtitles-Only across the entire queue.
+- **Multi-Format Batch Exporters**:
+  - **yt-dlp Bash Script (`.sh`)**: Executable local script with optimal `--concurrent-fragments` and copy-mux flags.
+  - **Clean URL List**: Formatted for IDM, JDownloader, aria2, or curl.
+  - **Structured JSON**: Complete queue metadata with titles, durations, and statuses.
+
+### 4. Resilient Multi-Tier Fallback Ladder
 - **InnerTube Multi-Client Routing**: Dynamic switching between `WEB_EMBEDDED`, `VISIONOS`, `TV_SIMPLY`, `WEB`, and `ANDROID` clients.
 - **Proof-of-Origin (PO Token)**: Automated WebPO token minting and validation to prevent bot-detection blocks.
 - **Throttling Bypass & nsig Deciphering**: Live transformation of YouTube's `n` parameter to prevent 40 KB/s stream choking.
 - **SOCKS Proxy Pool & Same-Hop Routing**: Failover to IPv4 proxies when server IPs encounter 403 blocks.
 
-### 4. Session Credential Vault & Browser Exporter
+### 5. Session Credential Vault & Browser Exporter
 - **Universal Cookie Importer**: Supports Netscape HTTP cookie format, JSON arrays, and HTTP Archive (`.har`) files.
 - **Step-by-Step Guides for Every Browser**: Detailed instructions for Chrome, Firefox, Safari (macOS), Edge, and Mobile Safari (iOS Bookmarklet).
 - **Session Health Diagnostics**: Validates authentication tokens (`SID`, `SAPISID`, `LOGIN_INFO`) and checks live YouTube session status.
@@ -62,6 +75,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 .
 ├── src/
 │   ├── components/
+│   │   ├── bulk-downloader.tsx      # Anti-throttle bulk queue & playlist download manager
 │   │   ├── transcript-viewer.tsx    # Interactive transcript reader & AI prompt generator
 │   │   ├── video-panel.tsx          # Video details, pre-flight telemetry, preset selector
 │   │   ├── cookie-import.tsx        # Multi-format cookie import dialog & health checker
@@ -70,6 +84,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 │   │   ├── save-stage.tsx           # File download / storage manager
 │   │   └── ui/                      # Button, Input, Skeleton, Badge, Dialog components
 │   ├── lib/
+│   │   ├── bulk-download.ts         # Bulk link extractor, concurrency queue, batch exporters
 │   │   ├── youtube.ts               # Video presets, codecs, duration/view formatters
 │   │   ├── youtube.server.ts        # InnerTube client, format resolution, caption fetcher
 │   │   ├── transcript.ts            # WebVTT parser, SRT/TXT/JSON formatters, AI templates

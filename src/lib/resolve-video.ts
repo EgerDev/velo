@@ -84,3 +84,16 @@ export const fetchTranscript = createServerFn({ method: "POST" })
     return getTranscriptText(data.id, data.languageCode, data.vssId);
   });
 
+export const resolveBulkVideos = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        ids: z.array(z.string().regex(/^[a-zA-Z0-9_-]{11}$/)).min(1).max(50),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const { resolveBulkMetadata } = await import("@/lib/youtube.server");
+    return resolveBulkMetadata(data.ids);
+  });
+
