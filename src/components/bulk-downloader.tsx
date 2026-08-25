@@ -45,7 +45,7 @@ type BulkDownloaderProps = {
 const SAMPLE_BATCH = [
   "https://www.youtube.com/watch?v=jNQXAC9IVRw",
   "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-  "https://www.youtube.com/shorts/3jz_K5qX52o",
+  "https://www.youtube.com/shorts/5Eqb_-j3FDA",
 ];
 
 export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {

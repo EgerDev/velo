@@ -16,7 +16,7 @@ describe("extractYoutubeLinks", () => {
 Check out these videos:
 1. https://www.youtube.com/watch?v=jNQXAC9IVRw (classic)
 2. https://youtu.be/aqz-KE-bpKQ
-3. https://www.youtube.com/shorts/3jz_K5qX52o
+3. https://www.youtube.com/shorts/5Eqb_-j3FDA
 4. https://www.youtube.com/watch?v=jNQXAC9IVRw (duplicate)
 5. plain id: _bzeabETAAA in text
 `;
@@ -24,7 +24,7 @@ Check out these videos:
     assert.equal(result.totalUnique, 4);
     assert.ok(result.videoIds.includes("jNQXAC9IVRw"));
     assert.ok(result.videoIds.includes("aqz-KE-bpKQ"));
-    assert.ok(result.videoIds.includes("3jz_K5qX52o"));
+    assert.ok(result.videoIds.includes("5Eqb_-j3FDA"));
     assert.ok(result.videoIds.includes("_bzeabETAAA"));
   });
 

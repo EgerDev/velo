@@ -51,11 +51,11 @@ import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
 export const Route = createFileRoute("/")({ component: Home });
 
 const SAMPLES = [
-  { label: "🎬 4K HDR Demo", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
-  { label: "🎙️ Podcast & Transcript", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
-  { label: "🎵 High-Bitrate Audio", query: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-  { label: "⚡ YouTube Shorts", query: "https://www.youtube.com/shorts/3jz_K5qX52o" },
-  { label: "🏛️ Me at the zoo (Classic)", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+  { icon: "⚡", label: "YouTube Shorts", query: "https://www.youtube.com/shorts/5Eqb_-j3FDA" },
+  { icon: "🎬", label: "4K HDR Demo", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
+  { icon: "🎙️", label: "Podcast & Transcript", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
+  { icon: "🎵", label: "High-Bitrate Audio", query: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
+  { icon: "🏛️", label: "Me at the zoo", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
 ];
 
 const DRAFT_URL_KEY = "velo-draft-url";
@@ -564,23 +564,63 @@ function Home() {
           </div>
         </form>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        {/* Quick Sample Presets */}
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1.5 pt-0.5 no-scrollbar sm:flex-wrap">
+          <span className="text-[11px] font-medium text-subtle shrink-0 mr-1 hidden sm:inline">Try:</span>
           {SAMPLES.map((sample) => (
             <button
               key={sample.label}
               type="button"
-              className="lift glass min-h-11 rounded-full px-3.5 py-2 text-xs text-muted hover:text-fg"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/70 px-3.5 py-1.5 text-xs font-medium text-muted hover:border-accent/50 hover:bg-elevated hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer"
               onClick={() => void lookup(sample.query)}
             >
-              {sample.label}
+              <span>{sample.icon}</span>
+              <span>{sample.label}</span>
             </button>
           ))}
         </div>
 
+        {/* Informative Error Card */}
         {error ? (
-          <p className="panel mt-5 px-4 py-3 text-sm text-danger" role="alert" aria-live="assertive">
-            {error}
-          </p>
+          <div className="panel rise mt-5 overflow-hidden border border-rose-500/30 bg-rose-500/10 p-4 sm:p-5 text-fg shadow-lg" role="alert">
+            <div className="flex items-start gap-3.5">
+              <div className="rounded-xl bg-rose-500/20 p-2 text-rose-400 shrink-0 mt-0.5">
+                <AlertTriangle className="size-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-sm sm:text-base text-rose-200">
+                  Unable to resolve media
+                </h3>
+                <p className="mt-1 text-xs sm:text-sm text-muted leading-relaxed">
+                  {error}
+                </p>
+                <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs bg-surface/80 border-border/80 hover:bg-elevated"
+                    onClick={() => {
+                      setError(null);
+                      setStatus("idle");
+                      updateUrl("");
+                    }}
+                  >
+                    Clear Input
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 text-xs bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 border-0"
+                    onClick={() => void lookup(SAMPLES[0].query)}
+                  >
+                    Try YouTube Shorts Demo
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {fallbackPrompt ? (
