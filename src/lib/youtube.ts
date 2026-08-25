@@ -44,6 +44,10 @@ export function parseVideoId(input: string): string | null {
   if (!raw) return null;
   if (VIDEO_ID_RE.test(raw)) return raw;
 
+  // Direct shorts match (e.g. shorts/3jz_K5qX52o)
+  const shortsDirect = raw.match(/(?:^|\/|\.)shorts\/([a-zA-Z0-9_-]{11})/i);
+  if (shortsDirect && shortsDirect[1]) return shortsDirect[1];
+
   const url = asYoutubeUrl(raw);
   if (!url) return null;
   const host = normalizeHost(url.hostname);
@@ -200,6 +204,7 @@ export type VideoFormat = {
   itag: number;
   kind: MediaKind;
   qualityLabel: string;
+  width?: number | null;
   height: number | null;
   fps: number | null;
   ext: string;
@@ -233,6 +238,7 @@ export type VideoPreset = {
   streamType?: StreamType;
   recommended?: boolean;
   statusLabel?: string;
+  isVertical?: boolean;
 };
 
 export type QualitySummary = {
@@ -265,11 +271,27 @@ export type ResolvedVideo = {
   url: string;
   isLive: boolean;
   isUpcoming: boolean;
+  isShort?: boolean;
   description: string | null;
   formats: VideoFormat[];
   presets: VideoPreset[];
   captions: CaptionTrack[];
 };
+
+export function isShortVideo(video: {
+  duration?: number | null;
+  formats?: VideoFormat[];
+  url?: string;
+  isShort?: boolean;
+}): boolean {
+  if (video.isShort) return true;
+  if (video.url && video.url.includes("/shorts/")) return true;
+  if (typeof video.duration === "number" && video.duration > 0 && video.duration <= 180) {
+    const hasVertical = video.formats?.some((f) => f.width && f.height && f.width < f.height);
+    if (hasVertical) return true;
+  }
+  return false;
+}
 
 export type SearchHit = {
   id: string;

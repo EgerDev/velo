@@ -44,6 +44,7 @@ import {
   formatPublished,
   formatViews,
   kindLabel,
+  isShortVideo,
   matchAudioTrack,
   pickBestPreset,
   sortFormats,
@@ -363,53 +364,65 @@ export function VideoPanel({
     setOpenSection((current) => (current === section ? "none" : section));
   };
 
+  const isShort = isShortVideo(video);
+
   return (
     <article className="panel rise mt-8 overflow-hidden">
       {/* Video Preview Player */}
-      <div className="relative aspect-video bg-elevated">
-        {playing ? (
-          <iframe
-            key={`player-${seekTime}`}
-            title={`Preview ${video.title}`}
-            src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&rel=0${seekTime != null ? `&start=${Math.floor(seekTime)}` : ""}`}
-            className="size-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        ) : (
-          <>
-            <img
-              src={video.thumbnail}
-              alt={video.title}
-              className="size-full object-cover"
+      <div className={cn("relative overflow-hidden flex items-center justify-center bg-elevated/40", isShort ? "py-4 bg-black/40" : "aspect-video")}>
+        <div className={cn("relative", isShort ? "w-full max-w-[300px] aspect-[9/16] rounded-2xl overflow-hidden shadow-2xl border border-white/10" : "size-full")}>
+          {playing ? (
+            <iframe
+              key={`player-${seekTime}`}
+              title={`Preview ${video.title}`}
+              src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&rel=0${seekTime != null ? `&start=${Math.floor(seekTime)}` : ""}`}
+              className="size-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
-            <button
-              type="button"
-              onClick={() => setPlaying(true)}
-              className="absolute inset-0 flex items-center justify-center bg-bg/20 transition-all duration-[var(--motion-quick)] hover:bg-bg/35 group cursor-pointer"
-              aria-label="Play preview"
-            >
-              <span className="flex size-16 items-center justify-center rounded-full bg-accent text-accent-fg shadow-[var(--shadow-soft)] transition-transform duration-[var(--motion-quick)] group-hover:scale-105">
-                <Play className="size-6 fill-current ml-0.5" />
-              </span>
-            </button>
-            {video.duration ? (
-              <span className="absolute bottom-3 right-3 rounded-md bg-black/80 px-2 py-0.5 text-xs font-mono font-medium text-white shadow-sm">
-                {formatDuration(video.duration)}
-              </span>
-            ) : null}
-          </>
-        )}
+          ) : (
+            <>
+              <img
+                src={video.thumbnail}
+                alt={video.title}
+                className="size-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+              <button
+                type="button"
+                onClick={() => setPlaying(true)}
+                className="absolute inset-0 flex items-center justify-center bg-bg/20 transition-all duration-[var(--motion-quick)] hover:bg-bg/35 group cursor-pointer"
+                aria-label="Play preview"
+              >
+                <span className="flex size-16 items-center justify-center rounded-full bg-accent text-accent-fg shadow-[var(--shadow-soft)] transition-transform duration-[var(--motion-quick)] group-hover:scale-105">
+                  <Play className="size-6 fill-current ml-0.5" />
+                </span>
+              </button>
+              {video.duration ? (
+                <span className="absolute bottom-3 right-3 rounded-md bg-black/80 px-2 py-0.5 text-xs font-mono font-medium text-white shadow-sm">
+                  {formatDuration(video.duration)}
+                </span>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
 
       <div className="p-4 sm:p-6">
         {/* Header Title & Actions */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h2 className="font-display text-xl leading-snug tracking-[var(--tracking-tight)] text-fg text-balance sm:text-2xl">
-              {video.title}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-xl leading-snug tracking-[var(--tracking-tight)] text-fg text-balance sm:text-2xl">
+                {video.title}
+              </h2>
+              {isShort ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                  <Zap className="size-3 fill-current" />
+                  YouTube Short
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
               {video.authorUrl ? (
                 <a

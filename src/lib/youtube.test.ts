@@ -14,6 +14,7 @@ import {
   parseClock,
   parsePlaylistId,
   parseVideoId,
+  isShortVideo,
   type VideoFormat,
 } from "./youtube.ts";
 
@@ -33,6 +34,8 @@ describe("parseVideoId", () => {
     assert.equal(parseVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ");
     assert.equal(parseVideoId("https://youtu.be/dQw4w9WgXcQ?si=abc"), "dQw4w9WgXcQ");
     assert.equal(parseVideoId("https://www.youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+    assert.equal(parseVideoId("https://m.youtube.com/shorts/3jz_K5qX52o?feature=share"), "3jz_K5qX52o");
+    assert.equal(parseVideoId("shorts/3jz_K5qX52o"), "3jz_K5qX52o");
     assert.equal(parseVideoId("https://www.youtube.com/embed/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
     assert.equal(parseVideoId("https://www.youtube.com/live/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
     assert.equal(parseVideoId("music.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ");
@@ -623,5 +626,26 @@ describe("matchAudioTrack", () => {
     const picked = matchAudioTrack(video, [dubbed, original]);
     assert.equal(picked?.isAutoDubbed, false);
     assert.equal(picked?.isOriginal, true);
+  });
+});
+
+describe("isShortVideo", () => {
+  it("detects shorts by isShort flag, url, or vertical dimensions", () => {
+    assert.equal(isShortVideo({ isShort: true }), true);
+    assert.equal(isShortVideo({ url: "https://www.youtube.com/shorts/3jz_K5qX52o" }), true);
+    assert.equal(
+      isShortVideo({
+        duration: 45,
+        formats: [{ itag: 137, kind: "video", qualityLabel: "1080p", width: 1080, height: 1920, fps: 30, ext: "mp4", mime: "video/mp4", codec: "H.264", bitrate: 2000000, size: 10000000, hasAudio: false, hasVideo: true, language: null, isOriginal: true, isDubbed: false, isAutoDubbed: false, isDescriptive: false, isSecondary: false }],
+      }),
+      true,
+    );
+    assert.equal(
+      isShortVideo({
+        duration: 600,
+        formats: [{ itag: 137, kind: "video", qualityLabel: "1080p", width: 1920, height: 1080, fps: 30, ext: "mp4", mime: "video/mp4", codec: "H.264", bitrate: 2000000, size: 10000000, hasAudio: false, hasVideo: true, language: null, isOriginal: true, isDubbed: false, isAutoDubbed: false, isDescriptive: false, isSecondary: false }],
+      }),
+      false,
+    );
   });
 });

@@ -112,6 +112,7 @@ type RawFormat = {
   quality_label?: string;
   quality?: string;
   audio_quality?: string;
+  width?: number;
   height?: number;
   fps?: number;
   bitrate: number;
@@ -150,6 +151,7 @@ function toFormat(raw: RawFormat): VideoFormat | null {
       hasVideo,
       hasAudio,
     }),
+    width: raw.width ?? null,
     height,
     fps: raw.fps ?? null,
     ext: containerExt(raw.mime_type, hasVideo),
@@ -497,6 +499,13 @@ export async function resolveYoutubeVideo(input: string): Promise<ResolvedVideo>
       ? basic.start_timestamp.toISOString()
       : null;
 
+  const isShort = Boolean(
+    (typeof basic.duration === "number" && basic.duration > 0 && basic.duration <= 180 && merged.some((f) => f.width && f.height && f.width < f.height)) ||
+    (typeof (basic as Record<string, unknown>).is_short === "boolean" && (basic as Record<string, unknown>).is_short) ||
+    (typeof (basic as Record<string, unknown>).is_shorts === "boolean" && (basic as Record<string, unknown>).is_shorts) ||
+    (typeof basic.duration === "number" && basic.duration > 0 && basic.duration <= 70 && !merged.some((f) => (f.height ?? 0) > 1080 && (f.width ?? 0) > (f.height ?? 0)))
+  );
+
   return {
     id: basic.id || id,
     title,
@@ -510,6 +519,7 @@ export async function resolveYoutubeVideo(input: string): Promise<ResolvedVideo>
     url: youtubeWatchUrl(id),
     isLive: Boolean(basic.is_live),
     isUpcoming: Boolean(basic.is_upcoming),
+    isShort,
     description: basic.short_description?.trim() || null,
     formats: merged,
     presets,
