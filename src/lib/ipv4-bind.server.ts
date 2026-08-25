@@ -114,7 +114,13 @@ export function ipv6Hint(): string {
 export function diagnoseIpv6(opts?: { playbackUrl?: string; stderr?: string }): Ipv6Diagnosis {
   const v4: string[] = [];
   const v6: string[] = [];
-  for (const addrs of Object.values(os.networkInterfaces())) {
+  let ifaces: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {};
+  try {
+    ifaces = os.networkInterfaces();
+  } catch {
+    ifaces = {};
+  }
+  for (const addrs of Object.values(ifaces)) {
     for (const row of addrs ?? []) {
       if (row.internal) continue;
       if (row.family === "IPv4" || (row.family as unknown) === 4) v4.push(row.address);

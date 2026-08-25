@@ -119,8 +119,14 @@ export function isVideoplaybackUrl(raw: string): boolean {
 }
 
 export function appendParam(url: string, key: string, value: string): string {
-  const joiner = url.includes("?") ? "&" : "?";
-  return `${url}${joiner}${key}=${encodeURIComponent(value)}`;
+  try {
+    const u = new URL(url);
+    u.searchParams.set(key, value);
+    return u.toString();
+  } catch {
+    const joiner = url.includes("?") ? "&" : "?";
+    return `${url}${joiner}${key}=${encodeURIComponent(value)}`;
+  }
 }
 
 export function stampPot(url: string, pot: string | null | undefined): string {

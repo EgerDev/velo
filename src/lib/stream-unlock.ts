@@ -166,7 +166,7 @@ export function unlockStreamUrl(raw: string, opts: UnlockOpts = {}): { url: stri
     applied.push("cpn");
   }
 
-  if (opts.ratebypass !== false && !q.get("ratebypass")) {
+  if (opts.ratebypass !== false && q.get("ratebypass") !== "yes") {
     q.set("ratebypass", "yes");
     applied.push("ratebypass");
   }

@@ -154,7 +154,8 @@ export function takeTokens(
   refill(bucket, plan, now);
   bucket.spends = pruneSpends(bucket.spends, now, plan.windowMs);
   const load = windowLoad(bucket.spends);
-  const retryBurst = Math.max(1, Math.ceil(cost / Math.max(plan.refillPerMs, 1e-9) / 1000));
+  const deficit = Math.max(0, cost - bucket.tokens);
+  const retryBurst = Math.max(1, Math.ceil(deficit / Math.max(plan.refillPerMs, 1e-9) / 1000));
   if (load + cost > plan.windowMax) {
     return {
       ok: false,
