@@ -15,6 +15,7 @@ import {
   Info,
   Layers,
   Loader2,
+  BookMarked,
   Music,
   Play,
   RotateCcw,
@@ -29,6 +30,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TranscriptViewer } from "@/components/transcript-viewer";
+import { chaptersToCues, parseChapters } from "@/lib/chapters";
+import { exportNLETimeline, type NLEExportFormat } from "@/lib/nle-export";
 import {
   captionsHref,
   codecPlayHint,
@@ -45,9 +48,9 @@ import {
   formatViews,
   kindLabel,
   isShortVideo,
-  matchAudioTrack,
   pickBestPreset,
   sortFormats,
+  type MediaKind,
   type ResolvedVideo,
   type VideoFormat,
   type VideoPreset,
@@ -173,6 +176,41 @@ export function getPresetAvailability(
   };
 }
 
+function formatBitrate(bps: number): string {
+  if (!bps || bps <= 0) return "—";
+  return bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1)} Mbps` : `${Math.round(bps / 1000)} kbps`;
+}
+
+function qualityWithFps(format: VideoFormat): string {
+  const label = format.qualityLabel || (format.height ? `${format.height}p` : "—");
+  if (format.fps && format.fps >= 50 && !/\d{2,}p\d{2}/.test(label)) {
+    return `${label}${format.fps}`;
+  }
+  return label;
+}
+
+const FORMAT_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "h264", label: "H.264" },
+  { id: "vp9", label: "VP9" },
+  { id: "av1", label: "AV1" },
+  { id: "audio", label: "Audio" },
+] as const;
+type FormatFilter = (typeof FORMAT_FILTERS)[number]["id"];
+
+function matchesFormatFilter(format: VideoFormat, filter: FormatFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "audio") return format.kind === "audio";
+  const codec = format.codec ?? "";
+  return filter === "h264" ? codec === "H.264" : filter === "vp9" ? codec === "VP9" : codec === "AV1";
+}
+
+const FORMAT_GROUPS: { key: MediaKind; label: string }[] = [
+  { key: "av", label: "Video + audio (muxed)" },
+  { key: "video", label: "Video only (audio paired on save)" },
+  { key: "audio", label: "Audio only" },
+];
+
 export function getResolutionBadge(preset: VideoPreset) {
   const className = "bg-elevated font-mono text-subtle border border-border";
   if (preset.kind === "audio") {
@@ -205,9 +243,40 @@ export function VideoPanel({
   const [showDescription, setShowDescription] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(false);
   const [activeTab, setActiveTab] = useState<"video" | "audio" | "transcript">("video");
-  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "compare" | "pipeline" | "trimmer" | "thumbnails">("none");
+  const [openSection, setOpenSection] = useState<"none" | "formats" | "captions" | "chapters" | "compare" | "pipeline" | "trimmer" | "thumbnails">("none");
   const [trimStart, setTrimStart] = useState("00:00");
   const [trimEnd, setTrimEnd] = useState(() => formatTimecode(video.duration || 60));
+  const [formatFilter, setFormatFilter] = useState<FormatFilter>("all");
+
+  const chapters = useMemo(
+    () => parseChapters(video.description, video.duration || undefined),
+    [video.description, video.duration],
+  );
+
+  function exportChapterMarkers(format: NLEExportFormat) {
+    const result = exportNLETimeline(format, chaptersToCues(chapters), {
+      sequenceTitle: video.title,
+      fps: 30,
+      markerNameFromText: true,
+    });
+    const blob = new Blob([result.content], { type: result.mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${result.filename}`);
+  }
+
+  function clipChapter(start: number, end: number) {
+    setTrimStart(formatTimecode(start));
+    setTrimEnd(formatTimecode(end));
+    setOpenSection("trimmer");
+    toast.message("Trimmer set to this chapter's range");
+  }
 
   const thumbnailBundle = useMemo(() => resolveThumbnailBundle(video.id), [video.id]);
 
@@ -333,7 +402,7 @@ export function VideoPanel({
   }
 
   const toggleSection = (
-    section: "formats" | "captions" | "compare" | "pipeline" | "trimmer" | "thumbnails",
+    section: "formats" | "captions" | "chapters" | "compare" | "pipeline" | "trimmer" | "thumbnails",
   ) => {
     setOpenSection((current) => (current === section ? "none" : section));
   };
@@ -932,6 +1001,92 @@ export function VideoPanel({
             </div>
           ) : null}
 
+          {/* Chapters & NLE Markers */}
+          {chapters.length > 0 ? (
+            <div className="rounded-lg border border-border bg-surface overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleSection("chapters")}
+                className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-medium text-fg hover:bg-elevated/40 transition-colors cursor-pointer"
+                aria-expanded={openSection === "chapters"}
+              >
+                <span className="flex items-center gap-2">
+                  <BookMarked className="size-4 text-subtle" />
+                  Chapters & NLE Markers
+                  <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
+                    {chapters.length}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-4 text-subtle transition-transform duration-[var(--motion-quick)]",
+                    openSection === "chapters" && "rotate-180",
+                  )}
+                />
+              </button>
+
+              {openSection === "chapters" ? (
+                <div className="border-t border-border p-4 space-y-4 text-xs">
+                  <ul className="divide-y divide-border/60">
+                    {chapters.map((chapter) => (
+                      <li key={chapter.index} className="flex items-center gap-3 py-1.5">
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-baseline gap-3 text-left cursor-pointer group"
+                          onClick={() => {
+                            setSeekTime(chapter.start);
+                            setPlaying(true);
+                          }}
+                          title="Preview from this chapter"
+                        >
+                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-accent">
+                            {chapter.startFormatted}
+                          </span>
+                          <span className="truncate text-xs text-muted transition-colors group-hover:text-fg">
+                            {chapter.title}
+                          </span>
+                        </button>
+                        <span className="shrink-0 font-mono text-[10px] text-subtle hidden sm:inline">
+                          {formatDuration(chapter.end - chapter.start)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] shrink-0"
+                          onClick={() => clipChapter(chapter.start, chapter.end)}
+                          aria-label={`Trim to chapter ${chapter.title}`}
+                        >
+                          <Scissors className="size-3 mr-1" />
+                          Clip
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="pt-3 border-t border-border/40">
+                    <p className="text-muted mb-2">
+                      Export chapters as editor markers — drop the sidecar next to the saved file:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportChapterMarkers("davinci")}>
+                        DaVinci CSV
+                      </Button>
+                      <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportChapterMarkers("premiere")}>
+                        Premiere EDL
+                      </Button>
+                      <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportChapterMarkers("fcpxml")}>
+                        Final Cut FCPXML
+                      </Button>
+                      <Button variant="secondary" size="sm" className="h-8 text-xs" onClick={() => exportChapterMarkers("audacity")}>
+                        Audacity labels
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* 2. Codec & Size Comparison */}
           {sizeRows.length >= 2 ? (
             <div className="rounded-lg border border-border bg-surface overflow-hidden">
@@ -1049,42 +1204,104 @@ export function VideoPanel({
             </button>
 
             {openSection === "formats" ? (
-              <div className="border-t border-border p-4">
-                <ul className="divide-y divide-border">
-                  {formats.map((format) => (
-                    <li
-                      key={`${format.itag}-${format.kind}-${format.ext}`}
-                      className="flex items-center justify-between gap-3 py-2.5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-fg">
-                          {format.qualityLabel}
-                          <span className="text-muted font-mono"> · {format.ext.toUpperCase()}</span>
-                          {format.codec ? <span className="text-subtle"> · {format.codec}</span> : null}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-subtle">
-                          {kindLabel(
-                            format.kind,
-                            format.kind === "video" && Boolean(matchAudioTrack(format, video.formats)),
-                          )}{" "}
-                          · <span className="font-mono">{formatBytes(format.size)}</span>
-                          <span className="ml-1.5 opacity-60">itag {format.itag}</span>
-                        </p>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 text-xs"
-                        disabled={downloading}
-                        onClick={() => onDownloadFormat(format)}
-                        aria-label={`Download ${format.qualityLabel} ${format.ext}`}
+              <div className="border-t border-border p-4 space-y-3">
+                {/* Codec filter */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {FORMAT_FILTERS.map((filter) => {
+                    const count = formats.filter((f) => matchesFormatFilter(f, filter.id)).length;
+                    if (filter.id !== "all" && count === 0) return null;
+                    const active = formatFilter === filter.id;
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => setFormatFilter(filter.id)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer",
+                          active
+                            ? "border-accent/40 bg-accent/15 text-accent"
+                            : "border-border bg-elevated/60 text-muted hover:text-fg",
+                        )}
                       >
-                        <Download className="size-3 mr-1" />
-                        Save
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                        {filter.label} <span className="opacity-60">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-xs">
+                    <thead>
+                      <tr className="text-left font-mono text-[10px] uppercase tracking-wider text-subtle border-b border-border">
+                        <th className="py-1.5 pr-3 font-medium">Quality</th>
+                        <th className="py-1.5 pr-3 font-medium">Codec</th>
+                        <th className="py-1.5 pr-3 font-medium">File</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">Bitrate</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">Size</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">itag</th>
+                        <th className="py-1.5 font-medium" aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    {FORMAT_GROUPS.map((group) => {
+                      const items = formats.filter(
+                        (f) => f.kind === group.key && matchesFormatFilter(f, formatFilter),
+                      );
+                      if (!items.length) return null;
+                      return (
+                        <tbody key={group.key}>
+                          <tr>
+                            <td colSpan={7} className="pt-3 pb-1">
+                              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-subtle/80">
+                                <span aria-hidden className="inline-block h-2.5 w-[2px] -skew-x-12 rounded-[1px] bg-accent" />
+                                {group.label}
+                                <span className="opacity-60">{items.length}</span>
+                              </span>
+                            </td>
+                          </tr>
+                          {items.map((format) => (
+                            <tr
+                              key={`${format.itag}-${format.kind}-${format.ext}`}
+                              className="border-t border-border/50 hover:bg-elevated/40 transition-colors"
+                            >
+                              <td className="py-2 pr-3 font-mono font-medium text-fg whitespace-nowrap">
+                                {qualityWithFps(format)}
+                              </td>
+                              <td className="py-2 pr-3 text-muted whitespace-nowrap">{format.codec ?? "—"}</td>
+                              <td className="py-2 pr-3 font-mono uppercase text-subtle">{format.ext}</td>
+                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-subtle whitespace-nowrap">
+                                {formatBitrate(format.bitrate)}
+                              </td>
+                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-muted whitespace-nowrap">
+                                {formatBytes(format.size)}
+                              </td>
+                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-subtle/70">
+                                {format.itag}
+                              </td>
+                              <td className="py-1 text-right">
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-7 px-2.5 text-[11px]"
+                                  disabled={downloading}
+                                  onClick={() => onDownloadFormat(format)}
+                                  aria-label={`Download ${format.qualityLabel} ${format.ext}`}
+                                >
+                                  <Download className="size-3 mr-1" />
+                                  Save
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      );
+                    })}
+                  </table>
+                </div>
+
+                <p className="text-[11px] text-subtle">
+                  Video-only rows are paired with the best matching audio track when saved —{" "}
+                  {kindLabel("video", true).toLowerCase()}.
+                </p>
               </div>
             ) : null}
           </div>

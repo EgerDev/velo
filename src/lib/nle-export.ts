@@ -5,6 +5,8 @@ export type NLEExportFormat = "davinci" | "fcpxml" | "premiere" | "audacity";
 export type NLEExportOptions = {
   sequenceTitle?: string;
   fps?: number;
+  /** Use each cue's text as the marker name (chapters) instead of "Cue N" (transcripts). */
+  markerNameFromText?: boolean;
 };
 
 export type NLEExportResult = {
@@ -35,7 +37,7 @@ export function secondsToTimecode(seconds: number, fps = 30): string {
  * DaVinci Resolve Marker CSV format.
  * Header: Timecode In,Timecode Out,Marker Name,Marker Notes,Color
  */
-export function exportMarkersDavinciCsv(cues: TranscriptCue[], fps = 30): string {
+export function exportMarkersDavinciCsv(cues: TranscriptCue[], fps = 30, nameFromText = false): string {
   if (!cues || cues.length === 0) return "";
 
   const headers = ["Timecode In", "Timecode Out", "Marker Name", "Marker Notes", "Color"];
@@ -44,7 +46,9 @@ export function exportMarkersDavinciCsv(cues: TranscriptCue[], fps = 30): string
   cues.forEach((cue, index) => {
     const timeIn = secondsToTimecode(cue.start, fps);
     const timeOut = secondsToTimecode(cue.end, fps);
-    const name = `Cue ${index + 1}`;
+    const name = nameFromText
+      ? cue.text.replace(/"/g, '""').replace(/\r?\n/g, " ").slice(0, 80)
+      : `Cue ${index + 1}`;
     // Escape quotes and commas in notes
     const cleanNotes = `"${cue.text.replace(/"/g, '""').replace(/\r?\n/g, " ")}"`;
     const color = "Blue";
@@ -176,7 +180,7 @@ export function exportNLETimeline(
   switch (format) {
     case "davinci":
       return {
-        content: exportMarkersDavinciCsv(cues, fps),
+        content: exportMarkersDavinciCsv(cues, fps, options.markerNameFromText ?? false),
         filename: `${safeName}_davinci_markers.csv`,
         mimeType: "text/csv;charset=utf-8",
       };
