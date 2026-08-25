@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
-  ClipboardPaste,
   Copy,
   Download,
   FileCode,
@@ -341,20 +340,6 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
     setInputText(SAMPLE_BATCH.join("\n"));
   };
 
-  const pasteClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) {
-        toast.error("Clipboard is empty.");
-        return;
-      }
-      setInputText(text.trim());
-      toast.success("Pasted links from clipboard.");
-    } catch {
-      toast.error("Could not read clipboard. Paste directly into the box.");
-    }
-  };
-
   const copyScript = async () => {
     if (!items.length) return;
     const script = exportYtdlpBatchScript(items);
@@ -504,17 +489,8 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={pasteClipboard}
-                className="cursor-pointer gap-1.5 text-xs h-8"
-              >
-                <ClipboardPaste className="size-3.5" />
-                Paste Clipboard
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
                 onClick={pasteSampleBatch}
-                className="cursor-pointer gap-1.5 text-xs h-8 text-subtle hover:text-fg"
+                className="cursor-pointer gap-1.5 text-xs h-8 border-border/80 bg-elevated/70 hover:bg-elevated text-fg"
               >
                 Load Sample Batch
               </Button>

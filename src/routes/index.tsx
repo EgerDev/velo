@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ClipboardPaste,
   Download as DownloadIcon,
   FileText,
   Film,
@@ -364,20 +363,6 @@ function Home() {
     };
   }
 
-  async function pasteFromClipboard() {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) {
-        toast.error("Clipboard is empty.");
-        return;
-      }
-      updateUrl(text.trim());
-      await lookup(text);
-    } catch {
-      toast.error("Couldn’t read the clipboard. Paste into the box instead.");
-    }
-  }
-
   async function openHistory(item: HistoryItem) {
     updateUrl(item.url);
     await lookup(item.url);
@@ -578,25 +563,14 @@ function Home() {
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-10 px-3.5 text-xs font-medium rounded-xl flex-1 sm:flex-none border-0 shadow-none hover:bg-elevated/80"
-              onClick={() => void pasteFromClipboard()}
-            >
-              <ClipboardPaste className="size-3.5 mr-1.5" />
-              Paste
-            </Button>
-            <Button
-              type="submit"
-              className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm"
-              disabled={status === "loading"}
-            >
-              {status === "loading" ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <SubmitIcon className="size-3.5 mr-1.5" />}
-              {status === "loading" ? "Working…" : submitLabel}
-            </Button>
-          </div>
+          <Button
+            type="submit"
+            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
+            disabled={status === "loading"}
+          >
+            {status === "loading" ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <SubmitIcon className="size-3.5 mr-1.5" />}
+            {status === "loading" ? "Working…" : submitLabel}
+          </Button>
         </form>
 
         {/* Quick Sample Presets */}

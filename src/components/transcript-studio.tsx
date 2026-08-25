@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
-  ClipboardPaste,
   Clock,
   Copy,
   Download,
@@ -324,35 +323,14 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
           ) : null}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-10 px-3.5 text-xs font-medium rounded-xl flex-1 sm:flex-none border-0 shadow-none hover:bg-elevated/80"
-            onClick={async () => {
-              try {
-                const text = await navigator.clipboard.readText();
-                if (text) {
-                  setUrlInput(text);
-                  void loadVideoTranscript(text);
-                }
-              } catch {
-                toast.error("Couldn’t read from clipboard.");
-              }
-            }}
-          >
-            <ClipboardPaste className="size-3.5 mr-1.5" />
-            Paste
-          </Button>
           <Button
             type="submit"
             disabled={loading}
-            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm"
+            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
           >
             {loading ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Sparkles className="size-3.5 mr-1.5" />}
             {loading ? "Working…" : "Get Transcript"}
           </Button>
-        </div>
       </form>
 
       {/* Quick Curated Podcast & Lecture Presets */}
