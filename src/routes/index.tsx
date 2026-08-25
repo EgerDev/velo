@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ClipboardPaste,
   Download as DownloadIcon,
+  FileText,
   Film,
   Gauge,
   Link2,
@@ -24,6 +25,7 @@ import { ResultList } from "@/components/result-list";
 import { VideoPanel } from "@/components/video-panel";
 import { SaveStage } from "@/components/save-stage";
 import { BulkDownloader } from "@/components/bulk-downloader";
+import { TranscriptStudio } from "@/components/transcript-studio";
 import { cn } from "@/lib/utils";
 import {
   matchAudioTrack,
@@ -94,7 +96,7 @@ function Home() {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [offer, setOffer] = useState<OfferedFile[] | null>(null);
-  const [viewMode, setViewMode] = useState<"single" | "bulk">("single");
+  const [viewMode, setViewMode] = useState<"single" | "bulk" | "transcript">("single");
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
@@ -453,12 +455,12 @@ function Home() {
         </div>
 
         {/* Mode Switcher Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-elevated/70 border border-border/80 rounded-2xl w-fit mt-7 shadow-xs">
+        <div className="flex items-center gap-1.5 p-1 bg-elevated/70 border border-border/80 rounded-2xl w-fit mt-7 shadow-xs overflow-x-auto max-w-full no-scrollbar">
           <button
             type="button"
             onClick={() => setViewMode("single")}
             className={cn(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer",
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
               viewMode === "single"
                 ? "bg-accent text-accent-fg shadow-sm"
                 : "text-muted hover:text-fg hover:bg-white/5",
@@ -471,7 +473,7 @@ function Home() {
             type="button"
             onClick={() => setViewMode("bulk")}
             className={cn(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer",
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
               viewMode === "bulk"
                 ? "bg-accent text-accent-fg shadow-sm"
                 : "text-muted hover:text-fg hover:bg-white/5",
@@ -490,9 +492,43 @@ function Home() {
               Batch
             </span>
           </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("transcript")}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
+              viewMode === "transcript"
+                ? "bg-accent text-accent-fg shadow-sm"
+                : "text-muted hover:text-fg hover:bg-white/5",
+            )}
+          >
+            <FileText className="size-3.5" />
+            YouTube to Transcript
+            <span
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded-full font-mono font-semibold",
+                viewMode === "transcript"
+                  ? "bg-black/25 text-white"
+                  : "bg-purple-500/20 text-purple-300",
+              )}
+            >
+              AI Studio
+            </span>
+          </button>
         </div>
 
-        {viewMode === "bulk" ? (
+        {viewMode === "transcript" ? (
+          <div className="mt-6">
+            <TranscriptStudio
+              initialUrl={url}
+              onOpenInDownloader={(singleUrl) => {
+                updateUrl(singleUrl);
+                setViewMode("single");
+                void lookup(singleUrl);
+              }}
+            />
+          </div>
+        ) : viewMode === "bulk" ? (
           <div className="mt-6">
             <BulkDownloader
               onSelectSingleVideo={(singleUrl) => {

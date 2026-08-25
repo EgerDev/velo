@@ -3,7 +3,7 @@ import { useEffect } from "react";
 export type ShortcutHandlers = {
   onFocusSearch?: () => void;
   onDownload?: () => void;
-  onSwitchMode?: (mode: "single" | "bulk") => void;
+  onSwitchMode?: (mode: "single" | "bulk" | "transcript") => void;
   onSelectTab?: (tab: "video" | "audio" | "transcript") => void;
   onToggleHelp?: () => void;
   onClear?: () => void;
@@ -48,7 +48,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       // Ignore single character shortcuts if user is typing in an input
       if (isInput) return;
 
-      // 4. '1' or '2' for View Mode
+      // 4. '1', '2', '3' for View Mode
       if (e.key === "1") {
         e.preventDefault();
         handlers.onSwitchMode?.("single");
@@ -57,6 +57,11 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       if (e.key === "2") {
         e.preventDefault();
         handlers.onSwitchMode?.("bulk");
+        return;
+      }
+      if (e.key === "3") {
+        e.preventDefault();
+        handlers.onSwitchMode?.("transcript");
         return;
       }
 
