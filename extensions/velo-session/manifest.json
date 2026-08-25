@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Velo YouTube Session",
+  "version": "1.1.0",
+  "description": "Extract YouTube HttpOnly cookies, capture live HAR cookie headers, and send them to Velo.",
+  "permissions": ["cookies", "tabs", "clipboardWrite", "downloads", "scripting", "webRequest"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.google.com/*",
+    "*://*.youtube-nocookie.com/*",
+    "*://*.googlevideo.com/*",
+    "*://localhost/*",
+    "*://127.0.0.1/*",
+    "*://*.grok-sandbox.com/*",
+    "*://*.grok.com/*"
+  ],
+  "action": {
+    "default_title": "Send YouTube session to Velo",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.grok-sandbox.com/*",
+        "https://*.grok.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "velo-session@velo.app",
+      "strict_min_version": "121.0"
+    }
+  }
+}

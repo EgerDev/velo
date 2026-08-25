@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.vercel/
+.tanstack/
+dist/
+build/
+*.tsbuildinfo
+
+# Local workspace snapshots
+.grok/
+screenshots/
+attachments/
+artifacts/
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
