@@ -154,11 +154,15 @@ export function parseWebVttIntoCues(vttText: string): TranscriptCue[] {
     i++;
   }
 
-  // Deduplicate adjacent cues with identical text
+  // Deduplicate adjacent cues with identical or rolling-window text
   const deduplicated: TranscriptCue[] = [];
   for (const cue of cues) {
     const prev = deduplicated[deduplicated.length - 1];
     if (prev && prev.text === cue.text) {
+      prev.end = cue.end;
+      prev.endFormatted = cue.endFormatted;
+    } else if (prev && cue.text.startsWith(prev.text + " ")) {
+      prev.text = cue.text;
       prev.end = cue.end;
       prev.endFormatted = cue.endFormatted;
     } else {

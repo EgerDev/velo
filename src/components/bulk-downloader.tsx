@@ -131,6 +131,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
         prev.map((item) => {
           const match = results.find((r) => r.id === item.id);
           if (!match) return item;
+          const nextStatus = item.status === "resolving" || item.status === "pending" ? "ready" : item.status;
           if (match.ok && match.video) {
             const v = match.video;
             const targetPreset =
@@ -146,7 +147,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                 ? `${Math.floor(v.duration / 60)}:${String(v.duration % 60).padStart(2, "0")}`
                 : null,
               thumbnail: v.thumbnail,
-              status: "ready",
+              status: nextStatus,
               selectedItag: targetPreset?.itag ?? 137,
               selectedAudioItag: targetPreset?.audioItag ?? null,
               sizeFormatted: targetPreset?.size
@@ -157,7 +158,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
           } else {
             return {
               ...item,
-              status: "ready", // Still allow trying direct download
+              status: nextStatus,
               error: match.error ?? null,
             };
           }
@@ -210,8 +211,6 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
           if (activeCount === 0) {
             // Queue is complete
-            setIsProcessing(false);
-            toast.success("Batch download queue completed!");
             break;
           }
 
@@ -229,9 +228,14 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
       }
     };
 
-    // Run workers up to max concurrency
-    const workers = Array.from({ length: queueOptions.maxConcurrency }, () => runWorker());
+    // Run workers with staggered startup up to max concurrency
+    const workers = Array.from({ length: queueOptions.maxConcurrency }, async (_, i) => {
+      if (i > 0) await new Promise((r) => setTimeout(r, queueOptions.staggerDelayMs * i));
+      return runWorker();
+    });
     await Promise.all(workers);
+    setIsProcessing(false);
+    toast.success("Batch download queue completed!");
   };
 
   // Download a single item through the Velo pipeline

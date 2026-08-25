@@ -22,7 +22,7 @@ export function secondsToTimecode(seconds: number, fps = 30): string {
   const totalFrames = Math.round(safeSeconds * fps);
   
   const frames = totalFrames % fpsBase;
-  const totalSec = Math.floor(totalFrames / fps);
+  const totalSec = Math.floor(totalFrames / fpsBase);
   const s = totalSec % 60;
   const m = Math.floor(totalSec / 60) % 60;
   const h = Math.floor(totalSec / 3600);

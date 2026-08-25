@@ -41,8 +41,8 @@ export function resolvePlayerClient(client: string): string {
 
 /** itag 137 (and 299/136/…) are video-only dash. Pair AAC, then HLS 1080, then 360. */
 const VIDEO_ONLY = new Set([
-  133, 134, 135, 136, 137, 160, 242, 243, 244, 247, 248, 271, 278, 298, 299, 302, 303, 308, 313, 394, 395, 396, 397, 398,
-  399, 400, 401, 598,
+  133, 134, 135, 136, 137, 160, 242, 243, 244, 247, 248, 264, 266, 271, 272, 278, 298, 299, 302, 303, 308, 313, 336, 394, 395, 396, 397, 398,
+  399, 400, 401, 571, 598,
 ]);
 
 /**
@@ -57,7 +57,21 @@ export const BEST_1080_SELECTOR = WORKING_1080_SELECTOR;
 const ITAG_1080 = new Set([137, 299, 248, 399, 303, 96]);
 
 export function isAudioItag(itag: number): boolean {
-  return itag === 140 || itag === 139 || itag === 249 || itag === 250 || itag === 251 || itag === 233 || itag === 234;
+  return (
+    itag === 140 ||
+    itag === 139 ||
+    itag === 141 ||
+    itag === 171 ||
+    itag === 172 ||
+    itag === 249 ||
+    itag === 250 ||
+    itag === 251 ||
+    itag === 252 ||
+    itag === 256 ||
+    itag === 258 ||
+    itag === 233 ||
+    itag === 234
+  );
 }
 
 export function isVideoOnlyItag(itag: number): boolean {

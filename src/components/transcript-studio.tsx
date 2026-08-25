@@ -117,12 +117,12 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
     return cues.filter((cue) => !deletedCueIds.has(cue.id));
   }, [cues, deletedCueIds]);
 
-  // Search filtered cues
+  // Search filtered cues (showing all cues with deleted styling)
   const filteredCues = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return activeCues;
-    return activeCues.filter((cue) => cue.text.toLowerCase().includes(q));
-  }, [activeCues, searchQuery]);
+    if (!q) return cues;
+    return cues.filter((cue) => cue.text.toLowerCase().includes(q));
+  }, [cues, searchQuery]);
 
   // Word statistics & estimated reading time
   const stats = useMemo(() => {
@@ -266,6 +266,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
     const blob = new Blob([content], { type: mime });
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    a.style.display = "none";
     a.href = blobUrl;
     const safeTitle = video.title.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 50);
     a.download = `${safeTitle}-transcript.${ext}`;
@@ -282,8 +283,10 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
     const blob = new Blob([exported.content], { type: exported.mimeType });
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    a.style.display = "none";
     a.href = blobUrl;
-    a.download = exported.filename;
+    const safeTitle = video.title.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 50);
+    a.download = `${safeTitle}-${exported.filename}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -468,7 +471,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                     key={`studio-player-${video.id}`}
                     id="transcript-studio-iframe"
                     title={`Transcript Player ${video.title}`}
-                    src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=0&rel=0&enablejsapi=1${playingTime != null ? `&start=${Math.floor(playingTime)}` : ""}`}
+                    src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=0&rel=0&enablejsapi=1`}
                     className="size-full"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen

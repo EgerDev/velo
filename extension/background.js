@@ -140,20 +140,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // 4. Queue Management Helpers
+let queueLock = Promise.resolve();
+
 async function getQueue() {
   const data = await chrome.storage.local.get(["velo_queue"]);
   return data.velo_queue || [];
 }
 
 async function addToQueue(item) {
-  const queue = await getQueue();
-  const exists = queue.some((i) => i.id === item.id);
-  if (!exists) {
-    queue.push(item);
-    await chrome.storage.local.set({ velo_queue: queue });
-    await updateQueueBadge();
-  }
-  return queue;
+  return (queueLock = queueLock.then(async () => {
+    const queue = await getQueue();
+    const exists = queue.some((i) => i.id === item.id);
+    if (!exists) {
+      queue.push(item);
+      await chrome.storage.local.set({ velo_queue: queue });
+      await updateQueueBadge();
+    }
+    return queue;
+  }));
 }
 
 async function removeFromQueue(id) {

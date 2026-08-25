@@ -25,10 +25,13 @@ function stampClientPot(url: string, pot: string | null | undefined): string {
 function abortAfter(ms: number, parent?: AbortSignal): { signal: AbortSignal; disarm: () => void } {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), ms);
-  const disarm = () => window.clearTimeout(timer);
   const onParent = () => {
     disarm();
     controller.abort();
+  };
+  const disarm = () => {
+    window.clearTimeout(timer);
+    if (parent) parent.removeEventListener("abort", onParent);
   };
   if (parent?.aborted) {
     disarm();
@@ -45,9 +48,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string, signal?:
       reject(new Error(`${label} aborted`));
       return;
     }
-    const timer = window.setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    const timer = window.setTimeout(() => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+    }, ms);
     const onAbort = () => {
       window.clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
       reject(new Error(`${label} aborted`));
     };
     signal?.addEventListener("abort", onAbort, { once: true });

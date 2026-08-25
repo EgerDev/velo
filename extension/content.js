@@ -184,14 +184,16 @@
         e.preventDefault();
         e.stopPropagation();
 
+        const currentLink = thumb.querySelector("a#thumbnail");
+        const currentId = extractVideoId(currentLink?.href) || videoId;
         const titleElem = thumb.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer")?.querySelector("#video-title");
-        const title = titleElem?.textContent?.trim() || `Video ${videoId}`;
+        const title = titleElem?.textContent?.trim() || `Video ${currentId}`;
 
         await chrome.runtime.sendMessage({
           type: "QUEUE_ADD",
           item: {
-            id: videoId,
-            url: `https://www.youtube.com/watch?v=${videoId}`,
+            id: currentId,
+            url: `https://www.youtube.com/watch?v=${currentId}`,
             title,
             addedAt: Date.now(),
           },
@@ -203,12 +205,16 @@
     });
   }
 
-  // 5. Lifecycle Watcher for YouTube SPA Navigations
+  // 5. Lifecycle Watcher for YouTube SPA Navigations (Debounced for 60fps performance)
   function initObserver() {
+    let debounceTimer;
     const observer = new MutationObserver(() => {
-      injectPlayerButtons();
-      injectShortsButton();
-      injectThumbnailBadges();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        injectPlayerButtons();
+        injectShortsButton();
+        injectThumbnailBadges();
+      }, 250);
     });
 
     observer.observe(document.body, {

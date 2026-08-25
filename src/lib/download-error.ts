@@ -104,7 +104,13 @@ export function classifyDownloadError(
   ) {
     return as("bot");
   }
-  if (lower.includes("403") || lower.includes("blocked") || lower.includes("access denied") || lower.includes("locked cdn")) {
+  if (
+    opts?.status === 403 ||
+    lower.includes("403") ||
+    lower.includes("blocked") ||
+    lower.includes("access denied") ||
+    lower.includes("locked cdn")
+  ) {
     return as("blocked");
   }
   if (lower.includes("cookie")) return as("cookies");
