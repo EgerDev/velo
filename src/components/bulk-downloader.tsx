@@ -435,10 +435,10 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                 }}
                 className="w-full rounded-md border border-border bg-elevated px-2.5 py-1.5 text-fg text-xs focus:outline-none focus:ring-1 focus:ring-accent"
               >
-                <option value="1080p">🎬 1080p Full HD</option>
-                <option value="720p">⚡ 720p HD</option>
-                <option value="audio">🎵 Audio Only</option>
-                <option value="transcript">📝 Subtitles Only</option>
+                <option value="1080p">1080p Full HD</option>
+                <option value="720p">720p HD</option>
+                <option value="audio">Audio Only</option>
+                <option value="transcript">Subtitles Only</option>
               </select>
             </div>
 
@@ -523,7 +523,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
             <div className="flex items-center gap-3">
               {extracted.totalUnique > 0 || extracted.playlistIds.length > 0 ? (
                 <span className="text-xs font-mono font-medium text-accent">
-                  ✨ {extracted.totalUnique} video(s)
+                  {extracted.totalUnique} video(s)
                   {extracted.playlistIds.length > 0 ? ` + ${extracted.playlistIds.length} playlist(s)` : ""} detected
                 </span>
               ) : null}
@@ -578,7 +578,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                   size="sm"
                   variant="outline"
                   onClick={pauseQueue}
-                  className="cursor-pointer gap-1.5 text-xs h-8 text-amber-400 border-amber-400/30 hover:bg-amber-400/10"
+                  className="cursor-pointer gap-1.5 text-xs h-8 text-warn border-warn/30 hover:bg-warn/10"
                 >
                   <Pause className="size-3.5" />
                   Pause
@@ -600,7 +600,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                   size="sm"
                   variant="outline"
                   onClick={retryFailed}
-                  className="cursor-pointer gap-1.5 text-xs h-8 text-rose-400 border-rose-400/30 hover:bg-rose-400/10"
+                  className="cursor-pointer gap-1.5 text-xs h-8 text-danger border-danger/30 hover:bg-danger/10"
                 >
                   <RefreshCw className="size-3.5" />
                   Retry Failed ({stats.failed})
@@ -684,9 +684,9 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                     item.status === "downloading"
                       ? "bg-accent/10 border border-accent/30"
                       : item.status === "completed"
-                        ? "bg-emerald-500/5 hover:bg-emerald-500/10"
+                        ? "bg-success/5 hover:bg-success/10"
                         : item.status === "failed"
-                          ? "bg-rose-500/5 hover:bg-rose-500/10"
+                          ? "bg-danger/5 hover:bg-danger/10"
                           : "hover:bg-elevated/60",
                   )}
                 >
@@ -739,7 +739,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
                       {/* Error text if failed */}
                       {item.error ? (
-                        <p className="text-[11px] text-rose-400 truncate mt-0.5">{item.error}</p>
+                        <p className="text-[11px] text-danger truncate mt-0.5">{item.error}</p>
                       ) : null}
                     </div>
                   </div>
@@ -756,12 +756,12 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
                           </span>
                         </div>
                       ) : item.status === "completed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
                           <CheckCircle2 className="size-3.5" />
                           Done
                         </span>
                       ) : item.status === "failed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-400">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
                           <XCircle className="size-3.5" />
                           Failed
                         </span>

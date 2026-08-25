@@ -101,7 +101,7 @@ export function getPresetAvailability(
     return {
       status: "audio",
       badgeText: "Direct Audio",
-      badgeColor: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+      badgeColor: "bg-elevated text-muted border-border",
       icon: "music",
       pipelineTitle: `Direct Audio Stream (itag ${preset.itag})`,
       pipelineDesc: `${audioCodec} · ~${bitrateKbps} kbps pure sound · zero transcoding`,
@@ -111,13 +111,15 @@ export function getPresetAvailability(
 
   if (isOptimal) {
     const audioNote = audioFormat ? `+ ${audioFormat.codec ?? "AAC"}` : "";
+    const videoCodec = preset.codec ?? "H.264";
+    const audioCodec = audioFormat?.codec ?? "AAC";
     return {
       status: "optimal",
-      badgeText: "Optimal",
-      badgeColor: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30 ring-1 ring-emerald-500/20",
+      badgeText: "Recommended",
+      badgeColor: "bg-accent/15 text-accent border-accent/30",
       icon: "target",
       pipelineTitle: preset.audioItag
-        ? `Direct H.264+AAC Mux (itag ${preset.itag} + ${preset.audioItag})`
+        ? `Direct ${videoCodec}+${audioCodec} Mux (itag ${preset.itag} + ${preset.audioItag})`
         : `Direct Stream Container (itag ${preset.itag})`,
       pipelineDesc: "Standard compatibility · Plays universally on all devices & editors",
       codecDetail: preset.audioItag ? `${preset.codec ?? "H.264"} ${audioNote}` : `${preset.codec ?? "H.264"}`,
@@ -128,7 +130,7 @@ export function getPresetAvailability(
     return {
       status: "efficient",
       badgeText: "High Efficiency",
-      badgeColor: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+      badgeColor: "bg-elevated text-muted border-border",
       icon: "cpu",
       pipelineTitle: `AV1 Next-Gen Pipeline (itag ${preset.itag}${preset.audioItag ? ` + ${preset.audioItag}` : ""})`,
       pipelineDesc: "30–50% smaller file size at identical resolution",
@@ -140,7 +142,7 @@ export function getPresetAvailability(
     return {
       status: "efficient",
       badgeText: "WebM / VP9",
-      badgeColor: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+      badgeColor: "bg-elevated text-muted border-border",
       icon: "cpu",
       pipelineTitle: `VP9 WebM Pipeline (itag ${preset.itag}${preset.audioItag ? ` + ${preset.audioItag}` : ""})`,
       pipelineDesc: "Google WebM open container · Optimized for Chrome & VLC",
@@ -152,7 +154,7 @@ export function getPresetAvailability(
     return {
       status: "automux",
       badgeText: "Auto-Mux",
-      badgeColor: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      badgeColor: "bg-elevated text-muted border-border",
       icon: "zap",
       pipelineTitle: `Lossless Copy-Mux (itag ${preset.itag} + ${preset.audioItag})`,
       pipelineDesc: "DASH video stream paired with matched audio track in MP4 container",
@@ -163,7 +165,7 @@ export function getPresetAvailability(
   return {
     status: "direct",
     badgeText: "Direct Ready",
-    badgeColor: "bg-teal-500/15 text-teal-300 border-teal-500/30",
+    badgeColor: "bg-elevated text-muted border-border",
     icon: "check",
     pipelineTitle: `Single Stream Container (itag ${preset.itag})`,
     pipelineDesc: "Pre-muxed video & audio in one stream · Instant single-request fetch",
@@ -172,47 +174,19 @@ export function getPresetAvailability(
 }
 
 export function getResolutionBadge(preset: VideoPreset) {
+  const className = "bg-elevated font-mono text-subtle border border-border";
   if (preset.kind === "audio") {
-    return {
-      label: "Audio",
-      className: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
-    };
+    return { label: "Audio", className };
   }
   const height = preset.height ?? 0;
   if (height >= 2160 || preset.id === "uhd") {
-    return {
-      label: height >= 2160 ? "4K UHD" : `${height}p UHD`,
-      className: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
-    };
+    return { label: height >= 2160 ? "4K UHD" : `${height}p UHD`, className };
   }
-  if (height >= 1440) {
-    return {
-      label: "1440p QHD",
-      className: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
-    };
-  }
-  if (height >= 1080) {
-    return {
-      label: "1080p FHD",
-      className: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
-    };
-  }
-  if (height >= 720) {
-    return {
-      label: "720p HD",
-      className: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-    };
-  }
-  if (height > 0) {
-    return {
-      label: `${height}p SD`,
-      className: "bg-zinc-500/20 text-zinc-300 border border-zinc-500/30",
-    };
-  }
-  return {
-    label: "Video",
-    className: "bg-zinc-500/20 text-zinc-300 border border-zinc-500/30",
-  };
+  if (height >= 1440) return { label: "1440p QHD", className };
+  if (height >= 1080) return { label: "1080p FHD", className };
+  if (height >= 720) return { label: "720p HD", className };
+  if (height > 0) return { label: `${height}p SD`, className };
+  return { label: "Video", className };
 }
 
 export function VideoPanel({
@@ -370,7 +344,7 @@ export function VideoPanel({
     <article className="panel rise mt-8 overflow-hidden">
       {/* Video Preview Player */}
       <div className={cn("relative overflow-hidden flex items-center justify-center bg-elevated/40", isShort ? "py-4 bg-black/40" : "aspect-video")}>
-        <div className={cn("relative", isShort ? "w-full max-w-[300px] aspect-[9/16] rounded-2xl overflow-hidden shadow-2xl border border-white/10" : "size-full")}>
+        <div className={cn("relative", isShort ? "w-full max-w-[300px] aspect-[9/16] rounded-2xl overflow-hidden shadow-2xl border border-border" : "size-full")}>
           {playing ? (
             <iframe
               key={`player-${seekTime}`}
@@ -417,7 +391,7 @@ export function VideoPanel({
                 {video.title}
               </h2>
               {isShort ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-elevated text-muted border border-border">
                   <Zap className="size-3 fill-current" />
                   YouTube Short
                 </span>
@@ -479,29 +453,26 @@ export function VideoPanel({
         {/* AUTOMATED QUALITY DETECTION & AVAILABILITY SYSTEM: PRE-FLIGHT STATUS CARD */}
         {/* ========================================================================= */}
         <section
-          aria-label="System Pre-Flight & Quality Status"
-          className="mt-5 overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-950/10 shadow-[var(--shadow-glass)] transition-all"
+          aria-label="Source analysis"
+          className="mt-5 overflow-hidden rounded-xl border border-border bg-surface/70 shadow-[var(--shadow-glass)] transition-all"
         >
-          {/* Top Pre-Flight Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2 sm:px-4">
+          {/* Top Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-elevated/50 px-3.5 py-2 sm:px-4">
             <div className="flex items-center gap-2">
-              <span className="relative flex size-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full size-2.5 bg-emerald-500" />
-              </span>
-              <span className="text-xs font-semibold text-emerald-200 tracking-wide uppercase">
-                System Pre-Flight & Quality Engine
+              <span className="size-2 rounded-full bg-success" />
+              <span className="font-mono text-xs font-medium uppercase tracking-wide text-muted">
+                Source analysis
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
+              <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success border border-success/30">
                 <ShieldCheck className="size-3.5" />
-                Verified Ready
+                Ready
               </span>
               <button
                 type="button"
                 onClick={() => setShowTelemetry((prev) => !prev)}
-                className="flex items-center gap-1 text-[11px] text-emerald-300/80 hover:text-emerald-200 cursor-pointer transition-colors"
+                className="flex items-center gap-1 text-[11px] text-subtle hover:text-fg cursor-pointer transition-colors"
                 aria-expanded={showTelemetry}
               >
                 <span>Telemetry</span>
@@ -510,25 +481,22 @@ export function VideoPanel({
             </div>
           </div>
 
-          {/* Dynamic Headline Banner */}
+          {/* Summary */}
           <div className="p-3.5 sm:p-4">
-            <div className="flex items-start gap-2.5">
-              <Sparkles className="size-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-fg leading-snug">
-                  ✨ Auto-Detected {preFlight.qualityCount} Qualities · {preFlight.maxQualityLabel} Verified Ready · {preFlight.pipelineStrategy}
-                </p>
-                <p className="mt-1 text-xs text-muted leading-relaxed">
-                  Streams analyzed & synchronized. Zero-loss copy-mux pipeline prepared with matched AAC audio pairing.
-                </p>
-              </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-fg leading-snug">
+                {preFlight.qualityCount} qualities · {preFlight.maxQualityLabel} · {preFlight.pipelineStrategy}
+              </p>
+              <p className="mt-1 text-xs text-muted leading-relaxed">
+                Streams are analyzed and paired with matching audio — files save without re-encoding.
+              </p>
             </div>
 
             {/* Pre-Flight Metric Specs Grid */}
             <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4 pt-1">
               <div className="rounded-lg bg-surface/70 border border-border/80 p-2.5">
                 <div className="flex items-center gap-1.5 text-[11px] text-subtle font-medium">
-                  <Activity className="size-3 text-emerald-400" />
+                  <Activity className="size-3 text-subtle" />
                   Max Source
                 </div>
                 <div className="mt-1 font-mono text-xs font-semibold text-fg">
@@ -547,7 +515,7 @@ export function VideoPanel({
 
               <div className="rounded-lg bg-surface/70 border border-border/80 p-2.5">
                 <div className="flex items-center gap-1.5 text-[11px] text-subtle font-medium">
-                  <Zap className="size-3 text-amber-400" />
+                  <Zap className="size-3 text-subtle" />
                   Pipeline
                 </div>
                 <div className="mt-1 font-mono text-xs font-semibold text-fg truncate" title={preFlight.pipelineStrategy}>
@@ -557,7 +525,7 @@ export function VideoPanel({
 
               <div className="rounded-lg bg-surface/70 border border-border/80 p-2.5">
                 <div className="flex items-center gap-1.5 text-[11px] text-subtle font-medium">
-                  <Cpu className="size-3 text-cyan-400" />
+                  <Cpu className="size-3 text-subtle" />
                   Codecs
                 </div>
                 <div className="mt-1 font-mono text-xs font-semibold text-fg truncate" title={preFlight.codecsDetected.join(" · ")}>
@@ -567,7 +535,7 @@ export function VideoPanel({
 
               <div className="rounded-lg bg-surface/70 border border-border/80 p-2.5">
                 <div className="flex items-center gap-1.5 text-[11px] text-subtle font-medium">
-                  <Music className="size-3 text-purple-400" />
+                  <Music className="size-3 text-subtle" />
                   Audio Pairing
                 </div>
                 <div className="mt-1 font-mono text-xs font-semibold text-fg truncate" title={preFlight.audioPairingDetail}>
@@ -578,8 +546,8 @@ export function VideoPanel({
 
             {/* Source Warning if < 1080p */}
             {!preFlight.is1080pVerified && preFlight.sourceMaxHeight > 0 ? (
-              <div className="mt-3 flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-200">
-                <Info className="size-4 text-amber-400 shrink-0" />
+              <div className="mt-3 flex items-center gap-2 rounded-md bg-warn/10 border border-warn/20 px-3 py-2 text-xs text-warn">
+                <Info className="size-4 text-warn shrink-0" />
                 <span>
                   Source uploaded at <strong>{preFlight.sourceMaxHeight}p</strong> max. 1080p is unavailable for this specific upload.
                 </span>
@@ -600,11 +568,11 @@ export function VideoPanel({
                   </div>
                   <div>
                     <span className="text-subtle font-medium">Video/Audio Desync Guard: </span>
-                    <span className="text-emerald-400 font-mono">Active (Timestamp Aligned)</span>
+                    <span className="text-success font-mono">Active (Timestamp Aligned)</span>
                   </div>
                   <div>
                     <span className="text-subtle font-medium">NSig & BotGuard Bypass: </span>
-                    <span className="text-emerald-400 font-mono">Pre-warmed & Verified</span>
+                    <span className="text-success font-mono">Pre-warmed & Verified</span>
                   </div>
                   <div>
                     <span className="text-subtle font-medium">Captions Available: </span>
@@ -1019,7 +987,7 @@ export function VideoPanel({
                               <span className="tabular-nums font-mono text-fg text-xs">
                                 {formatBytes(row.size)}
                                 {row.vsH264 != null && row.vsH264 > 0 ? (
-                                  <span className="ml-2 text-emerald-400 font-sans font-medium">
+                                  <span className="ml-2 text-success font-sans font-medium">
                                     {row.vsH264}% smaller
                                   </span>
                                 ) : row.codec === "H.264" ? (
@@ -1212,11 +1180,11 @@ export function VideoPanel({
                 <div className="flex items-center justify-between pt-2 border-t border-border/60 text-[11px]">
                   <div>
                     {trimValidation.valid ? (
-                      <span className="text-emerald-400 font-medium">
-                        ✓ Valid Range ({formatTimecode(trimValidation.start)} → {formatTimecode(trimValidation.end)})
+                      <span className="text-success font-medium">
+                        Valid range ({formatTimecode(trimValidation.start)} → {formatTimecode(trimValidation.end)})
                       </span>
                     ) : (
-                      <span className="text-rose-400 font-medium">{trimValidation.error}</span>
+                      <span className="text-danger font-medium">{trimValidation.error}</span>
                     )}
                   </div>
                   {clipSizeEstimate ? (

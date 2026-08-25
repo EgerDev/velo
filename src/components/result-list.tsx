@@ -31,7 +31,7 @@ export function ResultList({ title, subtitle, items, onPick }: ResultListProps) 
                     className="size-full object-cover"
                   />
                   {item.duration != null ? (
-                    <span className="absolute bottom-1.5 right-1.5 rounded-xs bg-bg/85 px-1.5 py-0.5 text-xs tabular-nums text-fg">
+                    <span className="absolute bottom-1.5 right-1.5 rounded-xs bg-bg/85 px-1.5 py-0.5 font-mono text-xs tabular-nums text-fg">
                       {formatDuration(item.duration)}
                     </span>
                   ) : null}

@@ -79,7 +79,7 @@ export function SessionGuide({
     try {
       await navigator.clipboard.writeText(ingestCode);
       setCopiedIngestCode(true);
-      toast.success("'⚡ Open in Velo' bookmarklet code copied to clipboard");
+      toast.success("'Open in Velo' bookmarklet code copied to clipboard");
       setTimeout(() => setCopiedIngestCode(false), 2500);
     } catch {
       toast.error("Could not copy bookmarklet code.");

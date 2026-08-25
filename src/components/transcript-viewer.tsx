@@ -56,7 +56,7 @@ const NLE_FORMAT_OPTIONS: {
     ext: ".csv",
     desc: "SMPTE Timecode In/Out, Marker Name, Notes & Colors",
     badge: "Resolve CSV",
-    color: "text-sky-400 bg-sky-500/10 border-sky-500/20",
+    color: "text-accent bg-accent/10 border-accent/20",
   },
   {
     id: "fcpxml",
@@ -65,7 +65,7 @@ const NLE_FORMAT_OPTIONS: {
     ext: ".fcpxml",
     desc: "FCPXML 1.9 Timeline Sequence with <marker> tags",
     badge: "FCPXML",
-    color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+    color: "text-accent bg-accent/10 border-accent/20",
   },
   {
     id: "premiere",
@@ -74,7 +74,7 @@ const NLE_FORMAT_OPTIONS: {
     ext: ".edl",
     desc: "CMX 3600 compliant marker list with clip comments",
     badge: "Premiere EDL",
-    color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    color: "text-warn bg-warn/10 border-warn/20",
   },
   {
     id: "audacity",
@@ -83,7 +83,7 @@ const NLE_FORMAT_OPTIONS: {
     ext: ".txt",
     desc: "Tab-separated high precision start, end, label",
     badge: "Audacity Labels",
-    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    color: "text-success bg-success/10 border-success/20",
   },
 ];
 
@@ -296,7 +296,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
                 ) : null}
               </div>
               <p className="text-xs text-subtle mt-0.5 flex items-center gap-2 flex-wrap">
-                <span>⏱️ ~{readingMinutes} min read</span>
+                <span>~{readingMinutes} min read</span>
                 <span>·</span>
                 <span>{totalWords.toLocaleString()} words</span>
                 <span>·</span>
@@ -372,7 +372,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
               onClick={() => setShowAiPrompts(!showAiPrompts)}
               className={cn("text-xs h-8 px-2.5", showAiPrompts && "bg-accent/15 border-accent text-accent")}
             >
-              <Sparkles className="size-3.5 mr-1.5 text-amber-400" />
+              <Sparkles className="size-3.5 mr-1.5 text-warn" />
               AI Prompts
             </Button>
 
@@ -388,7 +388,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
                 )}
                 title="Export markers for DaVinci Resolve, Final Cut Pro, Premiere Pro, Audacity"
               >
-                <Film className="size-3.5 mr-1.5 text-sky-400" />
+                <Film className="size-3.5 mr-1.5 text-accent" />
                 Export NLE Markers
                 <ChevronDown className={cn("size-3 ml-1 transition-transform", showNleMenu && "rotate-180")} />
               </Button>
@@ -445,7 +445,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
                 onClick={() => void handleCopy(showTimestamps ? "timestamps" : "plain")}
                 className="text-xs h-7 px-2.5 text-fg hover:text-accent"
               >
-                {copiedType ? <Check className="size-3.5 mr-1 text-emerald-400" /> : <Copy className="size-3.5 mr-1" />}
+                {copiedType ? <Check className="size-3.5 mr-1 text-success" /> : <Copy className="size-3.5 mr-1" />}
                 Copy Text
               </Button>
             </div>
@@ -497,7 +497,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
           <div className="mt-2 rounded-lg bg-surface/90 border border-accent/30 p-3.5 rise">
             <div className="flex items-center justify-between mb-2.5">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="size-4 text-amber-400" />
+                <Sparkles className="size-4 text-warn" />
                 <span className="font-semibold text-xs text-fg">1-Click AI Prompts (ChatGPT / Claude / Grok)</span>
               </div>
               <span className="text-[11px] text-subtle">Click any template to copy with full transcript</span>
@@ -595,7 +595,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
 
       {/* Footer Info */}
       <div className="p-3 bg-elevated/30 border-t border-border flex items-center justify-between text-[11px] text-subtle">
-        <span>💡 Click any timestamp to jump to that moment in the video</span>
+        <span>Click any timestamp to jump to that moment in the video</span>
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -625,7 +625,7 @@ function HighlightText({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((part, i) =>
         part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={i} className="bg-amber-400/30 text-amber-200 rounded px-0.5">
+          <mark key={i} className="bg-warn/30 text-warn rounded px-0.5">
             {part}
           </mark>
         ) : (

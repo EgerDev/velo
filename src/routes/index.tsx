@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   AlertTriangle,
   Download as DownloadIcon,
@@ -21,6 +21,7 @@ import { AccountChip } from "@/components/account-chip";
 import { Wordmark } from "@/components/wordmark";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { ResultList } from "@/components/result-list";
+import { SampleChipRow } from "@/components/sample-chips";
 import { VideoPanel } from "@/components/video-panel";
 import { SaveStage } from "@/components/save-stage";
 import { BulkDownloader } from "@/components/bulk-downloader";
@@ -52,10 +53,10 @@ import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
 export const Route = createFileRoute("/")({ component: Home });
 
 const SAMPLES = [
-  { icon: "🎬", label: "4K HDR Demo", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
-  { icon: "🎙️", label: "Podcast & Notes", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
-  { icon: "🎵", label: "High-Bitrate Audio", query: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-  { icon: "🏛️", label: "Me at the zoo", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+  { label: "4K HDR demo", tag: "2160p60 · HDR", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
+  { label: "Podcast", tag: "2h+ · captions", query: "https://www.youtube.com/watch?v=L_Guz73e6fw" },
+  { label: "Hi-fi audio", tag: "M4A · Opus", query: "https://www.youtube.com/watch?v=fJ9rUzIMcZQ" },
+  { label: "Me at the zoo", tag: "144p · 2005", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
 ];
 
 const DRAFT_URL_KEY = "velo-draft-url";
@@ -81,6 +82,117 @@ function writeDraftUrl(value: string) {
 type ResultsView =
   | { kind: "search"; query: string; items: SearchHit[] }
   | { kind: "playlist"; playlist: PlaylistResult };
+
+type ViewMode = "single" | "bulk" | "transcript";
+
+const MODE_TABS = [
+  { mode: "single", icon: Film, label: "Single video" },
+  { mode: "bulk", icon: ListPlus, label: "Bulk & playlists" },
+  { mode: "transcript", icon: FileText, label: "Transcript", chip: "AI" },
+] as const;
+
+/**
+ * Centered segmented control with a gold pill that slides between tabs.
+ * While traveling, the pill skews like the splice mark in the wordmark.
+ */
+function ModeTabs({ value, onChange }: { value: ViewMode; onChange: (mode: ViewMode) => void }) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const slideTimer = useRef<number | undefined>(undefined);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  const [sliding, setSliding] = useState(false);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const update = () => {
+      const active = list.querySelector<HTMLElement>("[data-active='true']");
+      if (active) setPill({ left: active.offsetLeft, width: active.offsetWidth });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(list);
+    for (const tab of list.querySelectorAll("button")) observer.observe(tab);
+    document.fonts?.ready.then(update).catch(() => undefined);
+    return () => observer.disconnect();
+  }, [value]);
+
+  useEffect(() => () => window.clearTimeout(slideTimer.current), []);
+
+  function select(mode: ViewMode) {
+    if (mode !== value) {
+      setSliding(true);
+      window.clearTimeout(slideTimer.current);
+      slideTimer.current = window.setTimeout(() => setSliding(false), 400);
+    }
+    onChange(mode);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const index = MODE_TABS.findIndex((tab) => tab.mode === value);
+    const next =
+      MODE_TABS[(index + (event.key === "ArrowRight" ? 1 : MODE_TABS.length - 1)) % MODE_TABS.length];
+    select(next.mode);
+    listRef.current?.querySelector<HTMLElement>(`[data-mode='${next.mode}']`)?.focus();
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Downloader mode"
+      ref={listRef}
+      onKeyDown={onKeyDown}
+      className="relative mx-auto mt-7 flex w-fit max-w-full items-center gap-1 overflow-x-auto no-scrollbar rounded-2xl border border-border bg-elevated/70 p-1 shadow-xs"
+    >
+      {pill ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute bottom-1 top-1 z-0 rounded-xl bg-accent shadow-sm transition-[left,width,transform] duration-[var(--motion-medium)] ease-[var(--ease-smooth-out)]",
+            sliding && "-skew-x-6",
+          )}
+          style={{ left: pill.left, width: pill.width }}
+        />
+      ) : null}
+      {MODE_TABS.map(({ mode, icon: Icon, label, ...tab }) => {
+        const active = value === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            aria-label={label}
+            tabIndex={active ? 0 : -1}
+            data-active={active}
+            data-mode={mode}
+            onClick={() => select(mode)}
+            className={cn(
+              "relative z-10 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-1.5 text-xs font-medium transition-colors duration-[var(--motion-medium)]",
+              active ? "text-accent-fg" : "text-muted hover:text-fg",
+              active && !pill && "bg-accent",
+            )}
+          >
+            <Icon className="size-3.5 shrink-0" />
+            {/* Inactive labels collapse to icons on small screens; the pill expands over the active one */}
+            <span className={cn(!active && "hidden sm:inline")}>{label}</span>
+            {"chip" in tab && tab.chip ? (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold transition-colors duration-[var(--motion-medium)]",
+                  active ? "bg-accent-fg/20 text-accent-fg" : "hidden bg-accent/15 text-accent sm:inline",
+                )}
+              >
+                {tab.chip}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function Home() {
   const { user, isPending } = useCurrentUserState();
@@ -440,7 +552,10 @@ function Home() {
 
       <main id="download" className="mx-auto w-full max-w-3xl px-4 pb-20 pt-8 sm:px-6 sm:pt-12">
         <div className="stagger max-w-xl">
-          <p className="text-xs font-medium uppercase tracking-[var(--tracking-wide)] text-subtle">YouTube downloader</p>
+          <p className="flex items-center gap-2 font-mono text-xs font-medium uppercase tracking-[var(--tracking-wide)] text-subtle">
+            <span aria-hidden className="inline-block h-3 w-[3px] -skew-x-12 rounded-[1px] bg-accent" />
+            YouTube downloader
+          </p>
           <h1 className="mt-3 font-display text-3xl leading-[var(--leading-display)] tracking-[var(--tracking-display)] text-fg sm:text-4xl">
             Keep the cut.
           </h1>
@@ -448,67 +563,7 @@ function Home() {
         </div>
 
         {/* Mode Switcher Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-elevated/70 border border-border/80 rounded-2xl w-fit mt-7 shadow-xs overflow-x-auto max-w-full no-scrollbar">
-          <button
-            type="button"
-            onClick={() => setViewMode("single")}
-            className={cn(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
-              viewMode === "single"
-                ? "bg-accent text-accent-fg shadow-sm"
-                : "text-muted hover:text-fg hover:bg-white/5",
-            )}
-          >
-            <Film className="size-3.5" />
-            Single Video & Search
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("bulk")}
-            className={cn(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
-              viewMode === "bulk"
-                ? "bg-accent text-accent-fg shadow-sm"
-                : "text-muted hover:text-fg hover:bg-white/5",
-            )}
-          >
-            <ListPlus className="size-3.5" />
-            Bulk & Playlist Downloader
-            <span
-              className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded-full font-mono font-semibold",
-                viewMode === "bulk"
-                  ? "bg-black/25 text-white"
-                  : "bg-accent/15 text-accent",
-              )}
-            >
-              Batch
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("transcript")}
-            className={cn(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer whitespace-nowrap",
-              viewMode === "transcript"
-                ? "bg-accent text-accent-fg shadow-sm"
-                : "text-muted hover:text-fg hover:bg-white/5",
-            )}
-          >
-            <FileText className="size-3.5" />
-            YouTube to Transcript
-            <span
-              className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded-full font-mono font-semibold",
-                viewMode === "transcript"
-                  ? "bg-black/25 text-white"
-                  : "bg-purple-500/20 text-purple-300",
-              )}
-            >
-              AI Studio
-            </span>
-          </button>
-        </div>
+        <ModeTabs value={viewMode} onChange={setViewMode} />
 
         {viewMode === "transcript" ? (
           <div className="mt-8">
@@ -534,7 +589,7 @@ function Home() {
         ) : (
           <>
             <form
-              className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-white/10 shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
+              className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-border shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
           onSubmit={(event) => {
             event.preventDefault();
             const field = event.currentTarget.elements.namedItem("url");
@@ -564,7 +619,7 @@ function Home() {
                 type="button"
                 aria-label="Clear input"
                 onClick={() => updateUrl("")}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-white/10 transition-colors mr-1.5 cursor-pointer"
+                className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-elevated transition-colors mr-1.5 cursor-pointer"
               >
                 <X className="size-3.5" />
               </button>
@@ -582,31 +637,18 @@ function Home() {
         </form>
 
         {/* Quick Sample Presets */}
-        <div className="mt-4 flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap">
-          <span className="text-[11px] font-semibold text-subtle/80 uppercase tracking-wider shrink-0 mr-0.5">Try:</span>
-          {SAMPLES.map((sample) => (
-            <button
-              key={sample.label}
-              type="button"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/60 hover:bg-elevated hover:border-accent/40 px-3 py-1.5 text-xs font-medium text-muted hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
-              onClick={() => void lookup(sample.query)}
-            >
-              <span className="text-xs leading-none">{sample.icon}</span>
-              <span>{sample.label}</span>
-            </button>
-          ))}
-        </div>
+        <SampleChipRow samples={SAMPLES} onPick={(sample) => void lookup(sample.query)} />
 
         {/* Informative Error Card */}
         {error ? (
-          <div className="panel rise mt-5 overflow-hidden border border-rose-500/30 bg-rose-500/10 p-4 sm:p-5 text-fg shadow-lg" role="alert">
+          <div className="panel rise mt-5 overflow-hidden border border-danger/30 bg-danger/10 p-4 sm:p-5 text-fg shadow-lg" role="alert">
             <div className="flex items-start gap-3.5">
-              <div className="rounded-xl bg-rose-500/20 p-2 text-rose-400 shrink-0 mt-0.5">
+              <div className="rounded-xl bg-danger/20 p-2 text-danger shrink-0 mt-0.5">
                 <AlertTriangle className="size-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-sm sm:text-base text-rose-200">
-                  Unable to resolve media
+                <h3 className="font-semibold text-sm sm:text-base text-danger">
+                  Couldn’t resolve that link
                 </h3>
                 <p className="mt-1 text-xs sm:text-sm text-muted leading-relaxed">
                   {error}
@@ -616,23 +658,23 @@ function Home() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs bg-surface/80 border-border/80 hover:bg-elevated"
+                    className="h-8 text-xs bg-surface/80 hover:bg-elevated"
                     onClick={() => {
                       setError(null);
                       setStatus("idle");
                       updateUrl("");
                     }}
                   >
-                    Clear Input
+                    Clear input
                   </Button>
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="h-8 text-xs bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 border-0"
+                    className="h-8 text-xs"
                     onClick={() => void lookup(SAMPLES[0].query)}
                   >
-                    Try 4K HDR Demo
+                    Try the 4K HDR demo
                   </Button>
                 </div>
               </div>
@@ -641,25 +683,25 @@ function Home() {
         ) : null}
 
         {fallbackPrompt ? (
-          <div className="panel rise mt-5 border border-amber-500/30 bg-amber-500/10 p-4 sm:p-5 text-fg" role="alert">
+          <div className="panel rise mt-5 border border-warn/30 bg-warn/10 p-4 sm:p-5 text-fg" role="alert">
             <div className="flex items-start gap-3">
-              <div className="rounded-full bg-amber-500/20 p-2 text-amber-400 shrink-0">
+              <div className="rounded-full bg-warn/20 p-2 text-warn shrink-0">
                 <AlertTriangle className="size-5" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-base text-amber-200">
+                <h3 className="font-semibold text-base text-warn">
                   {fallbackPrompt.requestedPreset.title} was restricted by YouTube
                 </h3>
                 <p className="mt-1 text-sm text-muted">
                   YouTube blocked direct downloading for <strong className="text-fg">{fallbackPrompt.requestedPreset.title}</strong> ({fallbackPrompt.requestedPreset.height ? `${fallbackPrompt.requestedPreset.height}p` : "1080p"}) without signed-in session credentials.
                 </p>
                 <p className="mt-2 text-sm text-fg">
-                  Would you like to continue and save in <strong className="text-amber-300">{fallbackPrompt.fallbackPreset.title}</strong> ({fallbackPrompt.fallbackPreset.height ? `${fallbackPrompt.fallbackPreset.height}p` : "360p"}) instead?
+                  Would you like to continue and save in <strong className="text-warn">{fallbackPrompt.fallbackPreset.title}</strong> ({fallbackPrompt.fallbackPreset.height ? `${fallbackPrompt.fallbackPreset.height}p` : "360p"}) instead?
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2.5">
                   <Button
                     type="button"
-                    className="h-10 bg-amber-500 text-black hover:bg-amber-400 font-medium"
+                    className="h-10 font-medium"
                     onClick={() => {
                       const prompt = fallbackPrompt;
                       setFallbackPrompt(null);

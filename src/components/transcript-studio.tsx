@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { SampleChipRow } from "@/components/sample-chips";
 import { cn } from "@/lib/utils";
 import {
   formatDuration,
@@ -43,10 +44,10 @@ type TranscriptStudioProps = {
 };
 
 const SAMPLE_PODCASTS = [
-  { icon: "🎙️", label: "Lex Fridman", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
-  { icon: "🧠", label: "Huberman Lab", query: "https://www.youtube.com/watch?v=gXDMoiEkyuQ" },
-  { icon: "🔬", label: "Veritasium", query: "https://www.youtube.com/watch?v=r_sP9Z86mP8" },
-  { icon: "🎓", label: "Stanford AI", query: "https://www.youtube.com/watch?v=aircAruvnKk" },
+  { label: "Lex Fridman", tag: "podcast · 2h+", query: "https://www.youtube.com/watch?v=L_Guz73e6fw" },
+  { label: "Huberman Lab", tag: "podcast · chapters", query: "https://www.youtube.com/watch?v=gXDMoiEkyuQ" },
+  { label: "Veritasium", tag: "math · captions", query: "https://www.youtube.com/watch?v=HeQX2HjkcNo" },
+  { label: "3Blue1Brown", tag: "lecture · math", query: "https://www.youtube.com/watch?v=aircAruvnKk" },
 ];
 
 const NLE_EXPORT_OPTIONS: {
@@ -65,7 +66,7 @@ const NLE_EXPORT_OPTIONS: {
     ext: ".csv",
     desc: "SMPTE Timecode In/Out, Marker Name, Notes & Colors",
     badge: "Resolve CSV",
-    color: "text-sky-400 bg-sky-500/10 border-sky-500/20",
+    color: "text-accent bg-accent/10 border-accent/20",
   },
   {
     id: "fcpxml",
@@ -74,7 +75,7 @@ const NLE_EXPORT_OPTIONS: {
     ext: ".fcpxml",
     desc: "FCPXML 1.9 Timeline Sequence with <marker> tags",
     badge: "FCPXML",
-    color: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+    color: "text-accent bg-accent/10 border-accent/20",
   },
   {
     id: "premiere",
@@ -83,7 +84,7 @@ const NLE_EXPORT_OPTIONS: {
     ext: ".edl",
     desc: "CMX 3600 Edit Decision List Marker Events",
     badge: "Premiere EDL",
-    color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    color: "text-warn bg-warn/10 border-warn/20",
   },
   {
     id: "audacity",
@@ -92,7 +93,7 @@ const NLE_EXPORT_OPTIONS: {
     ext: ".txt",
     desc: "Tab-delimited start/end time markers with cue labels",
     badge: "DAW Labels",
-    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    color: "text-success bg-success/10 border-success/20",
   },
 ];
 
@@ -318,7 +319,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
           e.preventDefault();
           void loadVideoTranscript(urlInput);
         }}
-        className="group relative flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-white/10 shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
+        className="group relative flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-border shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
       >
         <div className="relative flex flex-1 items-center min-w-0">
           {urlInput ? (
@@ -341,7 +342,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
               type="button"
               aria-label="Clear input"
               onClick={() => setUrlInput("")}
-              className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-white/10 transition-colors mr-1.5 cursor-pointer"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-elevated transition-colors mr-1.5 cursor-pointer"
             >
               <X className="size-3.5" />
             </button>
@@ -359,33 +360,23 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
       </form>
 
       {/* Quick Curated Podcast & Lecture Presets */}
-      <div className="mt-4 flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap">
-        <span className="text-[11px] font-semibold text-subtle/80 uppercase tracking-wider shrink-0 mr-0.5">Try:</span>
-        {SAMPLE_PODCASTS.map((sample) => (
-          <button
-            key={sample.label}
-            type="button"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/60 hover:bg-elevated hover:border-accent/40 px-3 py-1.5 text-xs font-medium text-muted hover:text-fg transition-all active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
-            onClick={() => {
-              setUrlInput(sample.query);
-              void loadVideoTranscript(sample.query);
-            }}
-          >
-            <span className="text-xs leading-none">{sample.icon}</span>
-            <span>{sample.label}</span>
-          </button>
-        ))}
-      </div>
+      <SampleChipRow
+        samples={SAMPLE_PODCASTS}
+        onPick={(sample) => {
+          setUrlInput(sample.query);
+          void loadVideoTranscript(sample.query);
+        }}
+      />
 
       {/* Error Alert Card */}
       {error ? (
-        <div className="panel rise overflow-hidden border border-rose-500/30 bg-rose-500/10 p-4 sm:p-5 text-fg shadow-lg" role="alert">
+        <div className="panel rise overflow-hidden border border-danger/30 bg-danger/10 p-4 sm:p-5 text-fg shadow-lg" role="alert">
           <div className="flex items-start gap-3.5">
-            <div className="rounded-xl bg-rose-500/20 p-2 text-rose-400 shrink-0 mt-0.5">
+            <div className="rounded-xl bg-danger/20 p-2 text-danger shrink-0 mt-0.5">
               <AlertTriangle className="size-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm sm:text-base text-rose-200">
+              <h3 className="font-semibold text-sm sm:text-base text-danger">
                 Transcript Extraction Issue
               </h3>
               <p className="mt-1 text-xs sm:text-sm text-muted leading-relaxed">
@@ -408,7 +399,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="h-8 text-xs bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 border-0"
+                  className="h-8 text-xs bg-danger/20 text-danger hover:bg-danger/30 border-0"
                   onClick={() => {
                     setUrlInput(SAMPLE_PODCASTS[0].query);
                     void loadVideoTranscript(SAMPLE_PODCASTS[0].query);
@@ -432,7 +423,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                 <h2 className="font-display text-lg sm:text-xl text-fg font-semibold leading-snug">
                   {video.title}
                 </h2>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-success/15 text-success border border-success/30">
                   <Check className="size-3" />
                   Transcript Ready
                 </span>
@@ -532,14 +523,14 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                       className={cn(
                         "flex flex-col items-start p-3 rounded-xl border transition-all text-left group cursor-pointer",
                         copiedPromptId === tmpl.id
-                          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                          ? "border-success/50 bg-success/10 text-success"
                           : "border-border/80 bg-elevated/40 hover:bg-elevated hover:border-accent/40 text-fg",
                       )}
                     >
                       <div className="flex items-center justify-between w-full">
                         <span className="text-xs font-semibold">{tmpl.name}</span>
                         {copiedPromptId === tmpl.id ? (
-                          <Check className="size-3.5 text-emerald-400" />
+                          <Check className="size-3.5 text-success" />
                         ) : (
                           <Copy className="size-3 text-subtle group-hover:text-fg transition-colors" />
                         )}
@@ -586,7 +577,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                     className="h-8 text-xs font-medium bg-elevated/80 hover:bg-elevated text-fg border border-border"
                     onClick={() => void copyFormattedTranscript("plain")}
                   >
-                    {copiedFormat === "plain" ? <Check className="size-3 mr-1 text-emerald-400" /> : <Copy className="size-3 mr-1" />}
+                    {copiedFormat === "plain" ? <Check className="size-3 mr-1 text-success" /> : <Copy className="size-3 mr-1" />}
                     Copy Text
                   </Button>
 
@@ -596,7 +587,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                     className="h-8 text-xs font-medium bg-elevated/80 hover:bg-elevated text-fg border border-border"
                     onClick={() => void copyFormattedTranscript("timestamped")}
                   >
-                    {copiedFormat === "timestamped" ? <Check className="size-3 mr-1 text-emerald-400" /> : <Clock className="size-3 mr-1" />}
+                    {copiedFormat === "timestamped" ? <Check className="size-3 mr-1 text-success" /> : <Clock className="size-3 mr-1" />}
                     Timestamps
                   </Button>
 
@@ -630,7 +621,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                   className="flex items-center justify-between w-full text-left cursor-pointer"
                 >
                   <div className="flex items-center gap-2">
-                    <Layers className="size-4 text-purple-400" />
+                    <Layers className="size-4 text-accent" />
                     <span className="text-xs font-semibold text-fg">NLE Timeline Marker Exporters (DaVinci, Final Cut, Premiere, Audacity)</span>
                   </div>
                   <ChevronDown className={cn("size-4 text-subtle transition-transform", showNleMenu && "rotate-180")} />
@@ -683,12 +674,12 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
 
               {/* Exclusion Summary if any deleted */}
               {deletedCueIds.size > 0 && (
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-warn/10 border border-warn/30 text-xs text-warn">
                   <span>{deletedCueIds.size} unwanted segment(s) excluded from export</span>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-xs text-amber-300 hover:text-white"
+                    className="h-6 text-xs text-warn hover:text-fg"
                     onClick={restoreAllCues}
                   >
                     <RotateCcw className="size-3 mr-1" />
@@ -725,7 +716,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                           key={cue.id}
                           className={cn(
                             "pt-2 flex items-start justify-between gap-3 group rounded-lg p-2 transition-colors",
-                            isDeleted ? "opacity-35 line-through bg-rose-500/5" : "hover:bg-elevated/60",
+                            isDeleted ? "opacity-35 line-through bg-danger/5" : "hover:bg-elevated/60",
                           )}
                         >
                           <button
@@ -738,7 +729,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                           </button>
                           <button
                             type="button"
-                            className="text-xs text-fg text-left leading-relaxed flex-1 cursor-pointer hover:text-white transition-colors bg-transparent border-0 p-0 focus:outline-hidden focus:ring-1 focus:ring-accent/40 rounded-sm"
+                            className="text-xs text-fg text-left leading-relaxed flex-1 cursor-pointer hover:text-fg transition-colors bg-transparent border-0 p-0 focus:outline-hidden focus:ring-1 focus:ring-accent/40 rounded-sm"
                             onClick={() => seekTo(cue.start)}
                           >
                             {cue.text}
@@ -746,7 +737,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                           <button
                             type="button"
                             onClick={() => toggleDeleteCue(cue.id)}
-                            className="text-subtle hover:text-rose-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer rounded-sm"
+                            className="text-subtle hover:text-danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer rounded-sm"
                             title={isDeleted ? "Restore cue" : "Remove unwanted section"}
                           >
                             {isDeleted ? <RotateCcw className="size-3.5" /> : <Trash2 className="size-3.5" />}

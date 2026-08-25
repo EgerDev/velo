@@ -307,8 +307,8 @@ export function CookieImport() {
           <Cookie className="size-4 text-accent" />
           YouTube Session Credentials
           {count > 0 ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-              <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 border border-success/30 px-2.5 py-0.5 text-xs font-semibold text-success">
+              <span className="size-1.5 rounded-full bg-success animate-pulse" />
               {count} cookies active
             </span>
           ) : (
@@ -508,8 +508,8 @@ export function CookieImport() {
                   className={cn(
                     "rounded-lg p-3 text-xs border space-y-1",
                     probeResult.loggedIn
-                      ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
-                      : "bg-amber-500/10 border-amber-500/25 text-amber-300",
+                      ? "bg-success/10 border-success/25 text-success"
+                      : "bg-warn/10 border-warn/25 text-warn",
                   )}
                 >
                   <p className="font-semibold flex items-center gap-1.5">
@@ -603,7 +603,7 @@ function CookieFacts({ raw }: { raw: string }) {
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px]",
-            report.hasSapisid ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-elevated text-subtle border border-border",
+            report.hasSapisid ? "bg-success/15 text-success border border-success/30" : "bg-elevated text-subtle border border-border",
           )}
         >
           {report.hasSapisid ? <Check className="size-3" /> : "✕"} SAPISID (Auth)
@@ -611,7 +611,7 @@ function CookieFacts({ raw }: { raw: string }) {
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px]",
-            report.hasSid ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-elevated text-subtle border border-border",
+            report.hasSid ? "bg-success/15 text-success border border-success/30" : "bg-elevated text-subtle border border-border",
           )}
         >
           {report.hasSid ? <Check className="size-3" /> : "✕"} SID (Google)
@@ -619,7 +619,7 @@ function CookieFacts({ raw }: { raw: string }) {
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px]",
-            report.hasLogin ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-elevated text-subtle border border-border",
+            report.hasLogin ? "bg-success/15 text-success border border-success/30" : "bg-elevated text-subtle border border-border",
           )}
         >
           {report.hasLogin ? <Check className="size-3" /> : "✕"} LOGIN_INFO

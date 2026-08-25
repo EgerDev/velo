@@ -8,12 +8,13 @@
   --color-fg: #f4f4f5;
   --color-muted: #c4c4cc;
   --color-subtle: #9a9aa3;
-  --color-accent: #d4d4d8;
-  --color-accent-fg: #0a0a0b;
+  --color-accent: #e0a43c;
+  --color-accent-fg: #191006;
   --color-border: color-mix(in oklab, var(--color-fg) 14%, transparent);
   --color-border-strong: color-mix(in oklab, var(--color-fg) 24%, transparent);
   --color-danger: #f0a090;
   --color-success: #9fbf9a;
+  --color-warn: #e5bd7a;
   --color-glass: color-mix(in oklab, var(--color-surface) 48%, transparent);
   --color-glass-strong: color-mix(in oklab, var(--color-bg) 58%, transparent);
 
@@ -26,6 +27,7 @@
 
   --font-display: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", serif;
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --leading-display: 1.1;
   --leading-snug: 1.25;
   --leading-normal: 1.5;
@@ -89,7 +91,7 @@
     font-family: var(--font-sans);
     line-height: var(--leading-normal);
     background:
-      radial-gradient(1200px 480px at 50% -12%, color-mix(in oklab, var(--color-fg) 7%, transparent), transparent 70%),
+      radial-gradient(1200px 480px at 50% -12%, color-mix(in oklab, var(--color-accent) 8%, transparent), transparent 70%),
       linear-gradient(180deg, #141416 0%, var(--color-bg) 34%, var(--color-bg) 100%);
   }
 
