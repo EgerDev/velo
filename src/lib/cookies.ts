@@ -92,7 +92,8 @@ function collect(pairs: CookiePair[]): ParsedCookies {
   const seen = new Set<string>();
   for (const cookie of pairs) {
     if (!cookie.name || cookie.value == null) continue;
-    const domain = cookie.domain && isYoutubeDomain(cookie.domain) ? cookie.domain : defaultCookieDomain(cookie.name);
+    if (cookie.domain && !isYoutubeDomain(cookie.domain)) continue;
+    const domain = cookie.domain || defaultCookieDomain(cookie.name);
     const key = `${domain}:${cookie.name}`;
     if (seen.has(key)) continue;
     seen.add(key);

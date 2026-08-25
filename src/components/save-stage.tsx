@@ -73,7 +73,7 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
               signal: abort.signal,
               onProgress: (progress) => {
                 if (abort.signal.aborted) return;
-                setStatus(`${progress.label} (${progress.percent}%)`);
+                setStatus(`${progress.label} (${Math.max(0, Math.min(100, Math.round(progress.percent)))}%)`);
                 if (progress.steps) setSteps(progress.steps);
               },
               onSteps: (next) => {
@@ -92,7 +92,7 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
               signal: abort.signal,
               onProgress: (label, percent) => {
                 if (abort.signal.aborted) return;
-                setStatus(`${label} (${percent}%)`);
+                setStatus(`${label} (${Math.max(0, Math.min(100, Math.round(percent)))}%)`);
               },
               onSteps: (next) => {
                 if (!abort.signal.aborted) setSteps(next);

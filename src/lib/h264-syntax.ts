@@ -34,8 +34,15 @@ export class BitReader {
   }
   ue(): number {
     let zeros = 0;
-    while (this.u(1) === 0) zeros++;
+    while (this.bit < this.data.length * 8 && this.u(1) === 0 && zeros < 32) {
+      zeros++;
+    }
     return zeros === 0 ? 0 : (1 << zeros) - 1 + this.u(zeros);
+  }
+  se(): number {
+    const val = this.ue();
+    const sign = (val & 1) ? 1 : -1;
+    return sign * Math.ceil(val / 2);
   }
 }
 
@@ -122,8 +129,9 @@ export function parseSps(nal: Uint8Array): SpsInfo | null {
     const bottom = b.ue();
     const subW = chroma === 1 || chroma === 2 ? 2 : 1;
     const subH = chroma === 1 ? 2 : 1;
+    const cropUnitY = subH * (frameMbsOnly ? 1 : 2);
     width -= (left + right) * subW;
-    height -= (top + bottom) * subH;
+    height -= (top + bottom) * cropUnitY;
   }
   return { profile, level, width, height, chroma, bitDepth, log2MaxFrameNum, frameMbsOnly };
 }

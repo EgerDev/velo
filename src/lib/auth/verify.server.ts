@@ -57,7 +57,7 @@ export type VerifiedUser = { id: string; email: string | null };
 export async function getSessionUser(
   bearerToken?: string,
 ): Promise<VerifiedUser | null> {
-  if (!authConfigured && !gateIdentityEnabled()) return null;
+  if (!authConfigured) return null;
   const request = getRequest();
   if (!request) return null;
   let headers = request.headers;

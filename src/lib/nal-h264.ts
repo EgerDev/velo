@@ -29,27 +29,27 @@ export function nalType(byte: number): number {
 }
 
 export function splitAnnexB(data: Uint8Array): Nal[] {
-  const starts: number[] = [];
+  const entries: { prefix: number; payload: number }[] = [];
   let i = 0;
-  while (i + 3 < data.length) {
-    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1) {
-      starts.push(i + 4);
+  while (i + 3 <= data.length) {
+    if (i + 4 <= data.length && data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1) {
+      entries.push({ prefix: i, payload: i + 4 });
       i += 4;
       continue;
     }
     if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1) {
-      starts.push(i + 3);
+      entries.push({ prefix: i, payload: i + 3 });
       i += 3;
       continue;
     }
     i++;
   }
   const nals: Nal[] = [];
-  for (let n = 0; n < starts.length; n++) {
-    const offset = starts[n]!;
-    const next = starts[n + 1] ?? data.length;
+  for (let n = 0; n < entries.length; n++) {
+    const offset = entries[n]!.payload;
+    const end = entries[n + 1]?.prefix ?? data.length;
     const type = nalType(data[offset] ?? 0);
-    nals.push({ type, name: NAL_NAMES[type] ?? `nal${type}`, offset, length: Math.max(0, next - offset) });
+    nals.push({ type, name: NAL_NAMES[type] ?? `nal${type}`, offset, length: Math.max(0, end - offset) });
   }
   return nals;
 }

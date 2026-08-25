@@ -218,6 +218,10 @@ export function CookieImport() {
   }
 
   async function importFile(file: File) {
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error("File is too large (>25MB). Please export a filtered HAR or text cookie export.");
+      return;
+    }
     await persistText(await file.text(), file.name);
   }
 

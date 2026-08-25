@@ -116,6 +116,8 @@ export function HistoryList({ onOpen, onRedownload, downloading }: HistoryListPr
               <article className="lift glass group flex gap-3 rounded-xl p-2">
                 <button
                   type="button"
+                  tabIndex={-1}
+                  aria-hidden="true"
                   onClick={() => onOpen(item)}
                   className="relative size-20 shrink-0 overflow-hidden rounded-md bg-elevated sm:aspect-video sm:h-24 sm:w-auto sm:min-w-40"
                 >
@@ -171,7 +173,7 @@ export function HistoryList({ onOpen, onRedownload, downloading }: HistoryListPr
                       size="icon-sm"
                       aria-label="Remove from history"
                       onClick={() => {
-                        void removeCachedMedia(item.id);
+                        void removeCachedMedia(item.id).catch(() => undefined);
                         remove(item.id);
                       }}
                     >

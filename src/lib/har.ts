@@ -427,9 +427,12 @@ export function parseHar(raw: string | HarFile): ParsedHar {
     const post = entry.request?.postData?.text ?? "";
     const postVideo = post.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1];
     pushVideoId(videoIds, postVideo);
-    const body = decodeContent(entry.response?.content);
-    const bodyVideo = body.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1];
-    pushVideoId(videoIds, bodyVideo);
+    const mime = (entry.response?.content?.mimeType ?? "").toLowerCase();
+    if (mime.includes("json") || mime.includes("text")) {
+      const body = decodeContent(entry.response?.content);
+      const bodyVideo = body.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1];
+      pushVideoId(videoIds, bodyVideo);
+    }
 
     const cookieHeader = headerValue(entry.request?.headers, "cookie") ?? "";
     if (REDACTED.test(cookieHeader) || cookieHeader.toLowerCase().includes("[redacted]")) sawRedacted = true;
