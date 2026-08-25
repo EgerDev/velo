@@ -51,11 +51,11 @@ import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
 export const Route = createFileRoute("/")({ component: Home });
 
 const SAMPLES = [
-  { label: "Me at the zoo", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
-  { label: "Big Buck Bunny", query: "https://www.youtube.com/watch?v=aqz-KE-bpKQ" },
-  { label: "AV1 hardware acceleration", query: "AV1 hardware acceleration support" },
-  { label: "HEVC vs AV1", query: "HEVC vs AV1 comparison" },
-  { label: "AV1", query: "AV1" },
+  { label: "🎬 4K HDR Demo", query: "https://www.youtube.com/watch?v=LXb3EKWsInQ" },
+  { label: "🎙️ Podcast & Transcript", query: "https://www.youtube.com/watch?v=kYfNvmF00U4" },
+  { label: "🎵 High-Bitrate Audio", query: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
+  { label: "⚡ YouTube Shorts", query: "https://www.youtube.com/shorts/3jz_K5qX52o" },
+  { label: "🏛️ Me at the zoo (Classic)", query: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
 ];
 
 const DRAFT_URL_KEY = "velo-draft-url";
