@@ -7,6 +7,14 @@ export type SpeedSample = {
 
 const THROTTLE_FLOOR = 80 * 1024;
 const WARMUP_MS = 1500;
+/**
+ * Shortest interval that can produce an honest rate. A proxied or server-muxed
+ * response hands the reader tens of megabytes in a few milliseconds, and
+ * `bytes / 3ms` reads as hundreds of MB/s — a number that describes the buffer
+ * flush, not the link. Below this window the bytes are carried forward into the
+ * next sample instead of being divided by a meaningless interval.
+ */
+const MIN_SAMPLE_MS = 250;
 
 /**
  * Monotonic where available. `Date.now()` steps backwards on NTP correction,
@@ -52,14 +60,30 @@ export function createSpeedProbe(clock: () => number = nowMs): {
         rebase(now, loaded);
         return { bytesPerSec: 0, loaded, total, throttled: false };
       }
-      const dt = Math.max(1, now - lastT);
+      const elapsed = now - started;
+      const overall = ((loaded - startedLoaded) / Math.max(1, elapsed)) * 1000;
+      const dt = now - lastT;
+
+      // Too soon to divide: hold the bytes for the next window rather than
+      // reporting a buffer flush as link speed. `lastT`/`lastLoaded` stay put so
+      // the next qualifying sample spans the whole accumulated interval.
+      if (dt < MIN_SAMPLE_MS) {
+        // Before the first honest window there is no rate to report — 0 means
+        // "not measured yet", which the UI and advisor both treat as unknown.
+        const holding = initialized ? ema : elapsed >= MIN_SAMPLE_MS ? overall : 0;
+        return {
+          bytesPerSec: holding,
+          loaded,
+          total,
+          throttled: elapsed >= WARMUP_MS && initialized && holding < THROTTLE_FLOOR,
+        };
+      }
+
       const inst = Math.max(0, ((loaded - lastLoaded) / dt) * 1000);
       ema = !initialized ? inst : ema * 0.72 + inst * 0.28;
       initialized = true;
       lastT = now;
       lastLoaded = loaded;
-      const elapsed = now - started;
-      const overall = ((loaded - startedLoaded) / Math.max(1, elapsed)) * 1000;
       const bytesPerSec = ema > 0 ? ema : overall;
       // No `bytesPerSec > 0` guard: a stream stalled at exactly zero is the
       // worst case, not an exempt one.

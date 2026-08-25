@@ -193,6 +193,12 @@ export function getPresetAvailability(
   };
 }
 
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
+}
+
 function formatBitrate(bps: number): string {
   if (!bps || bps <= 0) return "—";
   return bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1)} Mbps` : `${Math.round(bps / 1000)} kbps`;
@@ -302,6 +308,25 @@ export function VideoPanel({
         : null,
     [downloading, speedSamples, progress?.percent],
   );
+
+  // No bytes have reached the browser yet: the server is still fetching and
+  // muxing, so any percentage would be fiction.
+  const preparing = downloading && !progress?.loaded && !progress?.failed;
+
+  // Elapsed time is the one honest number during that wait.
+  const [elapsedSec, setElapsedSec] = useState(0);
+  useEffect(() => {
+    if (!downloading) {
+      setElapsedSec(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(
+      () => setElapsedSec(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [downloading]);
 
   const [sponsor, setSponsor] = useState<{
     status: "idle" | "loading" | "loaded" | "empty" | "error";
@@ -991,7 +1016,7 @@ export function VideoPanel({
               <span>
                 {progress.throttled ? "Throttled" : progress.label}
                 {progress.bytesPerSec ? ` · ${formatSpeed(progress.bytesPerSec)}` : ""}
-                {` (${progress.percent}%)`}
+                {preparing ? ` (${formatElapsed(elapsedSec)})` : ` (${progress.percent}%)`}
               </span>
             ) : selected ? (
               <span>
@@ -1024,14 +1049,40 @@ export function VideoPanel({
                 </span>
                 {progress.label}
               </span>
-              <span className="font-mono tabular-nums text-accent">{progress.percent}%</span>
+              <span className="font-mono tabular-nums text-accent">
+                {preparing ? formatElapsed(elapsedSec) : `${progress.percent}%`}
+              </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-elevated" aria-hidden="true">
-              <div
-                className="h-full bg-accent transition-[width] duration-[var(--motion-quick)] rounded-full"
-                style={{ width: `${Math.max(4, progress.percent)}%` }}
-              />
+            {/*
+              Until the first bytes reach the browser the server is still
+              fetching and muxing, and no percentage would be truthful — show
+              an indeterminate bar and the elapsed time instead of a number
+              frozen at 8%.
+            */}
+            <div
+              className={cn(
+                "h-2 w-full overflow-hidden rounded-full bg-elevated",
+                preparing && "progress-indeterminate",
+              )}
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={preparing ? undefined : progress.percent}
+              aria-valuetext={preparing ? "Preparing on the server" : `${progress.percent}%`}
+            >
+              {preparing ? null : (
+                <div
+                  className="h-full bg-accent transition-[width] duration-[var(--motion-quick)] rounded-full"
+                  style={{ width: `${Math.max(4, progress.percent)}%` }}
+                />
+              )}
             </div>
+            {preparing ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-subtle">
+                The server is fetching and muxing this quality. There’s no progress to show until
+                it hands the file over — large files can sit here for a minute.
+              </p>
+            ) : null}
             {progress.bytesPerSec || progress.loaded ? (
               <div className="mt-2 flex items-center justify-between text-[11px] tabular-nums text-muted">
                 <span>

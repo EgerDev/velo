@@ -192,6 +192,31 @@
     background-size: 200% 100%;
     animation: shimmer 1.4s linear infinite;
   }
+
+  /*
+    Indeterminate progress — for the stretch where the server is preparing a
+    file and there is genuinely nothing to measure. A frozen percentage reads
+    as "hung", so the bar says "working, duration unknown" rather than
+    inventing a number.
+  */
+  .progress-indeterminate {
+    position: relative;
+    overflow: hidden;
+  }
+  .progress-indeterminate::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inline-size: 40%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+    animation: slide 1.6s var(--ease-smooth-out) infinite;
+  }
+}
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
 }
 
 @keyframes rise {
@@ -245,7 +270,8 @@
 
   .rise,
   .stagger > *,
-  .shimmer {
+  .shimmer,
+  .progress-indeterminate::after {
     animation: none;
   }
 

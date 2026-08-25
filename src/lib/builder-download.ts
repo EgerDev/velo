@@ -167,7 +167,7 @@ export async function downloadViaBuilder(opts: {
     { id: "builder", label: "Matching hop — player and file share one IP", status: "running" },
   ];
   opts.onSteps?.(steps.slice());
-  opts.onProgress?.({ label: "Builder pipe — server and same-hop race", percent: 8, steps });
+  opts.onProgress?.({ label: "Preparing the file on the server", percent: 8, steps });
 
   let pot = "";
   try {
