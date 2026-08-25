@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Velo YouTube Tools</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-icon">⚡</div>
+        <div class="logo-text">
+          <span class="logo-title">VELO</span>
+          <span class="logo-subtitle">YouTube & AI Studio</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-sync-session" class="icon-btn" title="Sync YouTube Session with Velo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 2l-2 2m-14 14l-2 2m18-10a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </button>
+        <button id="btn-options" class="icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar">
+      <button class="tab-btn active" data-tab="video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+          <line x1="7" y1="2" x2="7" y2="22"/>
+          <line x1="17" y1="2" x2="17" y2="22"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <line x1="2" y1="7" x2="7" y2="7"/>
+          <line x1="2" y1="17" x2="7" y2="17"/>
+          <line x1="17" y1="17" x2="22" y2="17"/>
+          <line x1="17" y1="7" x2="22" y2="7"/>
+        </svg>
+        <span>Active Video</span>
+      </button>
+
+      <button class="tab-btn" data-tab="transcript">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span>Transcripts</span>
+      </button>
+
+      <button class="tab-btn" data-tab="queue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/>
+          <line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+        <span>Queue</span>
+        <span id="tab-queue-badge" class="badge">0</span>
+      </button>
+    </nav>
+
+    <!-- Tab 1: Active Video -->
+    <main id="tab-content-video" class="tab-content active">
+      <div id="video-detected" class="card">
+        <div class="video-preview">
+          <img id="video-thumb" src="" alt="Thumbnail" class="thumb-img">
+          <span id="video-duration" class="thumb-duration">0:00</span>
+        </div>
+        <div class="video-info">
+          <h2 id="video-title" class="video-title">Detecting YouTube video…</h2>
+          <p id="video-channel" class="video-channel">Open YouTube to start</p>
+        </div>
+
+        <!-- Download Buttons Matrix -->
+        <div class="download-matrix">
+          <button id="btn-dl-1080p" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Download 1080p MP4</span>
+          </button>
+
+          <button id="btn-dl-audio" class="btn btn-secondary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18V5l12-2v13"/>
+              <circle cx="6" cy="18" r="3"/>
+              <circle cx="18" cy="16" r="3"/>
+            </svg>
+            <span>Audio (MP3 / AAC)</span>
+          </button>
+
+          <button id="btn-add-queue" class="btn btn-ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            <span>Add to Queue</span>
+          </button>
+
+          <button id="btn-open-velo" class="btn btn-ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            <span>Open in Velo Studio</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="video-none" class="empty-state" style="display: none;">
+        <div class="empty-icon">📺</div>
+        <h3>No YouTube Video Active</h3>
+        <p>Navigate to any YouTube video or Short, or paste a link below:</p>
+        <div class="quick-input-row">
+          <input type="text" id="manual-url-input" placeholder="Paste YouTube URL...">
+          <button id="btn-manual-fetch" class="btn btn-primary">Go</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Tab 2: Transcript & AI Studio -->
+    <main id="tab-content-transcript" class="tab-content">
+      <div class="transcript-header card">
+        <div class="transcript-stats">
+          <span id="stat-words">0 words</span>
+          <span>·</span>
+          <span id="stat-reading">~0 min read</span>
+        </div>
+        <div class="transcript-actions">
+          <button id="btn-copy-plain" class="mini-btn">Copy Text</button>
+          <button id="btn-copy-srt" class="mini-btn">Copy .SRT</button>
+          <button id="btn-export-vtt" class="mini-btn">Download .VTT</button>
+        </div>
+      </div>
+
+      <!-- 1-Click AI Prompts -->
+      <div class="ai-prompts-section">
+        <span class="section-label">⚡ 1-Click AI Prompt Library</span>
+        <div class="ai-prompts-grid">
+          <button class="ai-prompt-btn" data-prompt="summary">
+            <span>📝 Summary</span>
+          </button>
+          <button class="ai-prompt-btn" data-prompt="notes">
+            <span>📚 Study Notes</span>
+          </button>
+          <button class="ai-prompt-btn" data-prompt="qa">
+            <span>❓ FAQ & Q&A</span>
+          </button>
+          <button class="ai-prompt-btn" data-prompt="chapters">
+            <span>⏱️ Chapters</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Cue Search & List -->
+      <div class="transcript-search-bar">
+        <input type="text" id="transcript-search" placeholder="Search spoken words...">
+      </div>
+
+      <div id="transcript-cues-list" class="transcript-cues-list">
+        <div class="loading-spinner">Loading subtitles…</div>
+      </div>
+    </main>
+
+    <!-- Tab 3: Queue & Save for Later -->
+    <main id="tab-content-queue" class="tab-content">
+      <div class="queue-toolbar">
+        <span id="queue-count-label" class="queue-count">0 items in queue</span>
+        <div class="queue-toolbar-actions">
+          <button id="btn-download-queue" class="btn btn-sm btn-primary">Download All</button>
+          <button id="btn-clear-queue" class="btn btn-sm btn-ghost">Clear</button>
+        </div>
+      </div>
+
+      <div id="queue-items-list" class="queue-items-list">
+        <!-- Queue items injected here -->
+      </div>
+    </main>
+
+    <!-- Footer Status -->
+    <footer class="footer">
+      <span id="status-message">Connected to Velo Engine</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
