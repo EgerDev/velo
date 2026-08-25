@@ -1,74 +1,202 @@
 /**
- * Client-side download-speed advisor — pure decision logic, no network.
+ * Download-speed diagnosis — pure decision logic, no network.
  *
- * Velo streams media through a relay (a CORS proxy or its own /api/relay), so
- * the browser never opens a TLS connection to googlevideo.com. An ISP that
- * throttles YouTube by its TLS SNI therefore has nothing to match on Velo's
- * download traffic — which is why Velo needs no ClientHello/SNI desync trick.
- * What CAN still slow a download is a genuinely congested link, volumetric
- * shaping of all large flows, or a slow relay hop. This module turns a measured
- * throughput into a plain-language verdict and, when useful, one action.
+ * Two things shape the verdict, both borrowed from yt-final's speed-test
+ * engine rather than its DPI-desync proxy (which cannot apply here — see
+ * below):
  *
- * Speeds are bytes/second. A null measurement means "not measured yet" and must
- * never be treated as zero.
+ *  1. Judge a flow against a *control*, never against an absolute number. A
+ *     3 Mbps rural line is not "throttled" just because it is slow; it is
+ *     throttled when it moves far slower than this same link has already
+ *     demonstrated it can move. `baselineBytesPerSec` is that control.
+ *  2. A failed or missing measurement is null, never 0 — a probe that did not
+ *     run must degrade to "can't tell", never masquerade as an extreme value.
+ *
+ * Why no SNI desync: Velo's browser never opens a TLS connection to
+ * googlevideo.com. Media arrives through this app's own origin, so an ISP
+ * throttling YouTube by TLS SNI has nothing to match on. What remains is a
+ * congested link, volumetric shaping of any large flow, or a slow server hop.
  */
 
 const MIB = 1024 * 1024;
 
-export type ThrottleVerdict = "healthy" | "moderate" | "slow" | "crawling" | "unknown";
+/** Ratio thresholds against the control (mirrors yt-final's calibration). */
+const CLEAN_RATIO = 0.6; // at/above this share of the baseline: keeping up
+const SHAPED_RATIO = 0.4; // below this share: something is holding it back
+/** A baseline this slow can't prove anything about shaping. */
+const BASELINE_TRUST = 1.5 * MIB;
+/** At/above this a single flow is simply healthy, whatever the baseline says. */
+const CLEAN_ABSOLUTE = 2.5 * MIB;
+/** Below this a flow is slow in absolute terms and worth explaining. */
+const SLOW_ABSOLUTE = 0.6 * MIB;
+/** Spread beyond this between the fastest and slowest sample = jittery. */
+const JITTER_SPREAD = 3;
 
-export type ThrottleAdvice = {
+export type ThrottleVerdict =
+  | "unknown" // nothing measured yet
+  | "ramping" // too early in the transfer to judge
+  | "healthy"
+  | "slow-link" // the whole connection is slow, not just this download
+  | "congested" // below par, but not dramatically
+  | "shaped"; // far below what this link has proven it can do
+
+export type SpeedSummary = {
+  median: number | null;
+  lo: number | null;
+  hi: number | null;
+  count: number;
+};
+
+export type ThrottleReading = {
   verdict: ThrottleVerdict;
-  /** One-line summary safe to show next to the speed readout. */
   summary: string;
   /** A concrete next step, or null when nothing is worth suggesting. */
   action: string | null;
+  speed: SpeedSummary;
+  /** median ÷ baseline, or null without a trustworthy baseline. */
+  ratio: number | null;
+  /** "low" when the samples disagree enough that the number is a rough middle. */
+  confidence: "high" | "low";
 };
 
-// Calibrated to Velo's relay path, not a direct googlevideo flow:
-// ~40 KB/s is the classic unsolved-nsig crawl; a few hundred KB/s is a shaped
-// or congested link; multi-MiB/s is healthy for a proxied stream.
-const CRAWLING = 0.15 * MIB; // < ~150 KB/s — barely moving
-const SLOW = 0.6 * MIB; //     < ~600 KB/s — clearly shaped or congested
-const HEALTHY = 2.5 * MIB; //  >= ~2.5 MiB/s — no complaint
+function usable(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
 
-/**
- * Classify a download's throughput. `improving` lets a still-ramping transfer
- * avoid a false "slow" verdict in its first seconds.
- */
+/** Median (not mean) — googlevideo paces in bursts and a mean chases the spikes. */
+export function summarizeSamples(samples: readonly (number | null | undefined)[]): SpeedSummary {
+  const valid = samples.map(usable).filter((n): n is number => n != null);
+  if (!valid.length) return { median: null, lo: null, hi: null, count: 0 };
+  const sorted = [...valid].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+  return { median, lo: sorted[0]!, hi: sorted[sorted.length - 1]!, count: sorted.length };
+}
+
+export type AdviseOptions = {
+  /**
+   * Best throughput this link has shown recently (the control). Null when
+   * nothing has been measured yet — then only absolute speed can be judged.
+   */
+  baselineBytesPerSec?: number | null;
+  /** Transfer completion 0-100; an early transfer is still ramping. */
+  percentComplete?: number;
+};
+
+const HEDGE = " Speed is bouncing around, so read this as a rough middle.";
+
 export function adviseThrottle(
-  bytesPerSec: number | null | undefined,
-  opts: { improving?: boolean; usingLocalRelay?: boolean } = {},
-): ThrottleAdvice {
-  if (bytesPerSec == null || !Number.isFinite(bytesPerSec) || bytesPerSec <= 0) {
-    return { verdict: "unknown", summary: "Measuring speed…", action: null };
-  }
-  if (bytesPerSec >= HEALTHY) {
-    return { verdict: "healthy", summary: "Downloading at full speed.", action: null };
-  }
-  if (bytesPerSec >= SLOW) {
+  samples: readonly (number | null | undefined)[] | number | null | undefined,
+  options: AdviseOptions = {},
+): ThrottleReading {
+  const list = Array.isArray(samples) ? samples : [samples as number | null | undefined];
+  const speed = summarizeSamples(list);
+  const baseline = usable(options.baselineBytesPerSec);
+  const percent = options.percentComplete ?? 100;
+
+  const jittery =
+    speed.lo != null && speed.hi != null && speed.lo > 0 && speed.hi / speed.lo > JITTER_SPREAD;
+  const confidence: "high" | "low" = speed.count >= 3 && !jittery ? "high" : "low";
+  const hedge = confidence === "low" && speed.count > 1 ? HEDGE : "";
+
+  if (speed.median == null) {
     return {
-      verdict: "moderate",
-      summary: "A little slower than usual — likely link congestion.",
-      action: opts.improving ? null : "Let it run; speed often climbs as the stream ramps.",
+      verdict: "unknown",
+      summary: "Measuring speed…",
+      action: null,
+      speed,
+      ratio: null,
+      confidence: "low",
     };
   }
 
-  // Below SLOW: distinguish a still-ramping transfer from a genuinely shaped one.
-  if (opts.improving) {
-    return { verdict: "moderate", summary: "Still ramping up…", action: null };
+  const ratio = baseline != null && baseline >= BASELINE_TRUST ? speed.median / baseline : null;
+
+  // Healthy in absolute terms needs no further explanation.
+  if (speed.median >= CLEAN_ABSOLUTE || (ratio != null && ratio >= CLEAN_RATIO)) {
+    return {
+      verdict: "healthy",
+      summary: "Downloading at full speed.",
+      action: null,
+      speed,
+      ratio,
+      confidence,
+    };
   }
 
-  const crawling = bytesPerSec < CRAWLING;
+  // Early in a transfer the rate is still climbing; don't diagnose yet.
+  if (percent < 25 && speed.median < CLEAN_ABSOLUTE) {
+    return {
+      verdict: "ramping",
+      summary: "Still ramping up…",
+      action: null,
+      speed,
+      ratio,
+      confidence,
+    };
+  }
+
+  // Far below what this same link has already achieved — that gap is the
+  // evidence for shaping, and it's the only case where blaming the network is
+  // fair.
+  if (ratio != null && ratio < SHAPED_RATIO) {
+    return {
+      verdict: "shaped",
+      summary: `Running at about ${Math.round(ratio * 100)}% of this connection's usual speed — large downloads look shaped.${hedge}`,
+      action:
+        "Retrying takes a fresh route. If you're on mobile or 5G home internet, Wi-Fi on another network is usually faster.",
+      speed,
+      ratio,
+      confidence,
+    };
+  }
+
+  // No trustworthy baseline and a low absolute rate: say the connection is
+  // slow rather than accusing anyone of throttling.
+  if (ratio == null && speed.median < SLOW_ABSOLUTE) {
+    return {
+      verdict: "slow-link",
+      summary: `Slow going — about ${formatMib(speed.median)}.${hedge}`,
+      action: "If other downloads are also slow, it's the connection rather than this file.",
+      speed,
+      ratio,
+      confidence,
+    };
+  }
+
   return {
-    verdict: crawling ? "crawling" : "slow",
-    summary: crawling
-      ? "Barely moving — your network is likely shaping this download."
-      : "Running slow — your network may be shaping large downloads.",
-    // Velo already avoids googlevideo's SNI via the relay, so the useful lever
-    // is trying a different hop, not a desync proxy.
-    action: opts.usingLocalRelay
-      ? "Retry — the next attempt takes a fresh route. On mobile data, a Wi-Fi network is usually faster."
-      : "Retry to pick a different relay, or switch networks (many ISPs shape mobile data hardest).",
+    verdict: "congested",
+    summary: `A little slower than usual — about ${formatMib(speed.median)}.${hedge}`,
+    action: null,
+    speed,
+    ratio,
+    confidence,
   };
+}
+
+function formatMib(bytesPerSec: number): string {
+  return bytesPerSec >= MIB
+    ? `${(bytesPerSec / MIB).toFixed(1)} MB/s`
+    : `${Math.round(bytesPerSec / 1024)} KB/s`;
+}
+
+/**
+ * The control: the best sustained speed seen this session. Kept in memory only
+ * — a stale baseline from another network would misdiagnose this one.
+ */
+let sessionBaseline: number | null = null;
+
+export function recordSpeedBaseline(bytesPerSec: number | null | undefined): void {
+  const value = usable(bytesPerSec);
+  if (value == null) return;
+  sessionBaseline = sessionBaseline == null ? value : Math.max(sessionBaseline, value);
+}
+
+export function getSpeedBaseline(): number | null {
+  return sessionBaseline;
+}
+
+export function resetSpeedBaseline(): void {
+  sessionBaseline = null;
 }

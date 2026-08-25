@@ -67,7 +67,12 @@ import {
   type VideoPreset,
 } from "@/lib/youtube";
 import { formatSpeed } from "@/lib/speed-probe";
-import { adviseThrottle } from "@/lib/throttle-advisor";
+import {
+  adviseThrottle,
+  getSpeedBaseline,
+  recordSpeedBaseline,
+  summarizeSamples,
+} from "@/lib/throttle-advisor";
 import type { DownloadProgress } from "@/lib/download-client";
 import { StepLog } from "@/components/step-log";
 import {
@@ -265,14 +270,37 @@ export function VideoPanel({
     [video.description, video.duration],
   );
 
-  // Plain-language read on the live download speed. `improving` keeps a
-  // still-ramping transfer (percent under ~40%) from being called slow early.
+  // Rolling window of speed samples. A single reading is worthless — googlevideo
+  // paces in bursts — so the verdict comes from a median across the window and
+  // is judged against the best *sustained* rate this link has shown.
+  const [speedSamples, setSpeedSamples] = useState<number[]>([]);
+  const bytesPerSec = progress?.bytesPerSec;
+
+  useEffect(() => {
+    if (!downloading) {
+      setSpeedSamples([]);
+      return;
+    }
+    if (!bytesPerSec) return;
+    setSpeedSamples((prev) => {
+      const next = [...prev, bytesPerSec].slice(-12);
+      const summary = summarizeSamples(next);
+      // Only a sustained median becomes the control; a lone spike would make
+      // every later download look throttled by comparison.
+      if (summary.count >= 3 && summary.median) recordSpeedBaseline(summary.median);
+      return next;
+    });
+  }, [downloading, bytesPerSec]);
+
   const speedAdvice = useMemo(
     () =>
-      downloading && progress?.bytesPerSec
-        ? adviseThrottle(progress.bytesPerSec, { improving: (progress.percent ?? 0) < 40 })
+      downloading && speedSamples.length
+        ? adviseThrottle(speedSamples, {
+            baselineBytesPerSec: getSpeedBaseline(),
+            percentComplete: progress?.percent ?? 0,
+          })
         : null,
-    [downloading, progress?.bytesPerSec, progress?.percent],
+    [downloading, speedSamples, progress?.percent],
   );
 
   const [sponsor, setSponsor] = useState<{
@@ -1016,8 +1044,16 @@ export function VideoPanel({
                 </span>
               </div>
             ) : null}
-            {speedAdvice && speedAdvice.verdict !== "healthy" && speedAdvice.verdict !== "unknown" ? (
-              <p className="mt-2 text-[11px] leading-relaxed text-subtle">
+            {speedAdvice &&
+            speedAdvice.verdict !== "healthy" &&
+            speedAdvice.verdict !== "unknown" &&
+            speedAdvice.verdict !== "ramping" ? (
+              <p
+                className={cn(
+                  "mt-2 text-[11px] leading-relaxed",
+                  speedAdvice.verdict === "shaped" ? "text-warn" : "text-subtle",
+                )}
+              >
                 {speedAdvice.summary}
                 {speedAdvice.action ? <span className="text-muted"> {speedAdvice.action}</span> : null}
               </p>
