@@ -30,6 +30,23 @@ let minterPromise: Promise<Minter> | null = null;
 let minterCreatedAt = 0;
 let lastMinterError: string | null = null;
 const tokenCache = new Map<string, { token: string; expires: number; method: PoTokenInfo["method"] }>();
+const MAX_TOKEN_CACHE = 400;
+
+function evictTokenCache() {
+  if (tokenCache.size <= MAX_TOKEN_CACHE) return;
+  const now = Date.now();
+  for (const [key, entry] of tokenCache) {
+    if (entry.expires <= now) tokenCache.delete(key);
+  }
+  if (tokenCache.size > MAX_TOKEN_CACHE) {
+    const iter = tokenCache.keys();
+    const toDelete = tokenCache.size - MAX_TOKEN_CACHE;
+    for (let i = 0; i < toDelete; i++) {
+      const key = iter.next().value;
+      if (key !== undefined) tokenCache.delete(key);
+    }
+  }
+}
 
 const g = globalThis as unknown as Record<string, unknown>;
 const originalGlobals = { window: g.window, self: g.self, document: g.document };
@@ -272,6 +289,7 @@ async function mintPoTokenUncached(
       method: "botguard",
       expires: Date.now() + 4 * 60 * 60 * 1000,
     });
+    evictTokenCache();
     return { token, method: "botguard", error: null };
   } catch (err) {
     const error = err instanceof Error ? err.message : lastMinterError || "BotGuard failed.";
@@ -282,6 +300,7 @@ async function mintPoTokenUncached(
         method: "cold-start",
         expires: Date.now() + 30 * 60 * 1000,
       });
+      evictTokenCache();
       return { token, method: "cold-start", error };
     } catch {
       return { token: null, method: "none", error };

@@ -201,7 +201,7 @@ export function cuesToSrt(cues: TranscriptCue[]): string {
  */
 export function cuesToVtt(cues: TranscriptCue[]): string {
   const body = cues
-    .map((c) => `${c.startFormatted}.000 --> ${c.endFormatted}.000\n${c.text}`)
+    .map((c) => `${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${c.text}`)
     .join("\n\n");
   return `WEBVTT\n\n${body}`;
 }

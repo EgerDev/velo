@@ -334,8 +334,24 @@ function uniqueHits(items: SearchHit[]): SearchHit[] {
 type PlayableInfo = Awaited<ReturnType<InnertubeClient["getBasicInfo"]>>;
 
 const PLAYABLE_TTL_MS = 10 * 60_000;
+const MAX_PLAYABLE_CACHE = 200;
 const playableCache = new Map<string, { value: PlayableInfo; expires: number }>();
 const playableInflight = new Map<string, Promise<PlayableInfo>>();
+
+function evictPlayableCache() {
+  if (playableCache.size <= MAX_PLAYABLE_CACHE) return;
+  const now = Date.now();
+  // First pass: remove expired entries
+  for (const [key, entry] of playableCache) {
+    if (entry.expires <= now) playableCache.delete(key);
+  }
+  // Second pass: remove oldest if still over limit
+  if (playableCache.size > MAX_PLAYABLE_CACHE) {
+    const sorted = [...playableCache.entries()].sort((a, b) => a[1].expires - b[1].expires);
+    const toRemove = sorted.slice(0, playableCache.size - MAX_PLAYABLE_CACHE);
+    for (const [key] of toRemove) playableCache.delete(key);
+  }
+}
 
 const WEBPO_INNERTUBE = new Set([
   "WEB_EMBEDDED",
@@ -384,6 +400,7 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
       );
       if ((!status || status === "OK") && hasFormats) {
         playableCache.set(id, { value: info, expires: Date.now() + PLAYABLE_TTL_MS });
+        evictPlayableCache();
         return info;
       }
     } catch (err) {
@@ -393,6 +410,7 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
 
   if (fallback) {
     playableCache.set(id, { value: fallback, expires: Date.now() + PLAYABLE_TTL_MS });
+    evictPlayableCache();
     return fallback;
   }
   throw lastError ?? new Error("Could not reach YouTube.");

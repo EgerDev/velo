@@ -105,7 +105,7 @@ describe("transcript export formats", () => {
   it("converts cues to valid WebVTT format", () => {
     const vtt = cuesToVtt(cues);
     assert.match(vtt, /^WEBVTT/);
-    assert.match(vtt, /00:00\.000 --> 00:03\.000\nIntroduction to AI\./);
+    assert.match(vtt, /00:00:00\.000 --> 00:00:03\.500\nIntroduction to AI\./);
   });
 
   it("converts cues to valid JSON", () => {

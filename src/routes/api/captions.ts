@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { parseVideoId } from "@/lib/youtube";
 
-const LANG_RE = /^[a-zA-Z]{2,3}(?:-[a-zA-Z]{2,8})?$/;
-const VSS_RE = /^[a-zA-Z0-9._-]{1,24}$/;
+const LANG_RE = /^[a-zA-Z0-9_-]{2,20}$/;
+const VSS_RE = /^[a-zA-Z0-9._~@-]{1,50}$/;
 
 export const Route = createFileRoute("/api/captions")({
   server: {

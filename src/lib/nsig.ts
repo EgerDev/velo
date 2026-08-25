@@ -16,6 +16,7 @@
  * URL unlock when Innertube isn’t 403.
  */
 export const nsigCache = new Map<string, string>();
+const MAX_NSIG_CACHE = 500;
 
 export type NsigReport = {
   raw: string | null;
@@ -52,6 +53,15 @@ export function rememberNsig(raw: string | null, solved: string | null, cache = 
     return;
   }
   cache.set(raw, solved);
+  // Evict oldest entries if cache grows too large
+  if (cache === nsigCache && cache.size > MAX_NSIG_CACHE) {
+    const iter = cache.keys();
+    const toDelete = cache.size - MAX_NSIG_CACHE;
+    for (let i = 0; i < toDelete; i++) {
+      const key = iter.next().value;
+      if (key !== undefined) cache.delete(key);
+    }
+  }
 }
 
 export function nsigReport(
