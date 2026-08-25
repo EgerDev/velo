@@ -15,6 +15,14 @@ export default tseslint.config(
       ".nitro/**",
       "node_modules/**",
       "src/routeTree.gen.ts",
+      // Tooling scratch dirs, not source. `.remember/tmp` holds bare timestamps
+      // under a .ts name, which fails the parse and turns `npm run lint` red —
+      // and `update:deps` uses lint as a gate, so it would roll back every
+      // upgrade for a reason that has nothing to do with the upgrade.
+      ".remember/**",
+      ".grok/**",
+      ".pi/**",
+      ".tanstack/**",
     ],
   },
   js.configs.recommended,
@@ -31,10 +39,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

@@ -112,6 +112,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 │       └── api/                     # Backend streaming and RPC routes
 ├── scripts/
 │   ├── browser-smoke.mjs            # Automated Playwright desktop & mobile render test
+│   ├── auto-update.mjs              # Verified dependency + yt-dlp updater with rollback
 │   └── migrate.mjs                  # Database schema migration runner
 └── package.json
 ```
@@ -167,6 +168,37 @@ Build for production and verify with browser smoke tests:
 npm run build
 node scripts/browser-smoke.mjs
 ```
+
+---
+
+## Keeping Dependencies Current
+
+Extraction depends on libraries that track a moving target: `youtubei.js` and
+`bgutils-js` follow the YouTube player, and the `yt-dlp` Python module ships
+roughly monthly because YouTube keeps breaking it. Once they go stale,
+extraction fails for reasons that look like bugs in this repo.
+
+```bash
+npm run update:check   # report what is behind; exits 1 if there is work (CI)
+npm run update:deps    # apply in-range updates + yt-dlp, verified
+```
+
+`update:deps` never leaves the tree red. Each install is followed by
+`typecheck` + `test` + `lint`, and anything that fails is rolled back to the
+exact `package.json` and `package-lock.json` that were on disk beforehand. The
+in-range updates land as one batch and are bisected package-by-package if that
+batch fails, so a single bad release does not hold back the rest.
+
+Two kinds of version are left alone unless you ask for them:
+
+| Flag | What it unlocks |
+| --- | --- |
+| `--major` | Versions past a spec's ceiling, rewriting the range in `package.json`. Applied one at a time. |
+| `--pinned` | Exact specs such as `jose: "6.2.9"` and `nitro`, which are pinned deliberately. |
+
+Names under `overrides` are never bumped — the override would silently win over
+the direct spec. Other useful flags: `--dry-run`, `--only=pkg,pkg`,
+`--skip-tests`, `--skip-ytdlp`.
 
 ---
 

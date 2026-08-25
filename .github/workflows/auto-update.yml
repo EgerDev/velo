@@ -1,0 +1,59 @@
+# Weekly dependency refresh.
+#
+# The libraries that reverse the YouTube player (youtubei.js, bgutils-js) and
+# the yt-dlp Python module go stale within weeks of a player change, and the
+# resulting extraction failures look like bugs in this repo. This keeps them
+# moving without anyone having to remember.
+#
+# `npm run update:deps` verifies every install with typecheck + test + lint and
+# rolls back anything that fails, so this job only ever opens a PR against a
+# green tree. Range bumps (`--major`) are deliberately NOT automated — those
+# rewrite specs and want a human.
+name: auto-update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The updater checks the installed yt-dlp against PyPI, so it has to be
+      # present for the Python half of the run to mean anything.
+      - run: python3 -m pip install --user yt-dlp
+
+      - run: npm ci
+
+      - run: npm run update:deps
+
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto-update/dependencies
+          title: "chore(deps): weekly verified dependency update"
+          commit-message: "chore(deps): weekly verified dependency update"
+          body: |
+            Automated by `.github/workflows/auto-update.yml`.
+
+            Every package here was installed and then verified with
+            `typecheck` + `test` + `lint`; anything that failed was rolled
+            back and is absent from this diff. Out-of-range majors and
+            exact-pinned specs are not touched — run `npm run update:deps
+            --major` locally for those.
+          delete-branch: true
