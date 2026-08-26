@@ -300,20 +300,22 @@ export function CookieImport() {
       {/* Header Bar */}
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left cursor-pointer hover:bg-elevated/30 transition-colors"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer hover:bg-elevated/30 transition-colors"
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="flex items-center gap-2.5 text-sm font-medium text-fg">
-          <Cookie className="size-4 text-accent" />
-          YouTube Session Credentials
+        {/* Optional panel: no accent colour until cookies are actually attached,
+            so it never competes with the download button above it. */}
+        <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
+          <Cookie className="size-4 text-subtle" />
+          YouTube session
           {count > 0 ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 border border-success/30 px-2.5 py-0.5 text-xs font-semibold text-success">
-              <span className="size-1.5 rounded-full bg-success animate-pulse" />
-              {count} cookies active
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 border border-success/30 px-2 py-0.5 font-mono text-[11px] font-medium text-success">
+              <span className="size-1.5 rounded-full bg-success" />
+              {count} cookies
             </span>
           ) : (
-            <span className="rounded-full bg-elevated px-2.5 py-0.5 text-xs text-subtle">
-              guest mode (unconfigured)
+            <span className="rounded-full bg-elevated px-2 py-0.5 font-mono text-[11px] text-subtle">
+              optional
             </span>
           )}
         </span>
@@ -321,53 +323,40 @@ export function CookieImport() {
       </button>
 
       {open ? (
-        <div className="space-y-4 px-5 pb-5 border-t border-border pt-4">
-          {/* Sub-Navigation Tabs */}
-          <div className="flex flex-wrap gap-1 rounded-lg bg-elevated p-1 border border-border">
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                activeTab === "import" ? "bg-accent text-accent-fg shadow-sm" : "text-muted hover:text-fg",
-              )}
-              onClick={() => setActiveTab("import")}
-            >
-              <Sparkles className="size-3.5" />
-              Quick Import
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                activeTab === "paste" ? "bg-accent text-accent-fg shadow-sm" : "text-muted hover:text-fg",
-              )}
-              onClick={() => setActiveTab("paste")}
-            >
-              <FileCode className="size-3.5" />
-              Direct Paste
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                activeTab === "health" ? "bg-accent text-accent-fg shadow-sm" : "text-muted hover:text-fg",
-              )}
-              onClick={() => setActiveTab("health")}
-            >
-              <ShieldCheck className="size-3.5" />
-              Session Health & Verify
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer",
-                activeTab === "guides" ? "bg-accent text-accent-fg shadow-sm" : "text-muted hover:text-fg",
-              )}
-              onClick={() => setActiveTab("guides")}
-            >
-              <HelpCircle className="size-3.5" />
-              Browser Guides
-            </button>
+        <div className="space-y-3 px-4 pb-4 border-t border-border pt-3.5">
+          {/* Secondary nav: a quiet segmented control. The gold pill belongs to
+              the page's primary mode switcher — repeating it here would make an
+              optional panel look like the main event. */}
+          <div
+            role="tablist"
+            aria-label="Session cookie tools"
+            className="flex flex-wrap gap-0.5 rounded-lg bg-elevated/60 p-0.5 border border-border w-fit max-w-full"
+          >
+            {(
+              [
+                { id: "import", icon: Sparkles, label: "Import" },
+                { id: "paste", icon: FileCode, label: "Paste" },
+                { id: "health", icon: ShieldCheck, label: "Health" },
+                { id: "guides", icon: HelpCircle, label: "Guides" },
+              ] as const
+            ).map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-[6px] px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
+                  activeTab === id
+                    ? "bg-surface text-fg shadow-xs"
+                    : "text-subtle hover:text-muted",
+                )}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon className="size-3" />
+                {label}
+              </button>
+            ))}
           </div>
 
           <input
@@ -384,49 +373,20 @@ export function CookieImport() {
 
           {/* TAB 1: QUICK IMPORT */}
           {activeTab === "import" && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-11 text-xs font-medium justify-center"
-                  disabled={busy}
-                  onClick={() => void grab()}
-                >
-                  <Clipboard className="size-3.5 mr-1.5" />
-                  Grab from Clipboard
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-11 text-xs font-medium justify-center"
-                  disabled={busy}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <FileUp className="size-3.5 mr-1.5" />
-                  Upload .txt / .har
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-11 text-xs font-medium justify-center"
-                  onClick={() => {
-                    setActiveTab("guides");
-                    setBrowser("bookmarklet");
-                  }}
-                >
-                  <Bookmark className="size-3.5 mr-1.5 text-accent" />
-                  1-Click Bookmarklet
-                </Button>
-              </div>
-
-              {/* Drag and Drop Zone */}
+            <div className="space-y-2.5">
+              {/*
+                One file affordance, not two. The old layout had an "Upload"
+                button directly above a dropzone that did the same job — and the
+                dropzone's click actually read the clipboard, which no file icon
+                would ever suggest. Drop or click here means files; the clipboard
+                and bookmarklet are separate, quieter actions below.
+              */}
               <button
                 type="button"
                 disabled={busy}
                 className={cn(
-                  "w-full rounded-lg bg-surface border-2 border-dashed border-border px-4 py-8 text-center text-xs text-muted hover:border-subtle hover:bg-elevated/40 transition-all cursor-pointer",
-                  dragging && "border-accent text-fg bg-accent/10",
+                  "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-surface px-4 py-5 text-xs text-muted transition-all cursor-pointer hover:border-subtle hover:bg-elevated/40 disabled:cursor-not-allowed",
+                  dragging && "border-accent bg-accent/10 text-fg",
                 )}
                 onDragOver={(event) => {
                   event.preventDefault();
@@ -434,17 +394,48 @@ export function CookieImport() {
                 }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
-                onClick={() => void grab()}
+                onClick={() => fileRef.current?.click()}
               >
                 {busy ? (
                   <span className="font-medium text-accent">Importing session…</span>
                 ) : (
-                  <span className="flex flex-col items-center gap-2">
-                    <FileUp className="size-6 text-subtle" />
-                    <span>Drop <strong className="text-fg">cookies.txt</strong>, <strong className="text-fg">.json</strong>, or <strong className="text-fg">.har</strong> here, or click to paste</span>
-                  </span>
+                  <>
+                    <FileUp className="size-4 shrink-0 text-subtle" />
+                    <span>
+                      Drop <span className="font-mono text-fg">cookies.txt</span>,{" "}
+                      <span className="font-mono text-fg">.json</span> or{" "}
+                      <span className="font-mono text-fg">.har</span> — or click to choose a file
+                    </span>
+                  </>
                 )}
               </button>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2.5 text-[11px]"
+                  disabled={busy}
+                  onClick={() => void grab()}
+                >
+                  <Clipboard className="size-3 mr-1.5" />
+                  Paste from clipboard
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2.5 text-[11px]"
+                  onClick={() => {
+                    setActiveTab("guides");
+                    setBrowser("bookmarklet");
+                  }}
+                >
+                  <Bookmark className="size-3 mr-1.5" />
+                  Use the bookmarklet
+                </Button>
+              </div>
             </div>
           )}
 
@@ -452,7 +443,7 @@ export function CookieImport() {
           {activeTab === "paste" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted">Paste raw export tokens:</span>
+                <span className="text-muted">Paste your exported cookies</span>
                 {detectedManualFormat ? (
                   <span className="rounded-full bg-accent/20 border border-accent/30 px-2 py-0.5 text-xs text-accent font-medium uppercase">
                     Format: {detectedManualFormat}
@@ -471,7 +462,7 @@ export function CookieImport() {
                 disabled={!manualText.trim() || busy}
                 onClick={() => void persistText(manualText, "manual paste")}
               >
-                {busy ? "Parsing & Saving…" : "Save & Verify Credentials"}
+                {busy ? "Saving…" : "Save cookies"}
               </Button>
             </div>
           )}
@@ -484,10 +475,10 @@ export function CookieImport() {
                 <div>
                   <p className="text-xs font-semibold text-fg flex items-center gap-1.5">
                     <Activity className="size-4 text-accent" />
-                    Live YouTube Session Verification
+                    Check your session
                   </p>
                   <p className="text-xs text-muted mt-0.5">
-                    Probes YouTube's endpoint to test whether your saved tokens unlock full HD streams.
+                    Asks YouTube whether your saved cookies still unlock full-resolution downloads.
                   </p>
                 </div>
                 <Button
@@ -499,7 +490,7 @@ export function CookieImport() {
                   onClick={() => void testConnection()}
                 >
                   <RefreshCw className={cn("size-3.5 mr-1.5", probing && "animate-spin")} />
-                  {probing ? "Testing…" : "Test Connection"}
+                  {probing ? "Checking…" : "Check now"}
                 </Button>
               </div>
 
@@ -525,7 +516,7 @@ export function CookieImport() {
 
               {raw && count > 0 ? <CookieFacts raw={raw} /> : (
                 <div className="rounded-lg bg-surface border border-border p-3.5 text-center text-xs text-muted">
-                  No cookies saved in your vault yet. Use <strong className="text-fg">Quick Import</strong> or <strong className="text-fg">Direct Paste</strong> to attach your YouTube session.
+                  No cookies saved yet — add them from the <strong className="text-fg">Import</strong> or <strong className="text-fg">Paste</strong> tab.
                 </div>
               )}
 
@@ -551,10 +542,10 @@ export function CookieImport() {
           ) : null}
 
           {/* Security Guarantee & Action Footer */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border pt-3.5 text-xs">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border pt-3 text-[11px]">
             <span className="flex items-center gap-1.5 text-subtle">
-              <Shield className="size-3.5 text-muted" />
-              <span>Encrypted in private database · Sent only to YouTube · Never shared</span>
+              <Shield className="size-3 text-subtle" />
+              <span>Encrypted, sent only to YouTube, never shared</span>
             </span>
             {count > 0 ? (
               <Button

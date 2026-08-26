@@ -48,7 +48,7 @@ const TOOLS = {
   cookieQuickManager: "https://addons.mozilla.org/firefox/addon/cookie-quick-manager/",
 } as const;
 
-export const BOOKMARKLET_CODE = `javascript:(function(){try{if(!location.hostname.includes('youtube.com')){alert('⚠️ Please open youtube.com while logged in before clicking this bookmarklet.');return;}var c=document.cookie;if(!c){alert('⚠️ No cookies found. Make sure you are signed into YouTube in this browser tab.');return;}var arr=c.split('; ').map(function(pair){var idx=pair.indexOf('=');return{domain:'.youtube.com',name:idx>-1?pair.substring(0,idx):pair,value:idx>-1?pair.substring(idx+1):'',path:'/',secure:true};});var json=JSON.stringify(arr);if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(json).then(function(){alert('✅ YouTube cookies copied to clipboard!\\n\\nSwitch back to Velo and paste (or click Grab).');}).catch(function(){prompt('Copy your YouTube cookies below:',json);});}else{prompt('Copy your YouTube cookies below:',json);}}catch(e){alert('Export error: '+e.message);}})();`;
+export const BOOKMARKLET_CODE = `javascript:(function(){try{if(!location.hostname.includes('youtube.com')){alert('⚠️ Please open youtube.com while logged in before clicking this bookmarklet.');return;}var c=document.cookie;if(!c){alert('⚠️ No cookies found. Make sure you are signed into YouTube in this browser tab.');return;}var arr=c.split('; ').map(function(pair){var idx=pair.indexOf('=');return{domain:'.youtube.com',name:idx>-1?pair.substring(0,idx):pair,value:idx>-1?pair.substring(idx+1):'',path:'/',secure:true};});var json=JSON.stringify(arr);if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(json).then(function(){alert('✅ YouTube cookies copied to clipboard!\\n\\nSwitch back to Velo and paste.');}).catch(function(){prompt('Copy your YouTube cookies below:',json);});}else{prompt('Copy your YouTube cookies below:',json);}}catch(e){alert('Export error: '+e.message);}})();`;
 
 export type BrowserTab = "bookmarklet" | "chrome" | "safari" | "firefox" | "edge" | "mobile";
 
@@ -163,7 +163,7 @@ export function SessionGuide({
               <li>Open <strong className="text-fg">youtube.com</strong> in your browser and ensure you are logged in.</li>
               <li>Click the <strong className="text-fg">"Export YouTube Cookies"</strong> bookmarklet in your bookmarks bar.</li>
               <li>A confirmation popup will appear: <em className="text-fg">"Cookies copied to clipboard!"</em></li>
-              <li>Switch back to <strong className="text-fg">Velo</strong> and click <strong className="text-fg">"Grab from Clipboard"</strong> (or press Ctrl+V / Cmd+V).</li>
+              <li>Switch back to <strong className="text-fg">Velo</strong> and click <strong className="text-fg">"Paste from clipboard"</strong> (or press Ctrl+V / Cmd+V).</li>
             </ol>
           </div>
         </div>
@@ -340,7 +340,7 @@ export function SessionGuide({
               <li>Tap <strong className="text-fg">"Copy Code"</strong> below.</li>
               <li>Edit your bookmarks in Safari, tap the bookmark you just made, and replace the URL with the copied code.</li>
               <li>Open <strong className="text-fg">youtube.com</strong> in Safari while logged in, tap your address bar, and type/select the bookmark.</li>
-              <li>Switch back to Velo and tap <strong className="text-fg">"Grab from Clipboard"</strong>!</li>
+              <li>Switch back to Velo and tap <strong className="text-fg">"Paste from clipboard"</strong>.</li>
             </ol>
             <Button
               type="button"
