@@ -1,4 +1,15 @@
-const DOMAINS = [".youtube.com", "youtube.com", ".google.com", "google.com", ".youtube-nocookie.com"];
+const DOMAINS = [".youtube.com", "youtube.com", ".youtube-nocookie.com"];
+const SESSION_COOKIE_NAMES = new Set([
+  "SID",
+  "HSID",
+  "SSID",
+  "APISID",
+  "SAPISID",
+  "SIDCC",
+  "LOGIN_INFO",
+  "__Secure-1PAPISID",
+  "__Secure-3PAPISID",
+]);
 
 let lastCapture = null;
 const capturedPairs = new Map();
@@ -53,9 +64,17 @@ function buildHar(url, cookieHeader) {
   };
 }
 
+function isYoutubeDomain(domain) {
+  const host = (domain || "").replace(/^\./, "");
+  return host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtube-nocookie.com";
+}
+
 async function extractSession() {
   const bags = await Promise.all(DOMAINS.map((domain) => chrome.cookies.getAll({ domain })));
-  const cookies = bags.flat().filter((cookie) => /youtube|google/i.test(cookie.domain || ""));
+  const cookies = bags.flat().filter((cookie) => {
+    if (!SESSION_COOKIE_NAMES.has(cookie.name)) return false;
+    return isYoutubeDomain(cookie.domain);
+  });
   if (!cookies.length) {
     throw new Error("No YouTube cookies found. Sign in at youtube.com, then try again.");
   }

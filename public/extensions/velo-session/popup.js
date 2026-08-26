@@ -10,32 +10,45 @@ async function extract() {
   return response.session;
 }
 
-function looksLikeVelo(tab) {
-  const hay = `${tab.url || ""} ${tab.title || ""}`.toLowerCase();
-  return hay.includes("velo") || hay.includes("localhost") || hay.includes("grok-sandbox") || hay.includes("127.0.0.1");
+function isVeloHost(hostname) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "grok.com" ||
+    hostname.endsWith(".grok.com") ||
+    hostname === "grok.me" ||
+    hostname.endsWith(".grok.me") ||
+    hostname.endsWith(".grok-sandbox.com")
+  );
+}
+
+function isVeloTab(tab) {
+  try {
+    const host = new URL(tab.url || "").hostname;
+    if (!isVeloHost(host)) return false;
+    const title = (tab.title || "").trim();
+    return title === "Velo" || title.startsWith("Velo ");
+  } catch {
+    return false;
+  }
 }
 
 async function sendToVelo(netscape) {
   const tabs = await chrome.tabs.query({});
-  const targets = tabs.filter(looksLikeVelo);
-  if (!targets.length) throw new Error("Open Velo first, then click Send.");
+  const targets = tabs.filter(isVeloTab);
+  if (!targets.length) throw new Error("Focus a Velo tab, then click Send.");
   let sent = 0;
+  let lastError = null;
   for (const tab of targets) {
     if (!tab.id) continue;
     try {
       await chrome.tabs.sendMessage(tab.id, { type: "velo-inject-session", netscape });
       sent += 1;
-    } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (payload) => {
-          window.postMessage({ source: "velo-extension", ...payload }, "*");
-        },
-        args: [{ type: "velo-youtube-cookies", netscape }],
-      });
-      sent += 1;
+    } catch (err) {
+      lastError = err;
     }
   }
+  if (!sent) throw lastError instanceof Error ? lastError : new Error("Open Velo first, then click Send.");
   return sent;
 }
 

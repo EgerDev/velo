@@ -7,14 +7,21 @@
     "activeTab",
     "storage",
     "contextMenus",
-    "cookies"
+    "cookies",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://youtube.com/*",
     "https://*.googlevideo.com/*",
-    "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.grok-sandbox.com/*",
+    "https://*.grok.com/*",
+    "https://grok.me/*",
+    "https://*.grok.me/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -40,7 +47,8 @@
     {
       "matches": [
         "https://www.youtube.com/*",
-        "https://m.youtube.com/*"
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

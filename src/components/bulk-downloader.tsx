@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -41,6 +41,7 @@ import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
 
 type BulkDownloaderProps = {
   onSelectSingleVideo?: (url: string) => void;
+  initialIds?: string[];
 };
 
 const SAMPLE_BATCH = [
@@ -49,7 +50,7 @@ const SAMPLE_BATCH = [
   "https://www.youtube.com/shorts/5Eqb_-j3FDA",
 ];
 
-export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
+export function BulkDownloader({ onSelectSingleVideo, initialIds }: BulkDownloaderProps) {
   const [inputText, setInputText] = useState("");
   const [items, setItems] = useState<BulkItem[]>([]);
   const [globalPreset, setGlobalPreset] = useState<BulkQualityPreset>("1080p");
@@ -194,6 +195,15 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
       );
     }
   };
+
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !initialIds?.length) return;
+    seededRef.current = true;
+    const seeded = createBulkItems(initialIds, globalPreset);
+    setItems(seeded);
+    void resolveMetadataForItems(seeded);
+  }, [initialIds, globalPreset]);
 
   // Process the queue with anti-throttling concurrency control
   const startQueue = async () => {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -40,6 +40,7 @@ import { fetchTranscript, resolveVideo } from "@/lib/resolve-video";
 
 type TranscriptStudioProps = {
   initialUrl?: string;
+  preferredLang?: string | null;
   onOpenInDownloader?: (url: string) => void;
 };
 
@@ -97,7 +98,7 @@ const NLE_EXPORT_OPTIONS: {
   },
 ];
 
-export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: TranscriptStudioProps) {
+export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpenInDownloader }: TranscriptStudioProps) {
   const [urlInput, setUrlInput] = useState(initialUrl);
   const [loading, setLoading] = useState(false);
   const [video, setVideo] = useState<ResolvedVideo | null>(null);
@@ -161,9 +162,13 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
         return;
       }
 
-      // Default to English or first available track
+      const wantedLang =
+        preferredLang ||
+        (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("lang") : null);
       const defaultTrack =
-        resolved.captions.find((c) => c.languageCode === "en") ?? resolved.captions[0];
+        (wantedLang ? resolved.captions.find((c) => c.languageCode === wantedLang) : undefined) ??
+        resolved.captions.find((c) => c.languageCode === "en") ??
+        resolved.captions[0];
       setSelectedLanguage(defaultTrack.vssId);
       await loadCaptionContent(resolved.id, defaultTrack.vssId);
     } catch (err) {
@@ -175,6 +180,13 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
       if (currentReq === videoReqRef.current) setLoading(false);
     }
   }
+
+  const bootedRef = useRef(false);
+  useEffect(() => {
+    if (bootedRef.current || !initialUrl.trim()) return;
+    bootedRef.current = true;
+    void loadVideoTranscript(initialUrl);
+  }, [initialUrl]);
 
   const reqIdRef = useRef(0);
 

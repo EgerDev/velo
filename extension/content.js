@@ -7,16 +7,38 @@
   const VELO_SHORTS_CLASS = "velo-shorts-action-btn";
   const VELO_THUMBNAIL_CLASS = "velo-thumb-queue-btn";
 
+  function isVideoId(id) {
+    return typeof id === "string" && /^[a-zA-Z0-9_-]{11}$/.test(id) && id !== "videoseries";
+  }
+
+  function mapPreset(raw) {
+    const key = String(raw || "1080p").toLowerCase();
+    if (key === "4k" || key === "uhd" || key === "2160p") return "uhd";
+    if (key === "720p" || key === "hd") return "hd";
+    if (key === "audio") return "audio";
+    return "fullhd";
+  }
+
   function extractVideoId(url = window.location.href) {
     try {
       const u = new URL(url);
-      if (u.searchParams.has("v")) return u.searchParams.get("v");
-      if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
-      if (u.pathname.startsWith("/embed/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
-      if (u.hostname === "youtu.be") return u.pathname.slice(1).split("?")[0] || null;
+      if (u.searchParams.has("v")) {
+        const id = u.searchParams.get("v");
+        return isVideoId(id) ? id : null;
+      }
+      for (const prefix of ["/shorts/", "/embed/", "/live/"]) {
+        if (u.pathname.startsWith(prefix)) {
+          const id = u.pathname.split("/")[2]?.split("?")[0] || null;
+          return isVideoId(id) ? id : null;
+        }
+      }
+      if (u.hostname === "youtu.be") {
+        const id = u.pathname.slice(1).split("?")[0] || null;
+        return isVideoId(id) ? id : null;
+      }
     } catch {
-      const match = url.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      return match ? match[1] : null;
+      const match = url.match(/(?:v=|\/shorts\/|\/embed\/|\/live\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      return match && isVideoId(match[1]) ? match[1] : null;
     }
     return null;
   }
@@ -62,10 +84,47 @@
     };
   }
 
-  /** The configured Velo origin, or the local default. */
-  async function veloServerUrl() {
+  const VELO_TAB_URLS = [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://*.grok-sandbox.com/*",
+    "https://*.grok.com/*",
+    "https://grok.me/*",
+    "https://*.grok.me/*",
+  ];
+
+  async function resolveVeloServerUrl(fallback) {
+    try {
+      const tabs = await chrome.tabs.query({ url: VELO_TAB_URLS });
+      const titled = tabs.find((tab) => {
+        const title = (tab.title || "").trim();
+        return title === "Velo" || title.startsWith("Velo ");
+      });
+      if (titled?.url) return new URL(titled.url).origin;
+    } catch {
+      /* no matching tab */
+    }
+    return fallback || "http://127.0.0.1:8080";
+  }
+
+  /** Live Velo tab origin if one is open, else the configured default. */
+  async function veloSettings() {
     const { settings } = await chrome.storage.sync.get("settings");
-    return settings?.veloServerUrl || "http://127.0.0.1:8080";
+    return {
+      origin: await resolveVeloServerUrl(settings?.veloServerUrl || "http://127.0.0.1:8080"),
+      preset: mapPreset(settings?.defaultPreset),
+      lang: settings?.defaultLang || "en",
+    };
+  }
+
+  function videoHref(origin, videoId, extra = {}) {
+    const params = new URLSearchParams({
+      v: videoId,
+      preset: extra.preset || "fullhd",
+      lang: extra.lang || "en",
+      ...extra,
+    });
+    return `${origin}/?${params}`;
   }
 
   // 2. Inject Velo Buttons Under Standard Video Player
@@ -81,7 +140,11 @@
     const targetBar =
       document.querySelector("#top-level-buttons-computed") ||
       document.querySelector("ytd-watch-metadata #actions") ||
-      document.querySelector("#menu-container");
+      document.querySelector("#menu-container") ||
+      document.querySelector("ytm-slim-video-action-bar-renderer") ||
+      document.querySelector(".slim-video-action-bar-actions") ||
+      document.querySelector("ytmusic-player-bar") ||
+      document.querySelector("#right-controls");
 
     if (!targetBar) return;
 
@@ -101,7 +164,8 @@
       <span>Velo 1080p</span>
     `;
     downloadBtn.onclick = withExtensionContext(async () => {
-      window.open(`${await veloServerUrl()}/?v=${videoId}&auto=1`, "_blank");
+      const s = await veloSettings();
+      window.open(videoHref(s.origin, videoId, { preset: s.preset, lang: s.lang, auto: "1" }), "_blank");
     });
 
     // 2. Velo Transcript Button
@@ -118,7 +182,8 @@
       <span>Transcript AI</span>
     `;
     transcriptBtn.onclick = withExtensionContext(async () => {
-      window.open(`${await veloServerUrl()}/?v=${videoId}&tab=transcript`, "_blank");
+      const s = await veloSettings();
+      window.open(videoHref(s.origin, videoId, { preset: s.preset, lang: s.lang, tab: "transcript" }), "_blank");
     });
 
     // 3. Velo Queue Button
@@ -182,7 +247,8 @@
       </div>
     `;
     shortsBtn.onclick = withExtensionContext(async () => {
-      window.open(`${await veloServerUrl()}/?v=${videoId}&auto=1`, "_blank");
+      const s = await veloSettings();
+      window.open(videoHref(s.origin, videoId, { preset: s.preset, lang: s.lang, auto: "1" }), "_blank");
     });
 
     shortsContainer.appendChild(shortsBtn);
@@ -190,14 +256,16 @@
 
   // 4. Inject Queue Buttons on Video Thumbnails
   function injectThumbnailBadges() {
-    const thumbnails = document.querySelectorAll("ytd-thumbnail:not([data-velo-injected])");
+    const thumbnails = document.querySelectorAll(
+      "ytd-thumbnail:not([data-velo-injected]), ytd-playlist-video-renderer:not([data-velo-injected]), ytd-playlist-panel-video-renderer:not([data-velo-injected])",
+    );
     thumbnails.forEach((thumb) => {
-      thumb.setAttribute("data-velo-injected", "true");
-      const link = thumb.querySelector("a#thumbnail");
+      const link = thumb.querySelector("a#thumbnail, a#video-title, a.yt-simple-endpoint");
       if (!link) return;
 
       const videoId = extractVideoId(link.href);
       if (!videoId) return;
+      thumb.setAttribute("data-velo-injected", "true");
 
       const badge = document.createElement("button");
       badge.className = VELO_THUMBNAIL_CLASS;
@@ -212,7 +280,7 @@
         const titleElem = thumb.closest("ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer")?.querySelector("#video-title");
         const title = titleElem?.textContent?.trim() || `Video ${currentId}`;
 
-        await chrome.runtime.sendMessage({
+        const res = await chrome.runtime.sendMessage({
           type: "QUEUE_ADD",
           item: {
             id: currentId,
@@ -221,7 +289,8 @@
             addedAt: Date.now(),
           },
         });
-        showToast("Added to Velo Queue!", "📑");
+        if (res?.ok) showToast("Added to Velo Queue!", "📑");
+        else showToast(res?.error ? `Couldn’t queue: ${res.error}` : "Couldn’t add to the queue.", "⚠️");
       });
 
       thumb.appendChild(badge);

@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       header: message.header,
       count: message.count,
     },
-    "*",
+    window.location.origin,
   );
   sendResponse({ ok: true });
   return true;

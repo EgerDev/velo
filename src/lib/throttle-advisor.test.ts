@@ -100,6 +100,14 @@ describe("adviseThrottle", () => {
   it("accepts a bare number as well as a sample list", () => {
     assert.equal(adviseThrottle(5 * MIB).verdict, "healthy");
   });
+
+  it("does not call mid-band speed 'slower than usual' without a baseline", () => {
+    const reading = adviseThrottle([1.2 * MIB], { percentComplete: 50 });
+    assert.equal(reading.verdict, "unknown");
+    assert.equal(reading.ratio, null);
+    assert.match(reading.summary, /no usual speed/);
+    assert.ok(!/slower than usual/.test(reading.summary));
+  });
 });
 
 describe("session baseline", () => {

@@ -3,16 +3,17 @@
   "name": "Velo YouTube Session",
   "version": "1.1.0",
   "description": "Extract YouTube HttpOnly cookies, capture live HAR cookie headers, and send them to Velo.",
-  "permissions": ["cookies", "tabs", "clipboardWrite", "downloads", "scripting", "webRequest"],
+  "permissions": ["cookies", "tabs", "clipboardWrite", "downloads", "webRequest"],
   "host_permissions": [
     "*://*.youtube.com/*",
-    "*://*.google.com/*",
     "*://*.youtube-nocookie.com/*",
     "*://*.googlevideo.com/*",
     "*://localhost/*",
     "*://127.0.0.1/*",
     "*://*.grok-sandbox.com/*",
-    "*://*.grok.com/*"
+    "*://*.grok.com/*",
+    "*://grok.me/*",
+    "*://*.grok.me/*"
   ],
   "action": {
     "default_title": "Send YouTube session to Velo",
@@ -32,7 +33,9 @@
         "http://localhost/*",
         "http://127.0.0.1/*",
         "https://*.grok-sandbox.com/*",
-        "https://*.grok.com/*"
+        "https://*.grok.com/*",
+        "https://grok.me/*",
+        "https://*.grok.me/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

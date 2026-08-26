@@ -78,6 +78,14 @@ export function CookieImport({ revealSignal = 0 }: { revealSignal?: number } = {
   } | null>(null);
   const [probing, setProbing] = useState(false);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("cookie_sync") !== "1") return;
+    setOpen(true);
+    setActiveTab("paste");
+    setStatus("Cookies were copied. Paste them here (⌘V / Ctrl+V).");
+  }, []);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

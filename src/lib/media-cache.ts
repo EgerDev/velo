@@ -52,6 +52,8 @@ export function pickEvictions(
   maxItems: number,
   maxBytes: number,
 ): string[] {
+  // A blob that cannot fit even in an empty cache must not evict anything.
+  if (incomingSize > maxBytes) return [];
   const sorted = [...items].sort((a, b) => a.savedAt - b.savedAt);
   let total = sorted.reduce((sum, item) => sum + item.size, 0) + incomingSize;
   let count = sorted.length + 1;
@@ -131,6 +133,7 @@ export async function putCachedMedia(opts: {
   blob: Blob;
 }): Promise<void> {
   if (typeof indexedDB === "undefined") return;
+  if (opts.blob.size > MAX_CACHE_BYTES) return;
   if (!(await blobIsMedia(opts.blob))) return;
   const db = await openDb();
   try {
@@ -138,10 +141,9 @@ export async function putCachedMedia(opts: {
     const mine = all.filter((row) => ownsRow(row));
     const status = await storageStatus();
     const ownBytes = mine.reduce((sum, row) => sum + (row.blob?.size ?? 0), 0);
-    const budget = Math.max(
-      cacheBudget(status.quota, Math.max(0, status.usage - ownBytes), status.persisted),
-      opts.blob.size,
-    );
+    const budget = cacheBudget(status.quota, Math.max(0, status.usage - ownBytes), status.persisted);
+    const maxBytes = Math.min(MAX_CACHE_BYTES, budget);
+    if (opts.blob.size > maxBytes) return;
     // Exclude the row we are about to overwrite. `store.put` replaces it, so
     // counting it as an insert made a re-download silently drop a different
     // cached video.
@@ -152,11 +154,8 @@ export async function putCachedMedia(opts: {
         .map((row) => ({ key: row.key, savedAt: row.savedAt, size: row.blob?.size ?? 0 })),
       opts.blob.size,
       MAX_CACHE_ITEMS,
-      Math.min(MAX_CACHE_BYTES, budget),
+      maxBytes,
     );
-    for (const key of evict) {
-      await tx(db, "readwrite", (store) => store.delete(key));
-    }
     const record: CachedMedia = {
       key: cacheKey(opts.videoId, opts.itag),
       owner: mediaOwner,
@@ -167,13 +166,13 @@ export async function putCachedMedia(opts: {
       savedAt: Date.now(),
     };
     try {
-      await tx(db, "readwrite", (store) => store.put(record));
+      await writeAll(db, [
+        ...evict.map((key) => (store: IDBObjectStore) => store.delete(key)),
+        (store) => store.put(record),
+      ]);
     } catch (err) {
       if (!isQuotaError(err)) throw err;
-      const remaining = mine.filter((r) => !evict.includes(r.key));
-      const oldest = remaining.sort((a, b) => a.savedAt - b.savedAt)[0];
-      if (oldest) await tx(db, "readwrite", (store) => store.delete(oldest.key));
-      await tx(db, "readwrite", (store) => store.put(record)).catch(() => undefined);
+      // One transaction aborted, so evictions rolled back with the failed put.
     }
   } finally {
     db.close();
@@ -279,6 +278,22 @@ export async function clearCachedMedia(): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+function writeAll(
+  db: IDBDatabase,
+  runs: Array<(store: IDBObjectStore) => IDBRequest>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE, "readwrite");
+    const store = transaction.objectStore(STORE);
+    for (const run of runs) run(store);
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("IndexedDB aborted"));
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("IndexedDB request failed"));
+  });
 }
 
 function tx<T>(

@@ -32,6 +32,21 @@ test("evict oldest until under item and byte caps", () => {
   assert.deepEqual(drop, ["a"]);
 });
 
+test("a blob bigger than the cache does not evict existing items", () => {
+  const drop = pickEvictions(
+    [
+      { key: "a", savedAt: 1, size: 50 },
+      { key: "b", savedAt: 2, size: 50 },
+      { key: "c", savedAt: 3, size: 50 },
+      { key: "d", savedAt: 4, size: 50 },
+    ],
+    200,
+    4,
+    150,
+  );
+  assert.deepEqual(drop, []);
+});
+
 test("Recent save: cache hit skips YouTube, miss fetches", () => {
   assert.equal(planRecentSave(true).action, "local");
   assert.equal(planRecentSave(false).action, "fetch");

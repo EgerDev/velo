@@ -152,13 +152,22 @@ export function adviseThrottle(
     };
   }
 
-  // No trustworthy baseline and a low absolute rate: say the connection is
-  // slow rather than accusing anyone of throttling.
-  if (ratio == null && speed.median < SLOW_ABSOLUTE) {
+  // No trustworthy baseline: do not invent a "usual" speed to fall short of.
+  if (ratio == null) {
+    if (speed.median < SLOW_ABSOLUTE) {
+      return {
+        verdict: "slow-link",
+        summary: `Slow going — about ${formatMib(speed.median)}.${hedge}`,
+        action: "If other downloads are also slow, it's the connection rather than this file.",
+        speed,
+        ratio,
+        confidence,
+      };
+    }
     return {
-      verdict: "slow-link",
-      summary: `Slow going — about ${formatMib(speed.median)}.${hedge}`,
-      action: "If other downloads are also slow, it's the connection rather than this file.",
+      verdict: "unknown",
+      summary: `About ${formatMib(speed.median)} — no usual speed to compare yet.${hedge}`,
+      action: null,
       speed,
       ratio,
       confidence,

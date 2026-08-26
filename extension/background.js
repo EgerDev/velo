@@ -3,9 +3,7 @@
 const DEFAULT_SETTINGS = {
   veloServerUrl: "http://127.0.0.1:8080",
   defaultPreset: "1080p",
-  defaultAudioFormat: "mp3",
-  autoQueuePlaylists: true,
-  notifyOnDownload: true,
+  defaultLang: "en",
 };
 
 // 1. Initialize on Install / Startup
@@ -35,18 +33,52 @@ const YT_TARGET_PATTERNS = [
   "*://www.youtube.com/watch*",
   "*://m.youtube.com/watch*",
   "*://music.youtube.com/watch*",
+  "*://youtube.com/watch*",
   "*://www.youtube.com/shorts/*",
   "*://m.youtube.com/shorts/*",
+  "*://youtube.com/shorts/*",
   "*://www.youtube.com/embed/*",
+  "*://youtube.com/embed/*",
   "*://youtu.be/*",
 ];
-// The page itself being a YouTube page — for the background/page-context menu
-// that acts on whatever video the tab is currently showing.
+// Watch/shorts/embed pages only — a homepage/results page menu is a dead click.
 const YT_PAGE_PATTERNS = [
-  "*://www.youtube.com/*",
-  "*://m.youtube.com/*",
-  "*://music.youtube.com/*",
+  "*://www.youtube.com/watch*",
+  "*://m.youtube.com/watch*",
+  "*://music.youtube.com/watch*",
+  "*://youtube.com/watch*",
+  "*://www.youtube.com/shorts/*",
+  "*://m.youtube.com/shorts/*",
+  "*://youtube.com/shorts/*",
+  "*://www.youtube.com/embed/*",
+  "*://youtube.com/embed/*",
 ];
+
+const VELO_TAB_URLS = [
+  "http://127.0.0.1/*",
+  "http://localhost/*",
+  "https://*.grok-sandbox.com/*",
+  "https://*.grok.com/*",
+  "https://grok.me/*",
+  "https://*.grok.me/*",
+];
+
+function isVeloTabTitle(title) {
+  const text = (title || "").trim();
+  return text === "Velo" || text.startsWith("Velo ");
+}
+
+async function resolveVeloServerUrl(fallback) {
+  try {
+    const tabs = await chrome.tabs.query({ url: VELO_TAB_URLS });
+    const titled = tabs.find((tab) => isVeloTabTitle(tab.title));
+    const tab = titled || null;
+    if (tab?.url) return new URL(tab.url).origin;
+  } catch {
+    /* host permission or no matching tab */
+  }
+  return fallback || DEFAULT_SETTINGS.veloServerUrl;
+}
 
 const VELO_ITEMS = [
   { id: "velo_download_1080p", title: "⚡ Download 1080p Video" },
@@ -65,7 +97,9 @@ function setupContextMenus() {
     // single item are AND-ed, which is what broke cross-web link support, so
     // they must live on separate menus.
     const parents = [
-      { id: "velo_root_link", contexts: ["link", "video"], targetUrlPatterns: YT_TARGET_PATTERNS },
+      { id: "velo_root_link", contexts: ["link"], targetUrlPatterns: YT_TARGET_PATTERNS },
+      // Video src is blob:/googlevideo — never match targetUrlPatterns against it.
+      { id: "velo_root_video", contexts: ["video"], documentUrlPatterns: YT_PAGE_PATTERNS },
       { id: "velo_root_page", contexts: ["page"], documentUrlPatterns: YT_PAGE_PATTERNS },
     ];
 
@@ -96,24 +130,51 @@ function setupContextMenus() {
 }
 
 // 2. Extract Video ID from arbitrary YouTube URL
+function isVideoId(id) {
+  return typeof id === "string" && /^[a-zA-Z0-9_-]{11}$/.test(id) && id !== "videoseries";
+}
+
+function mapPreset(raw) {
+  const key = String(raw || "1080p").toLowerCase();
+  if (key === "4k" || key === "uhd" || key === "2160p") return "uhd";
+  if (key === "720p" || key === "hd") return "hd";
+  if (key === "audio") return "audio";
+  if (key === "1080p" || key === "fullhd") return "fullhd";
+  return "fullhd";
+}
+
 function extractVideoId(rawUrl) {
   if (!rawUrl) return null;
   try {
     const parsed = new URL(rawUrl);
-    if (parsed.searchParams.has("v")) return parsed.searchParams.get("v");
-    if (parsed.pathname.startsWith("/shorts/")) return parsed.pathname.split("/")[2]?.split("?")[0] || null;
-    if (parsed.pathname.startsWith("/embed/")) return parsed.pathname.split("/")[2]?.split("?")[0] || null;
-    if (parsed.hostname === "youtu.be") return parsed.pathname.slice(1).split("?")[0] || null;
+    if (parsed.searchParams.has("v")) {
+      const id = parsed.searchParams.get("v");
+      return isVideoId(id) ? id : null;
+    }
+    for (const prefix of ["/shorts/", "/embed/", "/live/"]) {
+      if (parsed.pathname.startsWith(prefix)) {
+        const id = parsed.pathname.split("/")[2]?.split("?")[0] || null;
+        return isVideoId(id) ? id : null;
+      }
+    }
+    if (parsed.hostname === "youtu.be") {
+      const id = parsed.pathname.slice(1).split("?")[0] || null;
+      return isVideoId(id) ? id : null;
+    }
   } catch {
-    const match = rawUrl.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    return match ? match[1] : null;
+    const match = rawUrl.match(/(?:v=|\/shorts\/|\/embed\/|\/live\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return match && isVideoId(match[1]) ? match[1] : null;
   }
   return null;
 }
 
 // 3. Handle Context Menu Actions
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const targetUrl = info.linkUrl || info.srcUrl || tab?.url;
+  const actionId = String(info.menuItemId);
+  const fromPage = actionId.includes("velo_root_video") || actionId.includes("velo_root_page");
+  const targetUrl = fromPage
+    ? info.pageUrl || info.frameUrl || tab?.url
+    : info.linkUrl || info.pageUrl || tab?.url;
   const videoId = extractVideoId(targetUrl);
 
   if (!videoId) {
@@ -122,19 +183,25 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   const { settings } = await chrome.storage.sync.get("settings");
-  const serverUrl = settings?.veloServerUrl || DEFAULT_SETTINGS.veloServerUrl;
+  const serverUrl = await resolveVeloServerUrl(settings?.veloServerUrl || DEFAULT_SETTINGS.veloServerUrl);
+  const preset = mapPreset(settings?.defaultPreset);
+  const lang = settings?.defaultLang || DEFAULT_SETTINGS.defaultLang;
   const fullVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   // Menu items are registered under two parents, so the id carries a
   // "::<parentId>" suffix — act on the action prefix.
   const action = String(info.menuItemId).split("::")[0];
   switch (action) {
-    case "velo_download_1080p":
-    case "velo_download_audio":
+    case "velo_download_1080p": {
+      chrome.tabs.create({ url: `${serverUrl}/?v=${videoId}&preset=fullhd&auto=1` });
+      break;
+    }
+    case "velo_download_audio": {
+      chrome.tabs.create({ url: `${serverUrl}/?v=${videoId}&preset=audio&auto=1` });
+      break;
+    }
     case "velo_open_web": {
-      // Open Velo Web App with video query
-      const tabUrl = `${serverUrl}/?v=${videoId}&auto=1`;
-      chrome.tabs.create({ url: tabUrl });
+      chrome.tabs.create({ url: `${serverUrl}/?v=${videoId}&preset=${preset}&lang=${lang}` });
       break;
     }
 

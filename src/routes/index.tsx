@@ -195,6 +195,15 @@ function ModeTabs({ value, onChange }: { value: ViewMode; onChange: (mode: ViewM
   );
 }
 
+function mapExtensionPreset(raw: string): string {
+  const key = raw.toLowerCase();
+  if (key === "4k" || key === "2160p" || key === "uhd") return "uhd";
+  if (key === "720p" || key === "hd") return "hd";
+  if (key === "audio") return "audio";
+  if (key === "1080p" || key === "fullhd") return "fullhd";
+  return key;
+}
+
 function Home() {
   const { user, isPending } = useCurrentUserState();
   const signedIn = Boolean(user);
@@ -210,6 +219,10 @@ function Home() {
   const [offer, setOffer] = useState<OfferedFile[] | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("single");
   const [sessionReveal, setSessionReveal] = useState(0);
+  const [batchIds, setBatchIds] = useState<string[]>([]);
+  const wantedPresetRef = useRef<string | null>(null);
+  const autoDownloadRef = useRef(false);
+  const preferredLangRef = useRef<string | null>(null);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
@@ -228,6 +241,20 @@ function Home() {
       } else if (batchParam) {
         setViewMode("bulk");
       }
+      if (batchParam) {
+        const ids = batchParam
+          .split(",")
+          .map((part) => parseVideoId(part.trim()))
+          .filter((id): id is string => Boolean(id));
+        if (ids.length) setBatchIds(ids);
+      }
+      if (params.get("cookie_sync") === "1") {
+        setSessionReveal((n) => n + 1);
+      }
+      const presetParam = params.get("preset") || (params.get("tab") === "audio" ? "audio" : null);
+      if (presetParam) wantedPresetRef.current = mapExtensionPreset(presetParam);
+      if (params.get("lang")) preferredLangRef.current = params.get("lang");
+      if (params.get("auto") === "1") autoDownloadRef.current = true;
 
       const deepLink = params.get("v") || params.get("url") || params.get("q");
       if (deepLink && !urlRef.current) {
@@ -255,6 +282,12 @@ function Home() {
     if (!video) return null;
     return video.presets.find((p) => p.id === presetId) ?? pickBestPreset(video.presets) ?? video.presets[0] ?? null;
   }, [video, presetId]);
+
+  useEffect(() => {
+    if (!autoDownloadRef.current || !video || !selected || downloading) return;
+    autoDownloadRef.current = false;
+    void runDownload(video, selected);
+  }, [video, selected, downloading]);
 
   useKeyboardShortcuts({
     onFocusSearch: () => {
@@ -288,11 +321,14 @@ function Home() {
 
   function applyVideo(result: ResolvedVideo, preferredItag?: number) {
     setVideo(result);
+    const wanted = wantedPresetRef.current;
     const preferred =
       (preferredItag != null
         ? result.presets.find((p) => p.itag === preferredItag) ??
           result.presets.find((p) => p.audioItag === preferredItag)
         : undefined) ??
+      (wanted === "audio" ? result.presets.find((p) => p.kind === "audio") : undefined) ??
+      (wanted ? result.presets.find((p) => p.id === wanted) : undefined) ??
       pickBestPreset(result.presets);
     setPresetId(preferred?.id ?? null);
     setOffer(null);
@@ -624,6 +660,7 @@ function Home() {
           <div className="mt-8">
             <TranscriptStudio
               initialUrl={url}
+              preferredLang={preferredLangRef.current}
               onOpenInDownloader={(singleUrl) => {
                 updateUrl(singleUrl);
                 setViewMode("single");
@@ -634,6 +671,7 @@ function Home() {
         ) : viewMode === "bulk" ? (
           <div className="mt-8">
             <BulkDownloader
+              initialIds={batchIds}
               onSelectSingleVideo={(singleUrl) => {
                 updateUrl(singleUrl);
                 setViewMode("single");

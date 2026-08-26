@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   let currentSettings = {
     veloServerUrl: "http://127.0.0.1:8080",
     defaultPreset: "1080p",
+    defaultLang: "en",
   };
 
   // Load Settings
@@ -59,8 +60,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.getElementById(`tab-content-${tabId}`)?.classList.add("active");
 
       if (tabId === "queue") loadQueueUI();
-      if (tabId === "transcript" && activeVideo && !activeTranscriptCues.length) {
-        loadTranscripts(activeVideo.id);
+      if (tabId === "transcript") {
+        if (activeVideo && !activeTranscriptCues.length) loadTranscripts(activeVideo.id);
+        else if (!activeVideo) showTranscriptEmpty("No video detected. Open a YouTube watch page or paste a link.");
       }
     });
   });
@@ -83,7 +85,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    const title = tab.title ? tab.title.replace(" - YouTube", "") : `Video ${videoId}`;
+    const title = tab.title ? tab.title.replace(/ - YouTube(?: Music)?$/, "") : `Video ${videoId}`;
     const changed = activeVideo?.id !== videoId;
     activeVideo = {
       id: videoId,
@@ -119,41 +121,116 @@ document.addEventListener("DOMContentLoaded", async () => {
   function showEmptyState() {
     videoDetected.style.display = "none";
     videoNone.style.display = "block";
+    activeVideo = null;
+    showTranscriptEmpty("No video detected. Open a YouTube watch page or paste a link.");
+  }
+
+  function showTranscriptEmpty(message) {
+    activeTranscriptCues = [];
+    if (transcriptCuesList) {
+      transcriptCuesList.innerHTML = `<div class="loading-spinner">${escapeHtml(message)}</div>`;
+    }
+  }
+
+  function isVideoId(id) {
+    return typeof id === "string" && /^[a-zA-Z0-9_-]{11}$/.test(id) && id !== "videoseries";
+  }
+
+  function mapPreset(raw) {
+    const key = String(raw || "1080p").toLowerCase();
+    if (key === "4k" || key === "uhd" || key === "2160p") return "uhd";
+    if (key === "720p" || key === "hd") return "hd";
+    if (key === "audio") return "audio";
+    return "fullhd";
+  }
+
+  function presetLabel(raw) {
+    return { fullhd: "1080p", hd: "720p", uhd: "4K", audio: "Audio" }[mapPreset(raw)] || "1080p";
   }
 
   function extractVideoId(rawUrl) {
     try {
       const u = new URL(rawUrl);
       const host = u.hostname.toLowerCase();
-      if (host === "youtu.be") return u.pathname.slice(1).split("?")[0] || null;
-      // Only trust ?v= / /shorts / /embed on an actual YouTube host — otherwise
-      // any https://example.com/page?v=123 would render as a "detected video"
-      // and the download/queue actions would act on that junk id.
+      if (host === "youtu.be") {
+        const id = u.pathname.slice(1).split("?")[0] || null;
+        return isVideoId(id) ? id : null;
+      }
+      // Only trust video paths on an actual YouTube host — otherwise any
+      // https://example.com/page?v=123 would render as a detected video.
       if (!/(^|\.)youtube\.com$/.test(host)) return null;
-      if (u.searchParams.has("v")) return u.searchParams.get("v");
-      if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
-      if (u.pathname.startsWith("/embed/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
+      if (u.searchParams.has("v")) {
+        const id = u.searchParams.get("v");
+        return isVideoId(id) ? id : null;
+      }
+      for (const prefix of ["/shorts/", "/embed/", "/live/"]) {
+        if (u.pathname.startsWith(prefix)) {
+          const id = u.pathname.split("/")[2]?.split("?")[0] || null;
+          return isVideoId(id) ? id : null;
+        }
+      }
     } catch {
-      const match = rawUrl.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      return match ? match[1] : null;
+      const match = rawUrl.match(/(?:v=|\/shorts\/|\/embed\/|\/live\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      return match && isVideoId(match[1]) ? match[1] : null;
     }
     return null;
   }
 
+  const VELO_TAB_URLS = [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://*.grok-sandbox.com/*",
+    "https://*.grok.com/*",
+    "https://grok.me/*",
+    "https://*.grok.me/*",
+  ];
+
+  async function resolveVeloServerUrl(fallback) {
+    try {
+      const tabs = await chrome.tabs.query({ url: VELO_TAB_URLS });
+      const titled = tabs.find((tab) => {
+        const title = (tab.title || "").trim();
+        return title === "Velo" || title.startsWith("Velo ");
+      });
+      if (titled?.url) return new URL(titled.url).origin;
+    } catch {
+      /* no matching tab */
+    }
+    return fallback || "http://127.0.0.1:8080";
+  }
+
+  async function openVelo(query) {
+    const origin = await resolveVeloServerUrl(currentSettings.veloServerUrl);
+    window.open(`${origin}/?${query}`, "_blank");
+  }
+
+  function videoQuery(videoId, extra = {}) {
+    const params = new URLSearchParams({
+      v: videoId,
+      preset: extra.preset || mapPreset(currentSettings.defaultPreset),
+      lang: currentSettings.defaultLang || "en",
+      ...extra,
+    });
+    return params.toString();
+  }
+
+  const dlLabel = btnDl1080p?.querySelector("span");
+  if (dlLabel) dlLabel.textContent = `Download ${presetLabel(currentSettings.defaultPreset)}`;
+
   // 3. Actions on Active Video
   btnDl1080p?.addEventListener("click", () => {
     if (!activeVideo) return;
-    window.open(`${currentSettings.veloServerUrl}/?v=${activeVideo.id}&auto=1`, "_blank");
+    void openVelo(videoQuery(activeVideo.id, { auto: "1" }));
   });
 
   btnDlAudio?.addEventListener("click", () => {
     if (!activeVideo) return;
-    window.open(`${currentSettings.veloServerUrl}/?v=${activeVideo.id}&tab=audio&auto=1`, "_blank");
+    void openVelo(videoQuery(activeVideo.id, { preset: "audio", auto: "1" }));
   });
 
   btnOpenVelo?.addEventListener("click", () => {
     if (!activeVideo) return;
-    window.open(`${currentSettings.veloServerUrl}/?v=${activeVideo.id}`, "_blank");
+    void openVelo(videoQuery(activeVideo.id));
   });
 
   btnAddQueue?.addEventListener("click", async () => {
@@ -200,7 +277,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   btnManualFetch?.addEventListener("click", () => {
     const val = manualUrlInput.value.trim();
     const id = extractVideoId(val);
-    if (!id) return;
+    if (!id) {
+      const hint = /(?:[?&]list=|\/playlist)/i.test(val)
+        ? "That's a playlist — open a video from it, then queue."
+        : "Paste a YouTube watch, Shorts, or live URL.";
+      if (manualUrlInput) manualUrlInput.placeholder = hint;
+      return;
+    }
     activeVideo = {
       id,
       url: `https://www.youtube.com/watch?v=${id}`,
@@ -220,11 +303,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     transcriptCuesList.innerHTML = `<div class="loading-spinner">Fetching transcript text…</div>`;
     try {
       // Direct YouTube timedtext fetch with ASR fallback
-      let res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`);
+      const lang = currentSettings.defaultLang || "en";
+      let res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=${encodeURIComponent(lang)}&fmt=json3`);
       if (!res.ok) {
-        res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`);
+        res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=${encodeURIComponent(lang)}&kind=asr&fmt=json3`);
       }
-      if (!res.ok) throw new Error("No English captions returned directly");
+      if (!res.ok && lang !== "en") {
+        res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`);
+        if (!res.ok) res = await fetch(`https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`);
+      }
+      if (!res.ok) throw new Error("No captions returned for that language");
       const data = await res.json();
       
       const parsedCues = [];
@@ -253,7 +341,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         </div>
       `;
       document.getElementById("btn-open-transcript-velo")?.addEventListener("click", () => {
-        window.open(`${currentSettings.veloServerUrl}/?v=${videoId}&tab=transcript`, "_blank");
+        void openVelo(videoQuery(videoId, { tab: "transcript" }));
       });
     }
   }
@@ -385,8 +473,14 @@ document.addEventListener("DOMContentLoaded", async () => {
           `${srtTime(c.start).replace(",", ".")} --> ${srtTime(cueEnd(i)).replace(",", ".")}\n${c.text}`,
       )
       .join("\n\n");
-    await copyToClipboard(`WEBVTT\n\n${body}`);
-    btnExportVtt.textContent = "✓ Copied";
+    const blob = new Blob([`WEBVTT\n\n${body}`], { type: "text/vtt" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = `${activeVideo?.id || "transcript"}.vtt`;
+    a.click();
+    URL.revokeObjectURL(href);
+    btnExportVtt.textContent = "✓ Saved";
     setTimeout(() => (btnExportVtt.textContent = "Download .VTT"), 1500);
   });
 
@@ -439,7 +533,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const queue = res?.queue || [];
     if (!queue.length) return;
     const ids = queue.map((i) => i.id).join(",");
-    window.open(`${currentSettings.veloServerUrl}/?batch=${ids}`, "_blank");
+    void openVelo(`batch=${ids}&preset=${mapPreset(currentSettings.defaultPreset)}`);
   });
 
   btnClearQueue?.addEventListener("click", async () => {
@@ -457,17 +551,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnSyncSession.classList.add("spinning");
     try {
       const cookieRes = await chrome.runtime.sendMessage({ type: "GET_SESSION_COOKIES" });
-      if (cookieRes?.cookieHeader) {
-        // Hand the session over through the clipboard and let Velo's own cookie
-        // import take it. Nothing reads a stored copy, so writing SID / SAPISID /
-        // __Secure-3PAPISID to extension storage only left Google account
-        // credentials sitting at rest indefinitely for no benefit.
-        await copyToClipboard(cookieRes.cookieHeader);
+      if (cookieRes?.hasLogin && cookieRes?.cookieHeader) {
+        const copied = await copyToClipboard(cookieRes.cookieHeader);
+        if (!copied) {
+          btnSyncSession.title = "Couldn’t copy cookies. Check clipboard permission and try again.";
+          return;
+        }
         await chrome.storage.local.remove("velo_synced_cookies");
-        window.open(`${currentSettings.veloServerUrl}/?cookie_sync=1`, "_blank");
+        await openVelo("cookie_sync=1");
       } else {
-        // Signed out / cookies unreadable: say so, rather than leaving whatever
-        // was already on the clipboard to be pasted into Velo as "cookies".
         btnSyncSession.title = "No YouTube session found — sign in to YouTube first.";
       }
     } catch (err) {
@@ -486,4 +578,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Run initialization
   await detectActiveTab();
   await updateQueueBadgeCount();
+  const statusMessage = document.getElementById("status-message");
+  if (statusMessage) {
+    const origin = await resolveVeloServerUrl(currentSettings.veloServerUrl);
+    statusMessage.textContent = `Opens ${origin}`;
+  }
 });

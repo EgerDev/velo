@@ -161,7 +161,7 @@ export function loudnormFilter(lufs: number): string {
 export function safeAudioStem(title: string): string {
   return (
     title
-      .replace(/[^\w\s-]/g, "")
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
       .trim()
       .replace(/\s+/g, "_")
       .slice(0, 80) || "audio"

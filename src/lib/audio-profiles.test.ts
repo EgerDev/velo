@@ -139,7 +139,9 @@ describe("output naming", () => {
   });
 
   it("sanitizes titles into filesystem-safe stems", () => {
-    assert.equal(safeAudioStem("My Show: Ep #1 / Part 2"), "My_Show_Ep_1_Part_2");
+    assert.equal(safeAudioStem("My Show: Ep #1 / Part 2"), "My_Show_Ep_#1_Part_2");
+    assert.equal(safeAudioStem("日本語タイトル"), "日本語タイトル");
+    assert.equal(safeAudioStem("Мой подкаст"), "Мой_подкаст");
     assert.equal(safeAudioStem("   "), "audio");
     assert.equal(outputFilename("My Show", getAudioProfile("mp3_320"), "m4a"), "My_Show.mp3");
   });

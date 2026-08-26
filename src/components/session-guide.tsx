@@ -178,7 +178,20 @@ export function SessionGuide({
       {browser === "chrome" && (
         <div className="space-y-4 text-xs">
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 1 (Recommended): Get cookies.txt LOCALLY</p>
+            <p className="font-medium text-fg">Option 1 (Recommended): Velo YouTube Session</p>
+            <p className="text-muted leading-relaxed">
+              Our add-on extracts only YouTube login cookies and can Send them into this tab. Chrome → Extensions → Load unpacked, or unzip this file first.
+            </p>
+            <Button asChild className="h-9 w-full justify-start text-xs">
+              <a href={VELO_EXTENSION_ZIP} download="velo-session.zip">
+                <ExternalLink className="size-3.5 mr-1.5" />
+                Download Velo YouTube Session
+              </a>
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-medium text-fg">Option 2: Get cookies.txt LOCALLY</p>
             <p className="text-muted leading-relaxed">
               Open-source extension that extracts cookies locally on your machine without telemetry.
             </p>
@@ -191,7 +204,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 2: Cookie-Editor Extension</p>
+            <p className="font-medium text-fg">Option 3: Cookie-Editor Extension</p>
             <p className="text-muted leading-relaxed">
               Sign in on youtube.com, click Cookie-Editor, click <strong>Export → Export as JSON</strong>, then paste into Velo.
             </p>
@@ -204,7 +217,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2 rounded-md bg-elevated/60 p-3 border border-border">
-            <p className="font-medium text-fg">Option 3: DevTools (No Extensions Needed)</p>
+            <p className="font-medium text-fg">Option 4: DevTools (No Extensions Needed)</p>
             <ol className="space-y-1 text-muted pl-4 list-decimal">
               <li>On youtube.com, press <kbd className="font-mono bg-surface px-1 rounded">F12</kbd> or <kbd className="font-mono bg-surface px-1 rounded">Cmd+Option+I</kbd>.</li>
               <li>Go to <strong className="text-fg">Application → Storage → Cookies → https://www.youtube.com</strong>.</li>
@@ -261,7 +274,20 @@ export function SessionGuide({
       {browser === "firefox" && (
         <div className="space-y-4 text-xs">
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 1 (Recommended): Cookie-Editor for Firefox</p>
+            <p className="font-medium text-fg">Option 1 (Recommended): Velo YouTube Session</p>
+            <p className="text-muted leading-relaxed">
+              Same add-on as Chrome. Firefox → about:debugging → This Firefox → Load Temporary Add-on, pick the unzipped manifest.
+            </p>
+            <Button asChild className="h-9 w-full justify-start text-xs">
+              <a href={VELO_EXTENSION_ZIP} download="velo-session.zip">
+                <ExternalLink className="size-3.5 mr-1.5" />
+                Download Velo YouTube Session
+              </a>
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-medium text-fg">Option 2: Cookie-Editor for Firefox</p>
             <p className="text-muted leading-relaxed">
               Works on both Firefox Desktop and Firefox for Android.
             </p>
@@ -274,7 +300,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 2: Get cookies.txt LOCALLY</p>
+            <p className="font-medium text-fg">Option 3: Get cookies.txt LOCALLY</p>
             <Button asChild variant="secondary" className="h-9 w-full justify-start text-xs">
               <a href={TOOLS.cookiesTxtLocally.firefox} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3.5 mr-1.5" />
@@ -284,7 +310,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2 rounded-md bg-elevated/60 p-3 border border-border">
-            <p className="font-medium text-fg">Option 3: Firefox Storage Inspector (No Extension)</p>
+            <p className="font-medium text-fg">Option 4: Firefox Storage Inspector (No Extension)</p>
             <ol className="space-y-1 text-muted pl-4 list-decimal">
               <li>On youtube.com, press <kbd className="font-mono bg-surface px-1 rounded">F12</kbd> or <kbd className="font-mono bg-surface px-1 rounded">Ctrl+Shift+I</kbd>.</li>
               <li>Click <strong className="text-fg">Storage → Cookies → https://www.youtube.com</strong>.</li>
@@ -297,7 +323,20 @@ export function SessionGuide({
       {browser === "edge" && (
         <div className="space-y-4 text-xs">
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 1: Cookie-Editor for Microsoft Edge</p>
+            <p className="font-medium text-fg">Option 1 (Recommended): Velo YouTube Session</p>
+            <p className="text-muted leading-relaxed">
+              Edge → Extensions → Load unpacked. Unzip first, then pick the folder.
+            </p>
+            <Button asChild className="h-9 w-full justify-start text-xs">
+              <a href={VELO_EXTENSION_ZIP} download="velo-session.zip">
+                <ExternalLink className="size-3.5 mr-1.5" />
+                Download Velo YouTube Session
+              </a>
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-medium text-fg">Option 2: Cookie-Editor for Microsoft Edge</p>
             <Button asChild className="h-9 w-full justify-start text-xs">
               <a href={TOOLS.cookieEditor.edge} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3.5 mr-1.5" />
@@ -307,7 +346,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2">
-            <p className="font-medium text-fg">Option 2: Get cookies.txt LOCALLY for Edge</p>
+            <p className="font-medium text-fg">Option 3: Get cookies.txt LOCALLY for Edge</p>
             <Button asChild variant="secondary" className="h-9 w-full justify-start text-xs">
               <a href={TOOLS.cookiesTxtLocally.edge} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3.5 mr-1.5" />
@@ -317,7 +356,7 @@ export function SessionGuide({
           </div>
 
           <div className="space-y-2 rounded-md bg-elevated/60 p-3 border border-border">
-            <p className="font-medium text-fg">Option 3: Edge Developer Tools</p>
+            <p className="font-medium text-fg">Option 4: Edge Developer Tools</p>
             <ol className="space-y-1 text-muted pl-4 list-decimal">
               <li>On youtube.com, press <kbd className="font-mono bg-surface px-1 rounded">F12</kbd>.</li>
               <li>Navigate to <strong className="text-fg">Application → Storage → Cookies → youtube.com</strong>.</li>
