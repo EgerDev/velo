@@ -56,8 +56,11 @@ export function HistoryList({ onOpen, onRedownload, downloading }: HistoryListPr
 
   if (items.length === 0) {
     return (
-      <div className="panel px-5 py-8">
-        <p className="font-display text-xl tracking-[var(--tracking-tight)] text-fg">No cuts yet</p>
+      // No `.panel` here: this renders inside the header's History popover,
+      // which already draws the border and background — nesting a second card
+      // read as a box inside a box.
+      <div className="px-2 py-6">
+        <p className="font-display text-lg tracking-[var(--tracking-tight)] text-fg">No cuts yet</p>
         <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
           Saved files land here so you can open them again without hunting for the link.
         </p>
@@ -81,7 +84,8 @@ export function HistoryList({ onOpen, onRedownload, downloading }: HistoryListPr
     <div className="flex flex-col gap-4">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-2xl tracking-[var(--tracking-display)] text-fg">Recent</h2>
+          {/* Popover scale, not page scale — this is no longer a page section. */}
+          <h2 className="font-display text-lg tracking-[var(--tracking-display)] text-fg">Recent</h2>
           <p className="mt-1 flex items-center gap-2 text-sm text-muted">
             <Clock className="size-3.5" />
             <span className="tabular-nums">{items.length} saved</span>

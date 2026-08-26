@@ -16,10 +16,10 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { HistoryList } from "@/components/history-list";
 import { CookieImport } from "@/components/cookie-import";
-import { AccountChip } from "@/components/account-chip";
-import { Wordmark } from "@/components/wordmark";
+import { AppHeader } from "@/components/app-header";
+import { CommandPalette } from "@/components/command-palette";
+import type { ViewMode } from "@/lib/view-mode";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { ResultList } from "@/components/result-list";
 import { SampleChipRow } from "@/components/sample-chips";
@@ -45,7 +45,7 @@ import {
 } from "@/lib/youtube";
 import { resolvePlaylist, resolveVideo, searchVideos } from "@/lib/resolve-video";
 import { downloadPresetFile, type DownloadProgress, type OfferedFile } from "@/lib/download-client";
-import { beginBuilderSave, saveMediaBlob } from "@/lib/builder-save";
+import { beginBuilderSave, discardPendingSave, saveMediaBlob } from "@/lib/builder-save";
 import { persistStorage } from "@/lib/media-cache";
 import { classifyDownloadError, downloadHint, isUserAbort, shouldEscalateSave } from "@/lib/download-error";
 import { useAccountScope, useHistoryHydrated, useHistoryStore, type HistoryItem } from "@/lib/history-store";
@@ -84,8 +84,6 @@ function writeDraftUrl(value: string) {
 type ResultsView =
   | { kind: "search"; query: string; items: SearchHit[] }
   | { kind: "playlist"; playlist: PlaylistResult };
-
-type ViewMode = "single" | "bulk" | "transcript" | "watch";
 
 const MODE_TABS = [
   { mode: "single", icon: Film, label: "Single video" },
@@ -211,6 +209,7 @@ function Home() {
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [offer, setOffer] = useState<OfferedFile[] | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("single");
+  const [sessionReveal, setSessionReveal] = useState(0);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const urlRef = useRef(url);
@@ -377,12 +376,17 @@ function Home() {
   async function runDownload(target: ResolvedVideo, preset: VideoPreset, usedFallback = false, pending?: ReturnType<typeof beginBuilderSave>) {
     if (isPending) {
       toast.error("Still checking your session.");
+      void discardPendingSave(pending);
       return;
     }
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
     const pendingSave = pending ?? beginBuilderSave(`${target.title}.${preset.ext}`);
+    // The picker already created the destination file; unless this run actually
+    // writes it, release the handle so a failed or cancelled download doesn't
+    // leave a 0-byte file where the user chose to save.
+    let wrote = false;
     void persistStorage();
     setDownloading(true);
     setFallbackPrompt(null);
@@ -393,12 +397,12 @@ function Home() {
         videoId: target.id,
         title: target.title,
         preset,
-        muxedFallback: pickMuxedFallback(target.presets, preset),
         signedIn,
         pendingSave,
         signal: abort.signal,
         onProgress: setProgress,
       });
+      wrote = true;
       record({
         id: target.id,
         title: target.title,
@@ -440,7 +444,14 @@ function Home() {
       }));
       toast.error(classified.message);
     } finally {
-      if (!usedFallback && !fallbackPrompt) setDownloading(false);
+      // Covers every failure exit above, including the early returns for a user
+      // abort and for the fallback prompt (accepting that opens a fresh picker).
+      if (!wrote) void discardPendingSave(pendingSave);
+      // Reset whenever this call still owns the run. Gating on `usedFallback`/
+      // `fallbackPrompt` (a stale closure) left the accepted-fallback run's
+      // spinner stuck forever; the ownership check keeps a superseded call
+      // from turning off its successor's spinner.
+      if (abortRef.current === abort) setDownloading(false);
     }
   }
 
@@ -511,6 +522,7 @@ function Home() {
         setProgress({ label: "Saved from this browser", percent: 100 });
         toast.success("Saved from Recent — skipped YouTube");
       } catch (err) {
+        void discardPendingSave(pendingSave);
         toast.error(err instanceof Error ? err.message : "Couldn’t save the copy.");
       } finally {
         setDownloading(false);
@@ -529,8 +541,14 @@ function Home() {
         pickBestPreset(result.presets) ??
         result.presets[0];
       if (preset) await runDownload(result, preset, false, pendingSave);
-      else setDownloading(false);
+      else {
+        void discardPendingSave(pendingSave);
+        setDownloading(false);
+      }
     } catch (err) {
+      // runDownload owns pendingSave once it is reached; this only fires when
+      // resolveVideo/applyVideo threw before that hand-off.
+      void discardPendingSave(pendingSave);
       setDownloading(false);
       toast.error(err instanceof Error ? err.message : "Couldn’t fetch that video again.");
     }
@@ -548,10 +566,44 @@ function Home() {
       >
         Skip to download
       </a>
-      <header className="glass-nav sticky top-0 z-20 flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <Wordmark />
-        <AccountChip />
-      </header>
+      <AppHeader
+        downloading={downloading}
+        onOpenHistory={(item) => void openHistory(item)}
+        onRedownloadHistory={(item) => void redownloadHistory(item)}
+        historyReady={hydrated && !isPending}
+        onReviewSession={() => {
+          setSessionReveal((value) => value + 1);
+          document.getElementById("session")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
+      />
+
+      <CommandPalette
+        mode={viewMode}
+        onMode={setViewMode}
+        onFocusSearch={() => {
+          // The link field only exists in single mode; if we just switched into
+          // it, the input mounts a frame or two later, so retry briefly.
+          let tries = 0;
+          const focus = () => {
+            const input = searchInputRef.current;
+            if (input) {
+              input.focus();
+              input.select();
+            } else if (tries++ < 5) {
+              requestAnimationFrame(focus);
+            }
+          };
+          requestAnimationFrame(focus);
+        }}
+        onReviewSession={() => {
+          setSessionReveal((value) => value + 1);
+          document.getElementById("session")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
+        signedIn={signedIn}
+        onSignIn={() => {
+          window.location.href = "/login";
+        }}
+      />
 
       <main id="download" className="mx-auto w-full max-w-3xl px-4 pb-20 pt-8 sm:px-6 sm:pt-12">
         <div className="stagger max-w-xl">
@@ -816,17 +868,11 @@ function Home() {
           </>
         )}
 
-        <CookieImport />
-
-        {hydrated && !isPending ? (
-          <section className="mt-10">
-            <HistoryList
-              downloading={downloading}
-              onOpen={(item) => void openHistory(item)}
-              onRedownload={(item) => void redownloadHistory(item)}
-            />
-          </section>
-        ) : null}
+        {/* Recent saves moved into the header's History menu — the page was
+            long enough that history sat below everything it relates to. */}
+        <div id="session" className="scroll-mt-24">
+          <CookieImport revealSignal={sessionReveal} />
+        </div>
       </main>
     </div>
   );

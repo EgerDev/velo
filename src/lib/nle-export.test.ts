@@ -30,6 +30,27 @@ test("exportMarkersDavinciCsv: generates valid CSV format with escaped quotes", 
   assert.ok(csv.includes('""BotGuard""'));
 });
 
+test("exportMarkersFcpxml: NTSC rates use Apple's fps*100 format names", () => {
+  const ntsc2997 = exportMarkersFcpxml(SAMPLE_CUES, "NTSC", 29.97);
+  assert.ok(ntsc2997.includes('name="FFVideoFormat1080p2997"'));
+  assert.ok(ntsc2997.includes('frameDuration="1001/30000s"'));
+  const ntsc5994 = exportMarkersFcpxml(SAMPLE_CUES, "NTSC", 59.94);
+  assert.ok(ntsc5994.includes('name="FFVideoFormat1080p5994"'));
+  assert.ok(ntsc5994.includes('frameDuration="1001/60000s"'));
+  const whole = exportMarkersFcpxml(SAMPLE_CUES, "PAL", 25);
+  assert.ok(whole.includes('name="FFVideoFormat1080p25"'));
+});
+
+test("exportMarkersFcpxml: sequence duration covers the latest-ending cue, not the last-sorted one", () => {
+  // SponsorBlock segments sort by start, so an early segment can end last.
+  const overlapping: TranscriptCue[] = [
+    { id: 1, start: 10, end: 1200, startFormatted: "00:10", endFormatted: "20:00", text: "Sponsor" },
+    { id: 2, start: 990, end: 995, startFormatted: "16:30", endFormatted: "16:35", text: "Outro" },
+  ];
+  const fcpxml = exportMarkersFcpxml(overlapping, "Overlap", 30);
+  assert.ok(fcpxml.includes('duration="1205s"'));
+});
+
 test("exportMarkersFcpxml: generates valid FCPXML structure with markers", () => {
   const fcpxml = exportMarkersFcpxml(SAMPLE_CUES, "Test Video & Audio", 30);
   assert.ok(fcpxml.includes("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));

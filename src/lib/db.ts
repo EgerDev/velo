@@ -94,6 +94,13 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool({ connectionString: databaseUrl });
+    // An idle client dropped by the server (Neon suspending a compute, a
+    // network blip) makes the pool emit `error`. With no listener that is an
+    // unhandled EventEmitter error, which takes down the whole process for
+    // what the pool would otherwise recover from on the next checkout.
+    pool.on("error", (err) => {
+      console.error("[db] idle client error", err);
+    });
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];

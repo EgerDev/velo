@@ -6,6 +6,7 @@ export type DownloadErrorCode =
   | "timeout"
   | "empty"
   | "cookies"
+  | "private"
   | "network"
   | "unknown";
 
@@ -104,6 +105,17 @@ export function classifyDownloadError(
   ) {
     return as("bot");
   }
+  // Must come before the "cookie" substring check: the private/members-only
+  // message advises "import cookies", which otherwise mislabels it as a bad
+  // cookie export (re-exporting won't grant access to a video you can't see).
+  if (
+    lower.includes("private video") ||
+    lower.includes("private or members") ||
+    lower.includes("members-only") ||
+    lower.includes("members only")
+  ) {
+    return as("private");
+  }
   if (
     opts?.status === 403 ||
     lower.includes("403") ||
@@ -180,6 +192,8 @@ export function downloadHint(code: DownloadErrorCode, guest = false, retryAfterS
       return "YouTube wants a real session. Paste cookies from a signed-in browser under History.";
     case "cookies":
       return "That cookie export could not be used. Re-export Netscape cookies while signed into YouTube.";
+    case "private":
+      return "This video is private or members-only. If your account has access, import that account's cookies under History; otherwise it can't be downloaded.";
     case "timeout":
       return "A path stalled. Wait, then Save once — do not stack retries.";
     case "empty":

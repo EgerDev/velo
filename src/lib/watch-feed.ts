@@ -7,7 +7,11 @@ const HANDLE_RE = /^[A-Za-z0-9._-]{3,30}$/;
 // serve /channel or /@handle pages, so keep the allowlist tighter than youtube.ts.
 const FEED_HOSTS = new Set(["youtube.com", "m.youtube.com", "www.youtube.com"]);
 
-export type ChannelRef = { channelId: string } | { handle: string } | { user: string };
+export type ChannelRef =
+  | { channelId: string }
+  | { handle: string }
+  | { user: string }
+  | { vanity: string };
 
 function asChannelUrl(raw: string): URL | null {
   const withProtocol = /^https?:\/\//i.test(raw) ? raw : raw.includes("youtube") ? `https://${raw}` : raw;
@@ -45,10 +49,16 @@ export function parseChannelInput(input: string): ChannelRef | null {
     const id = parts[1] ?? "";
     return CHANNEL_ID_RE.test(id) ? { channelId: id } : null;
   }
-  // /c/ vanity names resolve the same way legacy /user/ names do.
-  if (head === "user" || head === "c") {
+  // /user/ (legacy username) and /c/ (custom vanity) are DIFFERENT namespaces —
+  // fetching a /c/ name through /user/ 404s for any channel whose vanity differs
+  // from its legacy username, which is most of them.
+  if (head === "user") {
     const user = parts[1] ?? "";
     return user ? { user } : null;
+  }
+  if (head === "c") {
+    const vanity = parts[1] ?? "";
+    return vanity ? { vanity } : null;
   }
 
   return null;

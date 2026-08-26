@@ -107,7 +107,10 @@ export function scanMpegTs(data: Uint8Array): TsScan {
     if (section && section[0] === 0x00 && section.length >= 16) {
       transportStreamId = (section[3]! << 8) | section[4]!;
       const length = ((section[1]! & 0x0f) << 8) | section[2]!;
-      const body = section.subarray(8, Math.min(section.length, 3 + length - 4));
+      // Floor the end at the header size: a corrupt section_length < 4 makes
+      // `3 + length - 4` negative, and subarray reads that as an offset from the
+      // end — spilling program entries into the CRC bytes instead of an empty body.
+      const body = section.subarray(8, Math.max(8, Math.min(section.length, 3 + length - 4)));
       for (let i = 0; i + 4 <= body.length; i += 4) {
         const program = (body[i]! << 8) | body[i + 1]!;
         const pid = ((body[i + 2]! & 0x1f) << 8) | body[i + 3]!;

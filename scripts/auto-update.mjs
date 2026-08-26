@@ -87,7 +87,12 @@ function run(cmd, argv, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, argv, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
+    let stdout = "";
+    let stderr = "";
     let truncated = false;
+    // Keep the interleaved `output` (echoed, human-readable) AND the streams
+    // apart: a machine-readable stdout (`--json`) must never be corrupted by an
+    // `npm warn`/`notice` line on stderr.
     const capture = (chunk) => {
       if (output.length >= MAX_CAPTURE) {
         truncated = true;
@@ -96,14 +101,24 @@ function run(cmd, argv, opts = {}) {
       output += chunk.toString();
       if (!opts.quiet) process.stdout.write(chunk);
     };
-    child.stdout.on("data", capture);
-    child.stderr.on("data", capture);
-    child.on("error", (err) => resolve({ ok: false, code: null, output: String(err) }));
+    child.stdout.on("data", (chunk) => {
+      if (stdout.length < MAX_CAPTURE) stdout += chunk.toString();
+      capture(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderr.length < MAX_CAPTURE) stderr += chunk.toString();
+      capture(chunk);
+    });
+    child.on("error", (err) =>
+      resolve({ ok: false, code: null, output: String(err), stdout: "", stderr: String(err) }),
+    );
     child.on("close", (code) =>
       resolve({
         ok: code === 0,
         code,
         output: truncated ? `${output}\n…(output truncated)` : output,
+        stdout,
+        stderr,
       }),
     );
   });
@@ -158,18 +173,32 @@ async function verify() {
   return { ok: true };
 }
 
-/** `npm outdated` exits non-zero precisely when there is something to report. */
+/**
+ * `npm outdated` exits non-zero precisely when there is something to report, so
+ * a non-zero exit is NOT a failure here. But an unparseable stdout, an
+ * `{"error":…}` payload, or an empty stdout on a failed exit means the CHECK
+ * itself failed — throw so it surfaces as a non-zero run, never as an empty plan
+ * that reads identically to "everything is up to date".
+ */
 async function readOutdated() {
   const result = await npm(["outdated", "--json"], { quiet: true });
-  const text = result.output.trim();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    console.error("could not parse `npm outdated --json`:");
-    console.error(text.slice(0, 2000));
-    return {};
+  const text = result.stdout.trim();
+  if (!text) {
+    if (result.ok) return {};
+    throw new Error(
+      `\`npm outdated\` failed (exit ${result.code}): ${result.stderr.trim().slice(0, 500)}`,
+    );
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`could not parse \`npm outdated --json\`: ${text.slice(0, 500)}`);
+  }
+  if (parsed && typeof parsed === "object" && parsed.error) {
+    throw new Error(`\`npm outdated\` reported an error: ${JSON.stringify(parsed.error).slice(0, 500)}`);
+  }
+  return parsed;
 }
 
 /**
@@ -183,7 +212,9 @@ async function attempt(label, install) {
   const snap = snapshot();
   console.log(`\n-> ${label}`);
   if (!(await install())) {
-    await restore(snap);
+    // A failed rollback leaves node_modules ahead of the manifests — the "red
+    // tree is never an outcome" contract is broken, so the run must not exit 0.
+    if (!(await restore(snap))) process.exitCode = 1;
     return { kept: false, failed: "install" };
   }
   const verdict = await verify();
@@ -192,7 +223,7 @@ async function attempt(label, install) {
     return { kept: true };
   }
   console.log(`   rolling back (${verdict.failed} failed)`);
-  await restore(snap);
+  if (!(await restore(snap))) process.exitCode = 1;
   return { kept: false, failed: verdict.failed, output: verdict.output };
 }
 
@@ -234,19 +265,28 @@ async function ytdlpLatest() {
  * Update the Python side. Kept apart from the npm plan: different registry,
  * different failure mode, and a rollback that is just an install of the pinned
  * prior version.
- * @returns {Promise<string>} one report line
+ * `pending` is what --check keys its exit code on, returned as data rather than
+ * sniffed back out of the report text.
+ * @returns {Promise<{ line: string, pending: boolean }>}
  */
 async function updateYtdlp() {
   const installed = await ytdlpInstalled();
   if (!installed) {
-    return "yt-dlp: not importable via `python3 -m yt_dlp` — skipped (pip install yt-dlp)";
+    return {
+      line: "yt-dlp: not importable via `python3 -m yt_dlp` — skipped (pip install yt-dlp)",
+      pending: false,
+    };
   }
   const latest = await ytdlpLatest();
-  if (!latest) return `yt-dlp: ${installed} (PyPI unreachable — left alone)`;
-  if (!ytdlpNeedsUpdate(installed, latest)) return `yt-dlp: ${installed} is current`;
+  if (!latest) return { line: `yt-dlp: ${installed} (PyPI unreachable — left alone)`, pending: false };
+  if (!ytdlpNeedsUpdate(installed, latest)) {
+    return { line: `yt-dlp: ${installed} is current`, pending: false };
+  }
 
   console.log(`\n-> yt-dlp ${installed} -> ${latest}`);
-  if (options.dryRun || options.check) return `yt-dlp: ${installed} -> ${latest} available`;
+  if (options.dryRun || options.check) {
+    return { line: `yt-dlp: ${installed} -> ${latest} available`, pending: true };
+  }
 
   const install = await run(
     "python3",
@@ -254,7 +294,10 @@ async function updateYtdlp() {
     { quiet: true },
   );
   if (!install.ok) {
-    return `yt-dlp: ${installed} — pip install failed, left alone (${install.output.trim().split("\n").pop()})`;
+    return {
+      line: `yt-dlp: ${installed} — pip install failed, left alone (${install.output.trim().split("\n").pop()})`,
+      pending: true,
+    };
   }
 
   // The only verification that matters is that the extractor still starts.
@@ -264,10 +307,13 @@ async function updateYtdlp() {
     await run("python3", ["-m", "pip", "install", "--user", `yt-dlp==${installed}`], {
       quiet: true,
     });
-    return `yt-dlp: ${latest} broke \`python3 -m yt_dlp\` — reverted to ${installed}`;
+    return {
+      line: `yt-dlp: ${latest} broke \`python3 -m yt_dlp\` — reverted to ${installed}`,
+      pending: true,
+    };
   }
   console.log(`   kept: yt-dlp ${after}`);
-  return `yt-dlp: ${installed} -> ${after}`;
+  return { line: `yt-dlp: ${installed} -> ${after}`, pending: false };
 }
 
 async function main() {
@@ -284,10 +330,21 @@ async function main() {
   const report = [];
   const pending = plan.inRange.length + plan.rangeBumps.length;
 
+  // --only restricts the npm plan; apply the same restriction to the Python side
+  // so `--only=vite` does not silently pip-upgrade yt-dlp against the flag.
+  const ytdlpSelected = options.only.length === 0 || options.only.includes("yt-dlp");
+  const doYtdlp = !options.skipYtdlp && ytdlpSelected;
+
   if (options.check || options.dryRun) {
-    if (!options.skipYtdlp) console.log(`\n  ${await updateYtdlp()}`);
-    // --check is for CI: "there is work to do" is the failing condition.
-    process.exit(options.check && pending > 0 ? 1 : 0);
+    let ytdlpPending = false;
+    if (doYtdlp) {
+      const result = await updateYtdlp();
+      console.log(`\n  ${result.line}`);
+      ytdlpPending = result.pending;
+    }
+    // --check is for CI: "there is work to do" is the failing condition — and
+    // that includes a stale yt-dlp, the most staleness-prone component.
+    process.exit(options.check && (pending > 0 || ytdlpPending) ? 1 : 0);
   }
 
   if (plan.inRange.length > 0) {
@@ -330,7 +387,7 @@ async function main() {
   }
 
   for (const step of plan.skipped) report.push(`skipped  ${step.name} (${step.reason})`);
-  if (!options.skipYtdlp) report.push(await updateYtdlp());
+  if (doYtdlp) report.push((await updateYtdlp()).line);
 
   console.log("\nsummary");
   for (const line of report) console.log(`  ${line}`);

@@ -36,17 +36,44 @@ export function beginBuilderSave(filename: string): PendingSave {
     .catch(() => null);
 }
 
+/**
+ * "saved" — written to the user's chosen file. "unavailable" — no picker (fall
+ * back to a download). "failed" — the user picked a destination but the write to
+ * it failed (disk full, file locked, cloud-sync reject); the caller must NOT
+ * report success, because the chosen file was left empty/unmodified.
+ */
+export type WriteResult = "saved" | "unavailable" | "failed";
+
+/**
+ * Release a picker writable that will never be written — the download failed or
+ * was cancelled after the user already chose a destination. The browser creates
+ * the chosen file the moment the dialog is confirmed, so simply dropping the
+ * promise leaves an open writable and a 0-byte file sitting at that location.
+ *
+ * Only `abort()`: `close()` would COMMIT the empty swap file, truncating a file
+ * the user picked that already had content.
+ */
+export async function discardPendingSave(pending: PendingSave | undefined): Promise<void> {
+  if (!pending) return;
+  try {
+    const writable = await pending;
+    await writable?.abort?.();
+  } catch {
+    /* already closed, aborted, or never opened */
+  }
+}
+
 export async function writePendingSave(
   pending: PendingSave | undefined,
   blob: Blob,
-): Promise<boolean> {
-  if (!pending) return false;
+): Promise<WriteResult> {
+  if (!pending) return "unavailable";
   const writable = await pending;
-  if (!writable) return false;
+  if (!writable) return "unavailable";
   try {
     await writable.write(blob);
     await writable.close();
-    return true;
+    return "saved";
   } catch {
     try {
       if (typeof writable.abort === "function") {
@@ -57,7 +84,7 @@ export async function writePendingSave(
     } catch {
       /* already closed or aborted */
     }
-    return false;
+    return "failed";
   }
 }
 
@@ -82,7 +109,14 @@ export async function saveMediaBlob(
   if (cache) {
     void putCachedMedia({ ...cache, filename: name, blob }).catch(() => undefined);
   }
-  if (await writePendingSave(pending, blob)) return "picker";
+  const written = await writePendingSave(pending, blob);
+  if (written === "saved") return "picker";
+  if (written === "failed") {
+    // The user picked a destination and the write to it failed — never fall back
+    // silently and report success, which would leave the chosen file empty while
+    // the caller shows "Saved".
+    throw new Error("Couldn’t write to the location you picked. Check free space and try again.");
+  }
   if (signal?.aborted) throw new Error("aborted");
 
   const href = URL.createObjectURL(blob);

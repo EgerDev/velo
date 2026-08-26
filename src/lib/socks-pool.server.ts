@@ -179,10 +179,20 @@ export async function takeSocks(count: number): Promise<string[]> {
       (item) => item.deadUntil < Date.now() && !inUse.has(item.url),
     );
     const env = envProxy();
-    const envDead = env
-      ? cache?.socks.find((row) => row.url === env && row.deadUntil > Date.now())
-      : null;
-    const pool = fresh.length ? fresh : env && !envDead ? [{ url: env, deadUntil: 0 }] : [];
+    let pool: Sock[];
+    if (fresh.length) {
+      pool = fresh;
+    } else if (env) {
+      // `refresh` filters dead URLs out of the probe list, so a still-dead env
+      // proxy simply won't be in `cache.socks` — inferring "is it dead" from its
+      // absence there re-pinned it. Consult the persisted dead map instead.
+      const cacheDead = cache?.socks.some((row) => row.url === env && row.deadUntil > Date.now());
+      const dead = await readDead();
+      const stillDead = cacheDead || (dead[env] ?? 0) > Date.now();
+      pool = stillDead ? [] : [{ url: env, deadUntil: 0 }];
+    } else {
+      pool = [];
+    }
     const out: string[] = [];
     for (let i = 0; i < pool.length && out.length < count; i++) {
       const item = pool[(cursor + i) % pool.length];

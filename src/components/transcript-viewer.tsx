@@ -88,9 +88,19 @@ const NLE_FORMAT_OPTIONS: {
 ];
 
 export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: TranscriptViewerProps) {
-  const [selectedTrack, setSelectedTrack] = useState<CaptionTrack | null>(() => {
-    return captions.find((c) => c.kind === "manual") ?? captions[0] ?? null;
-  });
+  const defaultTrack = (tracks: CaptionTrack[]) =>
+    tracks.find((c) => c.kind === "manual") ?? tracks[0] ?? null;
+  const [selectedTrack, setSelectedTrack] = useState<CaptionTrack | null>(() => defaultTrack(captions));
+
+  // When the video changes, the parent re-renders us with new captions but the
+  // same instance (VideoPanel isn't keyed per video). Re-derive the track
+  // during render so the fetch effect never fires the new videoId against the
+  // previous video's vssId. This is React's "adjust state on prop change".
+  const [trackVideoId, setTrackVideoId] = useState(videoId);
+  if (videoId !== trackVideoId) {
+    setTrackVideoId(videoId);
+    setSelectedTrack(defaultTrack(captions));
+  }
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -310,6 +320,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
             <div className="flex items-center gap-2">
               <Languages className="size-4 text-subtle shrink-0" />
               <select
+                aria-label="Caption language"
                 value={`${selectedTrack?.languageCode}:${selectedTrack?.vssId}`}
                 onChange={(e) => {
                   const [code, vss] = e.target.value.split(":");
@@ -343,6 +354,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
             {searchQuery ? (
               <button
                 type="button"
+                aria-label="Clear search"
                 onClick={() => setSearchQuery("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-fg cursor-pointer"
               >
@@ -552,11 +564,14 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
             {filteredCues.map((cue) => {
               const isActive = activeCueId === cue.id;
               return (
+                // Both the pill and the text are real buttons, matching
+                // TranscriptStudio. As a click-only <div> with a bubbling-only
+                // pill, seeking was unreachable by keyboard entirely — and
+                // completely gone once timestamps were toggled off.
                 <div
                   key={cue.id}
-                  onClick={() => handleCueClick(cue)}
                   className={cn(
-                    "group flex items-start gap-3 rounded-lg p-2 transition-all cursor-pointer",
+                    "group flex items-start gap-3 rounded-lg p-2 transition-all",
                     isActive
                       ? "bg-accent/15 border border-accent/40 shadow-sm"
                       : "hover:bg-elevated/70 hover:border-border/50 border border-transparent",
@@ -566,8 +581,10 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
                   {showTimestamps ? (
                     <button
                       type="button"
+                      onClick={() => handleCueClick(cue)}
+                      title={`Jump to ${cue.startFormatted}`}
                       className={cn(
-                        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-mono font-medium shrink-0 transition-colors",
+                        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-mono font-medium shrink-0 transition-colors cursor-pointer",
                         isActive
                           ? "bg-accent text-accent-fg"
                           : "bg-elevated text-accent group-hover:bg-accent/20 group-hover:text-fg",
@@ -579,13 +596,18 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
                   ) : null}
 
                   {/* Cue Text */}
-                  <p className="text-xs text-fg leading-relaxed flex-1 select-text">
+                  <button
+                    type="button"
+                    onClick={() => handleCueClick(cue)}
+                    title={`Jump to ${cue.startFormatted}`}
+                    className="text-xs text-fg leading-relaxed flex-1 select-text text-left cursor-pointer bg-transparent border-0 p-0 rounded-sm focus:outline-hidden focus:ring-1 focus:ring-accent/40"
+                  >
                     {searchQuery ? (
                       <HighlightText text={cue.text} query={searchQuery} />
                     ) : (
                       cue.text
                     )}
-                  </p>
+                  </button>
                 </div>
               );
             })}

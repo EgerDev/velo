@@ -16,6 +16,7 @@ import { Route as ApiBypassRouteImport } from './routes/api/bypass'
 import { Route as ApiCaptionsRouteImport } from './routes/api/captions'
 import { Route as ApiDownloadRouteImport } from './routes/api/download'
 import { Route as ApiFeedRouteImport } from './routes/api/feed'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiRelayRouteImport } from './routes/api/relay'
 import { Route as ApiUnlockRouteImport } from './routes/api/unlock'
 import { Route as ApiYtdlpRouteImport } from './routes/api/ytdlp'
@@ -56,6 +57,11 @@ const ApiFeedRoute = ApiFeedRouteImport.update({
   path: '/api/feed',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRelayRoute = ApiRelayRouteImport.update({
   id: '/api/relay',
   path: '/api/relay',
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
   '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
@@ -98,6 +105,7 @@ export interface FileRoutesByTo {
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
   '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
   '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
+    | '/api/health'
     | '/api/relay'
     | '/api/unlock'
     | '/api/ytdlp'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
+    | '/api/health'
     | '/api/relay'
     | '/api/unlock'
     | '/api/ytdlp'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
+    | '/api/health'
     | '/api/relay'
     | '/api/unlock'
     | '/api/ytdlp'
@@ -167,6 +179,7 @@ export interface RootRouteChildren {
   ApiCaptionsRoute: typeof ApiCaptionsRoute
   ApiDownloadRoute: typeof ApiDownloadRoute
   ApiFeedRoute: typeof ApiFeedRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiRelayRoute: typeof ApiRelayRoute
   ApiUnlockRoute: typeof ApiUnlockRoute
   ApiYtdlpRoute: typeof ApiYtdlpRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiFeedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/relay': {
       id: '/api/relay'
       path: '/api/relay'
@@ -263,6 +283,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCaptionsRoute: ApiCaptionsRoute,
   ApiDownloadRoute: ApiDownloadRoute,
   ApiFeedRoute: ApiFeedRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiRelayRoute: ApiRelayRoute,
   ApiUnlockRoute: ApiUnlockRoute,
   ApiYtdlpRoute: ApiYtdlpRoute,

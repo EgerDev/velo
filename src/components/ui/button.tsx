@@ -21,7 +21,9 @@ const buttonVariants = cva(
         sm: "h-9 px-3 text-xs",
         lg: "h-12 px-5",
         icon: "size-11",
-        "icon-sm": "size-11",
+        // Was a duplicate of `icon`, so every dense action row that asked for
+        // the small variant silently rendered a full-size 44px button.
+        "icon-sm": "size-9",
       },
     },
     defaultVariants: {

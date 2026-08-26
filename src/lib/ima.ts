@@ -16,8 +16,17 @@ const IMA_PATH =
   /\/pagead(?:2)?(?:\/|$)|\/gampad\/|\/vpaid(?:\/|$)|[?&]vpaid=|(?:[?&/]|%2[fF])oad(?:=|%3[dD]|\/)|(?:[?&/]|%2[fF])ctier(?:=|%3[dD]|\/)L\b/i;
 
 export function isImaHost(hostname: string): boolean {
-  return IMA_HOST.test(hostname.toLowerCase());
+  // Strip a single trailing dot: `dai.google.com.` is a fully-qualified form
+  // browsers resolve identically, but the `$`-anchored IMA_HOST would miss it,
+  // slipping a crafted ad host past the relay/segment guards.
+  return IMA_HOST.test(hostname.toLowerCase().replace(/\.$/, ""));
 }
+
+// A crafted `url=url=url=…` chain makes isImaUrl recurse once per level with
+// O(n) URL/decode work each time — super-linear, and a ~200KB relay-controlled
+// redirect/segment string OOM-crashes the tab. Bound both dimensions.
+const MAX_IMA_NESTING = 5;
+const MAX_IMA_LEN = 8_192;
 
 function nestedTargets(raw: string): string[] {
   const out: string[] = [];
@@ -42,22 +51,25 @@ function nestedTargets(raw: string): string[] {
   return out;
 }
 
-export function isImaUrl(raw: string | undefined | null): boolean {
+export function isImaUrl(raw: string | undefined | null, depth = 0): boolean {
   if (!raw) return false;
   const text = raw.trim();
-  if (!text) return false;
+  if (!text || text.length > MAX_IMA_LEN) return false;
   try {
     if (/^https?:\/\//i.test(text)) {
       const parsed = new URL(text);
       if (isImaHost(parsed.hostname)) return true;
+      // IMA_PATH already covers `oad=` and the ad-tier `ctier=…L` on any host
+      // (googlevideo included). Matching a bare `ctier=`/`oad=` value here too
+      // would drop legitimate non-ad-tier googlevideo streams.
       if (IMA_PATH.test(parsed.pathname + parsed.search)) return true;
-      if (/\.googlevideo\.com$/i.test(parsed.hostname) && /[?&](oad|ctier)=/i.test(parsed.search)) return true;
     }
   } catch {
     /* not a URL — still inspect nested params */
   }
+  if (depth >= MAX_IMA_NESTING) return false;
   for (const nested of nestedTargets(text)) {
-    if (isImaUrl(nested)) return true;
+    if (isImaUrl(nested, depth + 1)) return true;
   }
   return false;
 }

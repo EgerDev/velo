@@ -142,8 +142,19 @@ const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
 // schema from `migrations/auth/0001_auth.sql`, copied into `migrations/` when
 // the app turns sign-in on.
 const database = databaseUrl
-  ? new Pool({ connectionString: databaseUrl })
+  ? authPool(databaseUrl)
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
+
+function authPool(connectionString: string): Pool {
+  const pool = new Pool({ connectionString });
+  // Neither Better Auth nor Kysely attaches an `error` listener to a pool handed
+  // to them, and an idle client dropped by the server emits one. Unhandled, that
+  // is a process-level crash rather than a connection the pool simply replaces.
+  pool.on("error", (err) => {
+    console.error("[auth] idle client error", err);
+  });
+  return pool;
+}
 
 /** Session token cookie name — also read by the live-preview popup completion page. */
 export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";

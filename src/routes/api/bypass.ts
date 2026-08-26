@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/bypass")({
 
         try {
           const { streamSameHop } = await import("@/lib/bypass.server");
-          return await streamSameHop(id, itag);
+          return await streamSameHop(id, itag, request.signal);
         } catch (err) {
           await downloadQuotaRefund(request, 1);
           const message = err instanceof Error ? err.message : "Bypass missed.";

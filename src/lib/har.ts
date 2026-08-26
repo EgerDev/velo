@@ -1,3 +1,5 @@
+import { cookieExpiryToUnix } from "./cookies.ts";
+
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 
 function parseVideoId(value: string): string | null {
@@ -75,7 +77,17 @@ export type ParsedHar = {
 };
 
 type HarHeader = { name?: string; value?: string };
-type HarCookie = { name?: string; value?: string; domain?: string; path?: string };
+type HarCookie = {
+  name?: string;
+  value?: string;
+  domain?: string;
+  path?: string;
+  // HAR 1.2 stores this as an ISO-8601 date string; extension exports use a
+  // numeric epoch. `cookieExpiryToUnix` normalises both.
+  expires?: string | number;
+  httpOnly?: boolean;
+  secure?: boolean;
+};
 type HarPostData = { text?: string; encoding?: string };
 type HarContent = { text?: string; encoding?: string; mimeType?: string; size?: number };
 
@@ -211,18 +223,44 @@ function parseSetCookie(raw: string): HarCookie | null {
   const value = first.slice(idx + 1).trim();
   if (!name || REDACTED.test(value)) return null;
   const domain = raw.match(/domain=([^;]+)/i)?.[1]?.trim();
-  return { name, value, domain };
+  const maxAge = raw.match(/max-age=(-?\d+)/i)?.[1];
+  // Max-Age wins over Expires per RFC 6265; Expires is an HTTP-date.
+  const expires = maxAge
+    ? Math.floor(Date.now() / 1000) + Number(maxAge)
+    : raw.match(/expires=([^;]+)/i)?.[1]?.trim();
+  return {
+    name,
+    value,
+    domain,
+    expires,
+    httpOnly: /;\s*httponly/i.test(raw),
+    secure: /;\s*secure/i.test(raw),
+  };
 }
 
-function collectCookiePairs(entries: HarEntry[]): Array<{ name: string; value: string; domain?: string }> {
-  const pairs: Array<{ name: string; value: string; domain?: string }> = [];
+type HarCookiePair = {
+  name: string;
+  value: string;
+  domain?: string;
+  expires?: string | number;
+  httpOnly?: boolean;
+};
+
+function collectCookiePairs(entries: HarEntry[]): HarCookiePair[] {
+  const pairs: HarCookiePair[] = [];
   for (const entry of entries) {
     const url = entry.request?.url ?? "";
     // An entry with no usable URL is not a free pass on a credential path.
     if (!isYoutubeUrl(url)) continue;
     for (const cookie of [...(entry.request?.cookies ?? []), ...(entry.response?.cookies ?? [])]) {
       if (!cookie.name || cookie.value == null || REDACTED.test(cookie.value)) continue;
-      pairs.push({ name: cookie.name, value: String(cookie.value), domain: cookie.domain });
+      pairs.push({
+        name: cookie.name,
+        value: String(cookie.value),
+        domain: cookie.domain,
+        expires: cookie.expires,
+        httpOnly: cookie.httpOnly,
+      });
     }
     for (const header of headerValues(entry.request?.headers, "cookie")) {
       for (const part of header.split(";")) {
@@ -231,37 +269,67 @@ function collectCookiePairs(entries: HarEntry[]): Array<{ name: string; value: s
         const name = part.slice(0, idx).trim();
         const value = part.slice(idx + 1).trim();
         if (!name || !value || REDACTED.test(value)) continue;
+        // A bare Cookie header carries no expiry — genuinely a session cookie
+        // as far as this capture can tell.
         pairs.push({ name, value });
       }
     }
     for (const header of headerValues(entry.response?.headers, "set-cookie")) {
       const parsed = parseSetCookie(header);
-      if (parsed?.name && parsed.value) pairs.push(parsed as { name: string; value: string; domain?: string });
+      if (parsed?.name && parsed.value) {
+        pairs.push({
+          name: parsed.name,
+          value: parsed.value,
+          domain: parsed.domain,
+          expires: parsed.expires,
+          httpOnly: parsed.httpOnly,
+        });
+      }
     }
   }
   return pairs;
 }
 
-function cookiesFromPairs(pairs: Array<{ name: string; value: string; domain?: string }>): ParsedCookies | null {
+function cookiesFromPairs(pairs: HarCookiePair[]): ParsedCookies | null {
   if (!pairs.length) return null;
-  const lines = ["# Netscape HTTP Cookie File", "# Parsed from HAR"];
-  const header: string[] = [];
-  const seen = new Set<string>();
   const clean = (value: string) => value.replace(/[\t\r\n]/g, "");
+  type Row = { name: string; value: string; host: string; expires: number; httpOnly: boolean };
+  const rows = new Map<string, Row>();
   for (const cookie of pairs) {
     const domain = cookie.domain || ".youtube.com";
     // A HAR carries whatever domain the browser recorded, so an entry can name
     // an unrelated site. Without this the jar — which is POSTed to the server —
     // would carry other sites' session cookies.
     if (!isYoutubeDomain(domain)) continue;
-    const key = `${domain}:${cookie.name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     const host = domain.startsWith(".") ? domain : `.${domain.replace(/^\./, "")}`;
-    lines.push(`${host}\tTRUE\t/\tTRUE\t0\t${clean(cookie.name)}\t${clean(cookie.value)}`);
-    header.push(`${clean(cookie.name)}=${clean(cookie.value)}`);
+    const key = `${host}:${cookie.name}`;
+    const expires = cookieExpiryToUnix(cookie.expires) ?? 0;
+    const existing = rows.get(key);
+    // HAR entries are chronological, so the LAST sighting of a cookie is the
+    // value the browser actually holds — YouTube rotates LOGIN_INFO while the
+    // tab stays open. Keeping the first sighting shipped an already-rotated
+    // value that still looked fresh, which is exactly the dead session the
+    // staleness check is supposed to catch.
+    //
+    // Expiry is merged rather than overwritten: a bare `Cookie:` header carries
+    // the current value but no expiry, so a later one must not erase the date a
+    // `Set-Cookie` already gave us.
+    rows.set(key, {
+      name: clean(cookie.name),
+      value: clean(cookie.value),
+      host,
+      expires: expires > 0 ? expires : (existing?.expires ?? 0),
+      httpOnly: Boolean(cookie.httpOnly) || Boolean(existing?.httpOnly),
+    });
   }
-  if (!header.length) return null;
+  if (!rows.size) return null;
+  const lines = ["# Netscape HTTP Cookie File", "# Parsed from HAR"];
+  const header: string[] = [];
+  for (const row of rows.values()) {
+    const fields = `${row.host}\tTRUE\t/\tTRUE\t${row.expires}\t${row.name}\t${row.value}`;
+    lines.push(row.httpOnly ? `#HttpOnly_${fields}` : fields);
+    header.push(`${row.name}=${row.value}`);
+  }
   return { netscape: `${lines.join("\n")}\n`, header: header.join("; "), count: header.length };
 }
 

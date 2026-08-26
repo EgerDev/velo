@@ -84,6 +84,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     const title = tab.title ? tab.title.replace(" - YouTube", "") : `Video ${videoId}`;
+    const changed = activeVideo?.id !== videoId;
     activeVideo = {
       id: videoId,
       url: `https://www.youtube.com/watch?v=${videoId}`,
@@ -92,7 +93,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     };
 
+    if (changed) resetTranscriptState();
     renderActiveVideo(activeVideo);
+  }
+
+  // Drop cached transcript cues when the active video changes so the transcript
+  // tab reloads for the new video instead of showing the previous one's text.
+  function resetTranscriptState() {
+    activeTranscriptCues = [];
+    if (transcriptSearch) transcriptSearch.value = "";
+    if (transcriptCuesList) {
+      transcriptCuesList.innerHTML = `<div class="loading-spinner">Open the transcript tab to load it.</div>`;
+    }
   }
 
   function renderActiveVideo(video) {
@@ -112,10 +124,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   function extractVideoId(rawUrl) {
     try {
       const u = new URL(rawUrl);
+      const host = u.hostname.toLowerCase();
+      if (host === "youtu.be") return u.pathname.slice(1).split("?")[0] || null;
+      // Only trust ?v= / /shorts / /embed on an actual YouTube host — otherwise
+      // any https://example.com/page?v=123 would render as a "detected video"
+      // and the download/queue actions would act on that junk id.
+      if (!/(^|\.)youtube\.com$/.test(host)) return null;
       if (u.searchParams.has("v")) return u.searchParams.get("v");
       if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
       if (u.pathname.startsWith("/embed/")) return u.pathname.split("/")[2]?.split("?")[0] || null;
-      if (u.hostname === "youtu.be") return u.pathname.slice(1).split("?")[0] || null;
     } catch {
       const match = rawUrl.match(/(?:v=|\/shorts\/|\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
       return match ? match[1] : null;
@@ -141,16 +158,30 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   btnAddQueue?.addEventListener("click", async () => {
     if (!activeVideo) return;
-    await chrome.runtime.sendMessage({
-      type: "QUEUE_ADD",
-      item: {
-        id: activeVideo.id,
-        url: activeVideo.url,
-        title: activeVideo.title,
-        addedAt: Date.now(),
-      },
-    });
-    btnAddQueue.innerHTML = "<span>✓ Added to Queue</span>";
+    // The background answers {ok:false,error} when the queue write fails, and
+    // sendMessage itself rejects when the service worker is gone — claiming
+    // "Added to Queue" for either leaves the user believing it was saved.
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({
+        type: "QUEUE_ADD",
+        item: {
+          id: activeVideo.id,
+          url: activeVideo.url,
+          title: activeVideo.title,
+          addedAt: Date.now(),
+        },
+      });
+    } catch (err) {
+      res = { ok: false, error: err?.message || String(err) };
+    }
+    if (res?.ok) {
+      btnAddQueue.title = "";
+      btnAddQueue.innerHTML = "<span>✓ Added to Queue</span>";
+    } else {
+      btnAddQueue.title = res?.error || "The Velo background worker did not respond.";
+      btnAddQueue.innerHTML = "<span>⚠ Couldn’t queue</span>";
+    }
     setTimeout(() => {
       btnAddQueue.innerHTML = `
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -177,6 +208,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       author: "YouTube Creator",
       thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
     };
+    // Drop the previous video's transcript, or the transcript tab's
+    // load guard (activeVideo && !cues.length) sees stale cues and the
+    // Copy/AI actions would emit video A's text under video B's title.
+    resetTranscriptState();
     renderActiveVideo(activeVideo);
   });
 
@@ -420,17 +455,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 6. 1-Click Cookie Session Sync with Velo
   async function syncSessionWithVelo() {
     btnSyncSession.classList.add("spinning");
-    const cookieRes = await chrome.runtime.sendMessage({ type: "GET_SESSION_COOKIES" });
-    if (cookieRes?.cookieHeader) {
-      // Hand the session over through the clipboard and let Velo's own cookie
-      // import take it. Nothing reads a stored copy, so writing SID / SAPISID /
-      // __Secure-3PAPISID to extension storage only left Google account
-      // credentials sitting at rest indefinitely for no benefit.
-      await copyToClipboard(cookieRes.cookieHeader);
-      await chrome.storage.local.remove("velo_synced_cookies");
-      window.open(`${currentSettings.veloServerUrl}/?cookie_sync=1`, "_blank");
+    try {
+      const cookieRes = await chrome.runtime.sendMessage({ type: "GET_SESSION_COOKIES" });
+      if (cookieRes?.cookieHeader) {
+        // Hand the session over through the clipboard and let Velo's own cookie
+        // import take it. Nothing reads a stored copy, so writing SID / SAPISID /
+        // __Secure-3PAPISID to extension storage only left Google account
+        // credentials sitting at rest indefinitely for no benefit.
+        await copyToClipboard(cookieRes.cookieHeader);
+        await chrome.storage.local.remove("velo_synced_cookies");
+        window.open(`${currentSettings.veloServerUrl}/?cookie_sync=1`, "_blank");
+      } else {
+        // Signed out / cookies unreadable: say so, rather than leaving whatever
+        // was already on the clipboard to be pasted into Velo as "cookies".
+        btnSyncSession.title = "No YouTube session found — sign in to YouTube first.";
+      }
+    } catch (err) {
+      // A rejected sendMessage otherwise leaves the spinner turning forever and
+      // the error unhandled.
+      btnSyncSession.title = `Session sync failed: ${err?.message || err}`;
+    } finally {
+      setTimeout(() => btnSyncSession.classList.remove("spinning"), 600);
     }
-    setTimeout(() => btnSyncSession.classList.remove("spinning"), 1000);
   }
 
   function escapeHtml(str) {

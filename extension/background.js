@@ -29,64 +29,69 @@ chrome.runtime.onStartup.addListener(() => {
   updateQueueBadge();
 });
 
+// YouTube link forms that can appear anywhere on the web. Used as
+// targetUrlPatterns so the menu keys off the *clicked link*, not the host page.
+const YT_TARGET_PATTERNS = [
+  "*://www.youtube.com/watch*",
+  "*://m.youtube.com/watch*",
+  "*://music.youtube.com/watch*",
+  "*://www.youtube.com/shorts/*",
+  "*://m.youtube.com/shorts/*",
+  "*://www.youtube.com/embed/*",
+  "*://youtu.be/*",
+];
+// The page itself being a YouTube page — for the background/page-context menu
+// that acts on whatever video the tab is currently showing.
+const YT_PAGE_PATTERNS = [
+  "*://www.youtube.com/*",
+  "*://m.youtube.com/*",
+  "*://music.youtube.com/*",
+];
+
+const VELO_ITEMS = [
+  { id: "velo_download_1080p", title: "⚡ Download 1080p Video" },
+  { id: "velo_download_audio", title: "🎵 Download Audio (MP3/M4A)" },
+  { id: "velo_add_queue", title: "➕ Save to Download Queue" },
+  { id: "velo_open_web", title: "🚀 Open in Velo Studio" },
+];
+
 function setupContextMenus() {
   chrome.contextMenus.removeAll(() => {
     const handleErr = () => chrome.runtime.lastError;
 
-    // Parent Menu
-    chrome.contextMenus.create(
-      {
-        id: "velo_root",
-        title: "Velo YouTube Tools",
-        contexts: ["page", "link", "video"],
-        documentUrlPatterns: ["https://www.youtube.com/*", "https://m.youtube.com/*"],
-      },
-      handleErr,
-    );
+    // Two parents: one scoped to clicked YouTube links/videos anywhere on the
+    // web (targetUrlPatterns), one scoped to the YouTube page you're on
+    // (documentUrlPatterns). documentUrlPatterns + targetUrlPatterns on a
+    // single item are AND-ed, which is what broke cross-web link support, so
+    // they must live on separate menus.
+    const parents = [
+      { id: "velo_root_link", contexts: ["link", "video"], targetUrlPatterns: YT_TARGET_PATTERNS },
+      { id: "velo_root_page", contexts: ["page"], documentUrlPatterns: YT_PAGE_PATTERNS },
+    ];
 
-    // 1. Download 1080p Video
-    chrome.contextMenus.create(
-      {
-        id: "velo_download_1080p",
-        parentId: "velo_root",
-        title: "⚡ Download 1080p Video",
-        contexts: ["page", "link", "video"],
-      },
-      handleErr,
-    );
-
-    // 2. Download Audio Only
-    chrome.contextMenus.create(
-      {
-        id: "velo_download_audio",
-        parentId: "velo_root",
-        title: "🎵 Download Audio (MP3/M4A)",
-        contexts: ["page", "link", "video"],
-      },
-      handleErr,
-    );
-
-    // 3. Add to Queue
-    chrome.contextMenus.create(
-      {
-        id: "velo_add_queue",
-        parentId: "velo_root",
-        title: "➕ Save to Download Queue",
-        contexts: ["page", "link", "video"],
-      },
-      handleErr,
-    );
-
-    // 4. Open in Velo Web App
-    chrome.contextMenus.create(
-      {
-        id: "velo_open_web",
-        parentId: "velo_root",
-        title: "🚀 Open in Velo Studio",
-        contexts: ["page", "link", "video"],
-      },
-      handleErr,
-    );
+    for (const parent of parents) {
+      chrome.contextMenus.create(
+        {
+          id: parent.id,
+          title: "Velo YouTube Tools",
+          contexts: parent.contexts,
+          ...(parent.targetUrlPatterns ? { targetUrlPatterns: parent.targetUrlPatterns } : {}),
+          ...(parent.documentUrlPatterns ? { documentUrlPatterns: parent.documentUrlPatterns } : {}),
+        },
+        handleErr,
+      );
+      for (const item of VELO_ITEMS) {
+        chrome.contextMenus.create(
+          {
+            id: `${item.id}::${parent.id}`,
+            parentId: parent.id,
+            title: item.title,
+            contexts: parent.contexts,
+          },
+          handleErr,
+        );
+      }
+    }
   });
 }
 
@@ -120,7 +125,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const serverUrl = settings?.veloServerUrl || DEFAULT_SETTINGS.veloServerUrl;
   const fullVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  switch (info.menuItemId) {
+  // Menu items are registered under two parents, so the id carries a
+  // "::<parentId>" suffix — act on the action prefix.
+  const action = String(info.menuItemId).split("::")[0];
+  switch (action) {
     case "velo_download_1080p":
     case "velo_download_audio":
     case "velo_open_web": {
@@ -146,13 +154,31 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // 4. Queue Management Helpers
 let queueLock = Promise.resolve();
 
+// Serializes a queue mutation behind `queueLock`. The lock itself must always
+// settle fulfilled: if a failed op (storage quota, transient IO) left it
+// rejected, every later mutation would chain off that rejection and silently
+// no-op for the rest of the service-worker lifetime. So the op's own outcome —
+// rejection included, which the message handlers below turn into {ok:false} —
+// is returned to the caller, while the lock advances through handlers that
+// swallow it.
+function withQueueLock(run) {
+  // Run whether the previous op fulfilled or rejected, so one failure can't
+  // block the ops queued behind it.
+  const result = queueLock.then(run, run);
+  queueLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 async function getQueue() {
   const data = await chrome.storage.local.get(["velo_queue"]);
   return data.velo_queue || [];
 }
 
 async function addToQueue(item) {
-  return (queueLock = queueLock.then(async () => {
+  return withQueueLock(async () => {
     const queue = await getQueue();
     const exists = queue.some((i) => i.id === item.id);
     if (!exists) {
@@ -161,27 +187,27 @@ async function addToQueue(item) {
       await updateQueueBadge();
     }
     return queue;
-  }));
+  });
 }
 
 // Every queue mutation goes through `queueLock`. The popup dispatches QUEUE_ADD
 // and QUEUE_REMOVE independently, so an unserialized read-modify-write here
 // loses the removal to a concurrent add holding a stale array.
 async function removeFromQueue(id) {
-  return (queueLock = queueLock.then(async () => {
+  return withQueueLock(async () => {
     const queue = (await getQueue()).filter((i) => i.id !== id);
     await chrome.storage.local.set({ velo_queue: queue });
     await updateQueueBadge();
     return queue;
-  }));
+  });
 }
 
 async function clearQueue() {
-  return (queueLock = queueLock.then(async () => {
+  return withQueueLock(async () => {
     await chrome.storage.local.set({ velo_queue: [] });
     await updateQueueBadge();
     return [];
-  }));
+  });
 }
 
 async function updateQueueBadge() {

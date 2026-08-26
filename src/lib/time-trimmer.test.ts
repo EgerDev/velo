@@ -44,6 +44,13 @@ test("formatYtdlpSection: outputs correct glob section format", () => {
   assert.equal(formatYtdlpSection(3600, 3660), "*01:00:00-01:01:00");
 });
 
+test("formatYtdlpSection: a rounding-carry fraction doesn't drop a second", () => {
+  // 65.999… must render as 01:06, not 01:05.00 (floor 65 + rounded ".00").
+  assert.equal(formatYtdlpSection(65.999999, 70), "*01:06-01:10");
+  // A genuine sub-second boundary still keeps its centiseconds.
+  assert.equal(formatYtdlpSection(15.34, 20.5), "*00:15.34-00:20.50");
+});
+
 test("estimateClipSize: computes proportional file size", () => {
   const size = estimateClipSize(100_000_000, 1000, 100); // 10%
   assert.equal(size, 10_000_000);

@@ -49,10 +49,11 @@ type FFmpegInstance = {
   loaded: boolean;
   load: (config: { coreURL: string; wasmURL: string }) => Promise<boolean>;
   on: (event: string, handler: (payload: { progress?: number; message?: string }) => void) => void;
+  off: (event: string, handler: (payload: { progress?: number; message?: string }) => void) => void;
   writeFile: (name: string, data: Uint8Array) => Promise<boolean>;
   readFile: (name: string) => Promise<Uint8Array | string>;
   deleteFile: (name: string) => Promise<boolean>;
-  exec: (args: string[]) => Promise<number>;
+  exec: (args: string[], timeout?: number, opts?: { signal?: AbortSignal }) => Promise<number>;
   terminate: () => void;
 };
 
@@ -152,7 +153,19 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
       });
 
       lastLog = "";
-      const code = await ffmpeg.exec(args);
+      let code: number;
+      try {
+        code = await ffmpeg.exec(args, -1, { signal: options.signal });
+      } catch (err) {
+        if (options.signal?.aborted) {
+          // An aborted exec only rejects this promise — the worker keeps
+          // computing. Kill the core so the next conversion isn't silently
+          // queued behind a run the user already cancelled.
+          releaseEncoder();
+          throw new DOMException("Conversion cancelled", "AbortError");
+        }
+        throw err;
+      }
       if (code !== 0) {
         throw new Error(lastLog ? `Conversion failed: ${lastLog}` : "Conversion failed.");
       }
@@ -162,11 +175,26 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
       const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
       if (!bytes.length) throw new Error("Conversion produced an empty file.");
       options.onProgress?.({ stage: "encoding", percent: 100 });
+      // The copy profile keeps the source container, so its blob type must
+      // follow the actual output extension rather than the profile's default.
+      const outExt = filename.split(".").pop()?.toLowerCase();
+      const mime =
+        profile.ext === null
+          ? outExt === "webm"
+            ? "audio/webm"
+            : outExt === "opus"
+              ? "audio/opus"
+              : profile.mime
+          : profile.mime;
       return {
-        blob: new Blob([bytes as BlobPart], { type: profile.mime }),
+        blob: new Blob([bytes as BlobPart], { type: mime }),
         filename,
       };
     } finally {
+      // The core is a session-long singleton: leaving the listener behind
+      // would retain this run's source Blob forever and bleed its progress
+      // events into every later conversion.
+      ffmpeg.off("progress", handleProgress);
       for (const name of written) {
         await ffmpeg.deleteFile(name).catch(() => undefined);
       }

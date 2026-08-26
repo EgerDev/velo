@@ -141,6 +141,10 @@ export function parseTrunDataOffset(data: Uint8Array, moofOffset: number): { dat
   let pos = 16;
   let dataOffset = 0;
   if (flags & 0x1) {
+    // data_offset lives at bytes 16-19; a fragment header truncated by a
+    // partial range fetch can end right after sample_count. Bail like the rest
+    // of the module rather than let the DataView throw a RangeError.
+    if (pos + 4 > box.length) return null;
     dataOffset = new DataView(box.buffer, box.byteOffset + pos, 4).getInt32(0);
     pos += 4;
   }

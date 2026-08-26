@@ -141,13 +141,30 @@ async function evictIfNeeded(incoming: number) {
   }
 }
 
+/**
+ * Drop `row` from the cache index, located by its stable identity (key +
+ * path) rather than `indexOf(row)`. `muxCacheGet` holds a row reference
+ * across disk awaits, and a concurrent muxCachePut / evictIfNeeded can
+ * remove that row (and unlink its file) in the meantime; `indexOf` then
+ * returned -1 and `splice(-1, 1)` silently deleted the LAST, healthy entry
+ * while leaving its file orphaned on disk. Matching on path as well as key
+ * means a stale reference can never target a same-key replacement row.
+ * Returns the removed row, or null when another path already dropped (and
+ * unlinked) it — in which case there is nothing left to do.
+ */
+function dropCacheRow(row: CacheRow): CacheRow | null {
+  const idx = cacheIndex.findIndex((item) => item.key === row.key && item.path === row.path);
+  if (idx < 0) return null;
+  return cacheIndex.splice(idx, 1)[0] ?? null;
+}
+
 export async function muxCacheGet(id: string, itag: number): Promise<FileHit | null> {
   const key = cacheKey(id, itag);
   const row = cacheIndex.find((item) => item.key === key);
   if (!row) return null;
   if (Date.now() - row.at > CACHE_TTL_MS) {
-    cacheIndex.splice(cacheIndex.indexOf(row), 1);
-    await unlink(row.path).catch(() => undefined);
+    const dropped = dropCacheRow(row);
+    if (dropped) await unlink(dropped.path).catch(() => undefined);
     return null;
   }
   try {
@@ -158,7 +175,8 @@ export async function muxCacheGet(id: string, itag: number): Promise<FileHit | n
     if (!(await peekMedia(row.path))) return null;
     return { path: row.path, filename: row.filename, size: info.size };
   } catch {
-    cacheIndex.splice(cacheIndex.indexOf(row), 1);
+    const dropped = dropCacheRow(row);
+    if (dropped) await unlink(dropped.path).catch(() => undefined);
     return null;
   }
 }

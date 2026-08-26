@@ -4,6 +4,7 @@ import {
   analyzeStreamUrl,
   lockSummary,
   parseHls,
+  parsePlaybackUrl,
   pickHlsVariant,
   unlockStreamUrl,
   unlockVariants,
@@ -57,6 +58,51 @@ test("does not stamp pot on SABR stubs", () => {
   );
   assert.equal(new URL(url).searchParams.get("pot"), null);
   assert.equal(applied.includes("gvs-pot"), false);
+  // The pot is withheld, but the SABR stub is still a progressive URL — it must
+  // keep the throughput params or it downloads at the default trickle rate.
+  assert.equal(new URL(url).searchParams.get("ratebypass"), "yes");
+  assert.equal(new URL(url).searchParams.get("rn"), "1");
+});
+
+test("pot:null strips a visitor-bound token instead of stamping one", () => {
+  const { url, applied } = unlockStreamUrl(
+    "https://r1.googlevideo.com/videoplayback?itag=18&pot=OLD&potc=1",
+    { pot: null },
+  );
+  const q = new URL(url).searchParams;
+  assert.equal(q.get("pot"), null);
+  assert.equal(q.get("potc"), null);
+  assert.ok(applied.includes("drop-pot"));
+  // Nothing to drop → no drop-pot claim.
+  const clean = unlockStreamUrl("https://r1.googlevideo.com/videoplayback?itag=18", { pot: null });
+  assert.equal(clean.applied.includes("drop-pot"), false);
+});
+
+test("pickHlsVariant returns null when no variant carries video", () => {
+  assert.equal(pickHlsVariant([], 1080), null);
+  const audioOnly = parseHls(
+    `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS="mp4a.40.2"
+audio.m3u8
+`,
+    "https://gv.example/master.m3u8",
+  );
+  assert.equal(pickHlsVariant(audioOnly.master, 1080), null);
+});
+
+test("parsePlaybackUrl unwraps a cipher but never a plain url= query param", () => {
+  // A real signatureCipher blob: the playback URL is the nested `url`.
+  assert.equal(
+    parsePlaybackUrl("s=SIG&sp=sig&url=https%3A%2F%2Fr1.googlevideo.com%2Fvideoplayback%3Fitag%3D18")
+      ?.host,
+    "r1.googlevideo.com",
+  );
+  // An ordinary absolute URL that merely carries `url=` must resolve to ITSELF.
+  // Keying off a bare `&url=http` sent callers to the other host.
+  const decoy =
+    "https://r1.googlevideo.com/videoplayback?itag=18&emsg=x&url=http://evil.test/x";
+  assert.equal(parsePlaybackUrl(decoy)?.host, "r1.googlevideo.com");
+  assert.equal(parsePlaybackUrl("not a url"), null);
 });
 
 test("parses HLS master and media playlists", () => {

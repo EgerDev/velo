@@ -51,6 +51,17 @@ describe("parseVideoId", () => {
     assert.equal(parseVideoId("https://example.com/watch?v=dQw4w9WgXcQ"), null);
     assert.equal(parseVideoId(""), null);
   });
+
+  it("only takes the bare-shorts fast path for truly bare paths", () => {
+    // A host in front — protocol or not — must clear the allowlist instead.
+    assert.equal(parseVideoId("someothersite.com/shorts/dQw4w9WgXcQ"), null);
+    assert.equal(parseVideoId("mirror.example.net/videos/shorts/dQw4w9WgXcQ"), null);
+    assert.equal(parseVideoId("youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+    assert.equal(parseVideoId("/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+    assert.equal(parseVideoId("shorts/dQw4w9WgXcQ?feature=share"), "dQw4w9WgXcQ");
+    // 12-char tail is not an 11-char id.
+    assert.equal(parseVideoId("shorts/dQw4w9WgXcQx"), null);
+  });
 });
 
 describe("parsePlaylistId", () => {

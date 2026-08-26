@@ -365,6 +365,15 @@ export function VideoPanel({
   // fetches exactly once per video and can't cancel its own in-flight request.
   const sponsorFetchedFor = useRef<string | null>(null);
 
+  // Reset SponsorBlock when the video changes so a stale lookup can't leak
+  // across. Declared BEFORE the fetch effect: effects run in order, so if this
+  // ran after it, a video switch with the section open would null the ref the
+  // fetch effect just set and the new video's result would be dropped.
+  useEffect(() => {
+    sponsorFetchedFor.current = null;
+    setSponsor({ status: "idle", segments: [] });
+  }, [video.id]);
+
   // SponsorBlock lookup is lazy: only when the section is first opened, and the
   // privacy-preserving hash-prefix query keeps the exact videoId off the API.
   useEffect(() => {
@@ -389,12 +398,6 @@ export function VideoPanel({
       }
     })();
   }, [openSection, video.id]);
-
-  // Reset SponsorBlock when the video changes so a stale lookup can't leak across.
-  useEffect(() => {
-    sponsorFetchedFor.current = null;
-    setSponsor({ status: "idle", segments: [] });
-  }, [video.id]);
 
   function exportSponsorMarkers(format: NLEExportFormat) {
     const cues = sponsor.segments.map((seg, index) => ({
@@ -512,10 +515,17 @@ export function VideoPanel({
 
     let pipelineMode = "Direct Single Container";
     if (hasDash) {
+      // Name the codecs the top DASH preset actually muxes — the 1080p tier
+      // can fall back to VP9/AV1+Opus when no H.264 track exists.
+      const dashPreset = video.presets.find((p) => p.audioItag != null);
+      const dashVideo = video.formats.find((f) => f.itag === dashPreset?.itag);
+      const dashAudio = video.formats.find((f) => f.itag === dashPreset?.audioItag);
+      const muxVideoCodec = dashVideo?.codec ?? "H.264";
+      const muxAudioCodec = dashAudio?.codec ?? (muxVideoCodec === "H.264" ? "AAC" : "Opus");
       pipelineMode =
         sourceMaxHeight >= 2160
           ? "4K UHD Multi-Stream Copy-Mux"
-          : "Direct H.264+AAC Muxing";
+          : `Direct ${muxVideoCodec}+${muxAudioCodec} Muxing`;
     }
 
     const matchedAudio = video.formats.find(

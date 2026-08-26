@@ -191,6 +191,19 @@ export function cuesToTimestampedText(cues: TranscriptCue[]): string {
 }
 
 /**
+ * Neutralize the SRT/VTT "-->" timing delimiter inside cue payload text.
+ * Decoded captions can legitimately contain "-->" (YouTube escapes it as
+ * "--&gt;", which cleanSubtitleText decodes back), and per the WebVTT parsing
+ * algorithm any payload line containing "-->" is treated as a malformed
+ * timing line, so strict parsers drop the cue or reject the file. Swap it for
+ * the visually equivalent "→" at serialization time only — the in-app
+ * transcript view keeps the original text.
+ */
+function neutralizeTimingDelimiter(text: string): string {
+  return text.replace(/-->/g, "→");
+}
+
+/**
  * Format cues as SubRip (.srt) subtitle format
  */
 export function cuesToSrt(cues: TranscriptCue[]): string {
@@ -198,7 +211,7 @@ export function cuesToSrt(cues: TranscriptCue[]): string {
     .map((c, idx) => {
       const startSrt = formatSrtTime(c.start);
       const endSrt = formatSrtTime(c.end);
-      return `${idx + 1}\n${startSrt} --> ${endSrt}\n${c.text}\n`;
+      return `${idx + 1}\n${startSrt} --> ${endSrt}\n${neutralizeTimingDelimiter(c.text)}\n`;
     })
     .join("\n");
 }
@@ -208,7 +221,7 @@ export function cuesToSrt(cues: TranscriptCue[]): string {
  */
 export function cuesToVtt(cues: TranscriptCue[]): string {
   const body = cues
-    .map((c) => `${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${c.text}`)
+    .map((c) => `${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${neutralizeTimingDelimiter(c.text)}`)
     .join("\n\n");
   return `WEBVTT\n\n${body}`;
 }

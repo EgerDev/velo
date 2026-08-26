@@ -134,7 +134,13 @@ export function SessionGuide({
 
           <div className="flex flex-wrap items-center gap-2">
             <a
-              href={BOOKMARKLET_CODE}
+              // React 19 sanitizes a `javascript:` href to a blocked
+              // placeholder, so dragging this to the bookmarks bar would install
+              // a dead bookmarklet. Set the real href imperatively — React never
+              // sees it as a prop, so it isn't rewritten; the drag gets the code.
+              ref={(el) => {
+                el?.setAttribute("href", BOOKMARKLET_CODE);
+              }}
               onClick={(e) => {
                 e.preventDefault();
                 void copyBookmarklet();

@@ -108,6 +108,43 @@ describe("transcript export formats", () => {
     assert.match(vtt, /00:00:00\.000 --> 00:00:03\.500\nIntroduction to AI\./);
   });
 
+  it("neutralizes '-->' inside cue payload text so exports stay parseable", () => {
+    const arrowCues = [
+      {
+        id: 1,
+        start: 0,
+        end: 2.5,
+        startFormatted: "00:00",
+        endFormatted: "00:02",
+        text: "map A --> B",
+      },
+    ];
+
+    const vtt = cuesToVtt(arrowCues);
+    const srt = cuesToSrt(arrowCues);
+
+    // Timing lines still use the real " --> " delimiter.
+    const timingLine = /^\d{2}:\d{2}:\d{2}[.,]\d{3} --> \d{2}:\d{2}:\d{2}[.,]\d{3}$/;
+    assert.match(vtt, /00:00:00\.000 --> 00:00:02\.500/);
+    assert.match(srt, /00:00:00,000 --> 00:00:02,500/);
+
+    // No payload (non-timing) line may contain "-->", or strict WebVTT/SRT
+    // parsers treat it as a malformed timing line and drop the cue.
+    for (const output of [vtt, srt]) {
+      for (const line of output.split("\n")) {
+        if (timingLine.test(line)) continue;
+        assert.ok(
+          !line.includes("-->"),
+          `payload line still contains "-->": ${JSON.stringify(line)}`,
+        );
+      }
+    }
+
+    // The delimiter is replaced with the visually equivalent Unicode arrow.
+    assert.match(vtt, /map A → B/);
+    assert.match(srt, /map A → B/);
+  });
+
   it("converts cues to valid JSON", () => {
     const jsonStr = cuesToJson(cues);
     const parsed = JSON.parse(jsonStr);

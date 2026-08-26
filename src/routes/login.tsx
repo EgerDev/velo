@@ -9,7 +9,7 @@ import {
   emailAuthFetchOptions,
   type AuthErrorInfo,
 } from "@/lib/capture-auth-token";
-import { redeemSignInLink, requestSignInLink } from "@/lib/sign-in-link";
+import { redeemSignInLink, requestSignInLink, signInLinkStatus } from "@/lib/sign-in-link";
 import { isolateOwnSession } from "@/lib/session-isolation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,24 @@ function Login() {
   const [oauthId, setOauthId] = useState<string | null>(null);
   const [magicPath, setMagicPath] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Sign-in links are only offered where the server allows them — this app
+  // can't send email, so the token comes back to the caller and the flow stays
+  // gated. Assume off until told otherwise so the option never flashes in.
+  const [linkOffered, setLinkOffered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    signInLinkStatus()
+      .then((status) => {
+        if (!cancelled) setLinkOffered(status.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkOffered(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!search.link) return;
@@ -277,17 +295,19 @@ function Login() {
             </form>
 
             <div className="space-y-1 pt-1 text-center text-sm text-muted">
-              <button
-                type="button"
-                className="w-full"
-                onClick={() => {
-                  setMode(mode === "link" ? "signin" : "link");
-                  setError(null);
-                  setMagicPath(null);
-                }}
-              >
-                {mode === "link" ? "Use a password instead" : "Email me a sign-in link"}
-              </button>
+              {linkOffered || mode === "link" ? (
+                <button
+                  type="button"
+                  className="w-full"
+                  onClick={() => {
+                    setMode(mode === "link" ? "signin" : "link");
+                    setError(null);
+                    setMagicPath(null);
+                  }}
+                >
+                  {mode === "link" ? "Use a password instead" : "Email me a sign-in link"}
+                </button>
+              ) : null}
               {mode !== "link" ? (
                 <button
                   type="button"

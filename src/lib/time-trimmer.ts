@@ -125,8 +125,12 @@ export function formatYtdlpSection(startSec: number, endSec: number): string {
   // fractions and yt-dlp's --download-sections does too — so flooring silently
   // shifted each end of the clip by up to a second.
   const precise = (seconds: number) => {
-    const frac = Math.max(0, seconds) % 1;
-    return frac ? `${formatTimecode(seconds)}${frac.toFixed(2).slice(1)}` : formatTimecode(seconds);
+    // Round once to centiseconds first: computing the integer part (floor) and
+    // the fraction independently lets a value like 65.999 render as "01:05.00"
+    // (floor 65 + rounded ".00") — a whole second off — instead of "01:06.00".
+    const rounded = Math.round(Math.max(0, seconds) * 100) / 100;
+    const frac = rounded % 1;
+    return frac ? `${formatTimecode(rounded)}${frac.toFixed(2).slice(1)}` : formatTimecode(rounded);
   };
   return `*${precise(startSec)}-${precise(endSec)}`;
 }

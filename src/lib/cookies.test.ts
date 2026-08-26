@@ -1,7 +1,46 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeCookieFormat, parseCookieImport } from "./cookies.ts";
+import { analyzeCookieFormat, cookieExpiryToUnix, parseCookieImport } from "./cookies.ts";
 import { classifyDownloadError } from "./download-error.ts";
+
+test("cookieExpiryToUnix normalises epochs, ms, and date strings", () => {
+  assert.equal(cookieExpiryToUnix(1999999999), 1999999999);
+  assert.equal(cookieExpiryToUnix(1999999999000), 1999999999);
+  assert.equal(cookieExpiryToUnix("1999999999"), 1999999999);
+  // HAR 1.2 writes an ISO-8601 date; Set-Cookie writes an HTTP-date. Reading
+  // only numbers silently dropped both.
+  assert.equal(cookieExpiryToUnix("2033-05-18T03:33:19.000Z"), 1999999999);
+  assert.equal(cookieExpiryToUnix("Wed, 18 May 2033 03:33:19 GMT"), 1999999999);
+  assert.equal(cookieExpiryToUnix("not a date"), undefined);
+  assert.equal(cookieExpiryToUnix(0), undefined);
+  assert.equal(cookieExpiryToUnix(undefined), undefined);
+});
+
+test("a bare Cookie paste lands on .youtube.com, mirroring account cookies", () => {
+  // yt-dlp reads the jar scoped to www.youtube.com; parking SID on .google.com
+  // alone made the session invisible to the YouTube extractor.
+  const parsed = parseCookieImport("SID=abc; SAPISID=xyz; LOGIN_INFO=AFmmF2sw:token");
+  assert.match(parsed.netscape, /^\.youtube\.com\tTRUE\t\/\tTRUE\t0\tSID\tabc$/m);
+  assert.match(parsed.netscape, /^\.google\.com\tTRUE\t\/\tTRUE\t0\tSID\tabc$/m);
+  assert.match(parsed.netscape, /^\.youtube\.com\tTRUE\t\/\tTRUE\t0\tLOGIN_INFO\t/m);
+  // LOGIN_INFO is YouTube-only — no .google.com mirror.
+  assert.doesNotMatch(parsed.netscape, /^\.google\.com\t.*LOGIN_INFO/m);
+  // The mirror is the same credential, so the reported count stays honest.
+  assert.equal(parsed.count, 3);
+});
+
+test("the reported cookie count survives a round trip through the jar", () => {
+  // The vault re-parses the netscape it just saved, so a count that grew on
+  // re-parse showed the user "Imported 7 cookies" for the 4 they pasted.
+  const first = parseCookieImport("SID=abc; HSID=def; SAPISID=xyz; LOGIN_INFO=tok");
+  assert.equal(first.count, 4);
+  const second = parseCookieImport(first.netscape);
+  assert.equal(second.count, 4);
+  assert.equal(parseCookieImport(second.netscape).count, 4);
+  // The jar still carries both domains for the account cookies.
+  assert.match(second.netscape, /^\.google\.com\t.*\tSID\tabc$/m);
+  assert.match(second.netscape, /^\.youtube\.com\t.*\tSID\tabc$/m);
+});
 
 test("parses Netscape YouTube cookies and ignores others", () => {
   const raw = [

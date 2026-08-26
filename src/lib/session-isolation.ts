@@ -17,7 +17,12 @@ export const isolateOwnSession = createServerFn({ method: "POST" })
     const request = getRequest();
     const fromHeader = request ? readSessionTokenFromHeaders(request.headers) : "";
     const fromCookie = sessionTokenKey(getCookie("__Host-grok-auth.session_token"));
-    const token = fromHeader || fromCookie;
+    // The RPC transport never sends an Authorization header and, in the live
+    // preview, no session cookie reaches the server either — the session rides
+    // the bearer that authMiddleware forwards in context. Without this the whole
+    // handler silently no-ops in exactly the tri-mode env it exists for.
+    const fromBearer = sessionTokenKey((context as { bearerToken?: string | null }).bearerToken);
+    const token = fromHeader || fromCookie || fromBearer;
     if (!token) return { ok: false as const };
     const sql = await getSql();
     const like = `${token}.%`;

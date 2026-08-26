@@ -66,14 +66,6 @@ test("reads client IP from platform headers, not the leftmost spoofable hop", ()
     },
   });
   assert.equal(clientIp(spoofed), "10.0.0.1");
-  const fromCf = new Request("https://velo.test/api/download", {
-    headers: {
-      "cf-ray": "abc-SJC",
-      "cf-connecting-ip": "198.51.100.4",
-      "x-forwarded-for": "203.0.113.9, 10.0.0.1",
-    },
-  });
-  assert.equal(clientIp(fromCf), "198.51.100.4");
   const forwarded = new Request("https://velo.test/api/download", {
     headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" },
   });
@@ -82,6 +74,29 @@ test("reads client IP from platform headers, not the leftmost spoofable hop", ()
     headers: { "x-real-ip": "192.0.2.8", "x-forwarded-for": "203.0.113.9, 10.0.0.1" },
   });
   assert.equal(clientIp(real), "192.0.2.8");
+});
+
+test("ignores client-set cf-* headers unless a Cloudflare edge is trusted", () => {
+  const spoofed = new Request("https://velo.test/api/download", {
+    headers: {
+      "cf-ray": "abc-SJC",
+      "cf-connecting-ip": "198.51.100.4",
+      "x-forwarded-for": "203.0.113.9, 10.0.0.1",
+    },
+  });
+  // Default (no Cloudflare in front): cf-* is attacker-settable, so it must not
+  // win over the platform-appended last hop — otherwise the per-IP backstop key
+  // is rotatable and the guest cap is defeated.
+  assert.equal(clientIp(spoofed), "10.0.0.1");
+
+  const previous = process.env.TRUST_CLOUDFLARE;
+  process.env.TRUST_CLOUDFLARE = "1";
+  try {
+    assert.equal(clientIp(spoofed), "198.51.100.4");
+  } finally {
+    if (previous === undefined) delete process.env.TRUST_CLOUDFLARE;
+    else process.env.TRUST_CLOUDFLARE = previous;
+  }
 });
 
 test("guest identity prefers x-velo-guest over shared NAT IP", () => {

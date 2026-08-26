@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseHar, isHarJson } from "./har.ts";
-import { parseCookieImport } from "./cookies.ts";
+import { analyzeCookieFormat, parseCookieImport } from "./cookies.ts";
 
 const HAR = {
   log: {
@@ -61,6 +61,107 @@ test("parseHar reads cookies, Set-Cookie, video ids, and googlevideo itags", () 
   assert.equal(har.headers.hasSid, true);
   assert.equal(har.headers.hasSapisid, true);
   assert.ok(har.headers.cookieNames.includes("SID"));
+});
+
+test("HAR cookies keep their real expiry instead of a session marker", () => {
+  const withExpiry = {
+    log: {
+      entries: [
+        {
+          request: {
+            url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            cookies: [
+              // HAR 1.2 writes expiry as an ISO-8601 date string.
+              { name: "SID", value: "sidtoken", domain: ".youtube.com", expires: "2033-05-18T03:33:19.000Z" },
+            ],
+            headers: [{ name: "Cookie", value: "SAPISID=saptoken" }],
+          },
+          response: {
+            headers: [
+              {
+                name: "set-cookie",
+                value: "LOGIN_INFO=logintoken; Domain=.youtube.com; Path=/; Secure; HttpOnly; Expires=Wed, 18 May 2033 03:33:19 GMT",
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+  const har = parseHar(JSON.stringify(withExpiry));
+  assert.ok(har.cookies);
+  // Real expiry in the jar's fifth column, not the hardcoded 0 it used to write.
+  assert.match(har.cookies.netscape, /^\.youtube\.com\tTRUE\t\/\tTRUE\t1999999999\tSID\tsidtoken$/m);
+  // Set-Cookie flags survive too.
+  assert.match(har.cookies.netscape, /^#HttpOnly_\.youtube\.com\tTRUE\t\/\tTRUE\t1999999999\tLOGIN_INFO\t/m);
+  // A bare Cookie header genuinely has no recoverable expiry.
+  assert.match(har.cookies.netscape, /^\.youtube\.com\tTRUE\t\/\tTRUE\t0\tSAPISID\t/m);
+
+  // The staleness report can finally see a dead session through the HAR path.
+  const stale = {
+    log: {
+      entries: [
+        {
+          request: {
+            url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            cookies: [
+              { name: "SID", value: "old", domain: ".youtube.com", expires: "2001-09-09T01:46:40.000Z" },
+              { name: "SAPISID", value: "sap", domain: ".youtube.com", expires: "2033-05-18T03:33:19.000Z" },
+            ],
+          },
+        },
+      ],
+    },
+  };
+  const report = analyzeCookieFormat(parseHar(JSON.stringify(stale)).cookies!.netscape);
+  assert.deepEqual(report.expiredNames, ["SID"]);
+  assert.ok(report.issues.some((issue) => /Expired: SID/.test(issue)));
+});
+
+test("a rotated cookie keeps its newest value, not the first one seen", () => {
+  // YouTube rotates LOGIN_INFO while the tab stays open, so a capture can span
+  // a rotation. Shipping the first sighting shipped a dead session that still
+  // looked fresh.
+  const rotating = {
+    log: {
+      entries: [
+        {
+          request: { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+          response: {
+            headers: [
+              { name: "set-cookie", value: "LOGIN_INFO=first; Domain=.youtube.com; Max-Age=63072000" },
+            ],
+          },
+        },
+        {
+          request: { url: "https://www.youtube.com/youtubei/v1/player" },
+          response: {
+            headers: [
+              { name: "set-cookie", value: "LOGIN_INFO=second; Domain=.youtube.com; Max-Age=63072000" },
+            ],
+          },
+        },
+        // A later bare Cookie header has the current value but no expiry — it
+        // must not wipe the date the Set-Cookie already established.
+        {
+          request: {
+            url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+            headers: [{ name: "Cookie", value: "LOGIN_INFO=second" }],
+          },
+        },
+      ],
+    },
+  };
+  const har = parseHar(JSON.stringify(rotating));
+  assert.ok(har.cookies);
+  assert.match(har.cookies.header, /LOGIN_INFO=second/);
+  assert.doesNotMatch(har.cookies.header, /LOGIN_INFO=first/);
+  const row = har.cookies.netscape
+    .split("\n")
+    .find((line) => line.includes("LOGIN_INFO"));
+  assert.ok(row, "expected a LOGIN_INFO row");
+  const expires = Number(row!.split("\t")[4]);
+  assert.ok(expires > Math.floor(Date.now() / 1000), "expiry should survive the bare Cookie header");
 });
 
 test("parseHar warns when cookies are redacted", () => {

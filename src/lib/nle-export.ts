@@ -74,14 +74,16 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
     }
   });
 
-  const lastCue = cues[cues.length - 1];
-  const totalDuration = lastCue ? Math.ceil(lastCue.end + 5) : 3600;
+  // Cues are sorted by start, but overlapping segments (SponsorBlock allows
+  // them) mean the last cue isn't necessarily the one that ends last.
+  const maxEnd = cues.reduce((max, cue) => Math.max(max, cue.end), 0);
+  const totalDuration = cues.length ? Math.ceil(maxEnd + 5) : 3600;
   // FCPX wants the exact NTSC rational for 29.97 / 59.94 — 1001/30000s, not
   // 100/2997s, which is a different number — and names those formats "2997" /
   // "5994" rather than with a decimal point. Both are one click away in the UI.
   const ntsc = Math.abs(fps - Math.round(fps)) > 0.001;
   const frameDuration = ntsc ? `1001/${Math.round(fps) * 1000}s` : `100/${Math.round(fps * 100)}s`;
-  const formatName = `FFVideoFormat1080p${ntsc ? `${Math.round(fps)}97` : Math.round(fps)}`;
+  const formatName = `FFVideoFormat1080p${ntsc ? Math.round(fps * 100) : Math.round(fps)}`;
 
   let markersXml = "";
   cues.forEach((cue, index) => {

@@ -26,6 +26,11 @@ export type PoTokenInfo = {
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
 const TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+// Cold-start fallbacks are the weaker degraded token, so they only get a
+// short cache window: one transient mint failure must not pin the degraded
+// token for the full success TTL after the BotGuard minter recovers. Applies
+// to both cache keys (player:/gvs:) — they share mintPoTokenUncached's catch.
+const COLD_START_TTL_MS = 90_000;
 
 let minterPromise: Promise<Minter> | null = null;
 let minterCreatedAt = 0;
@@ -71,6 +76,18 @@ function unbindBgWindow() {
   g.document = originalGlobals.document;
 }
 
+// KNOWN CONCURRENCY HAZARD (needs-design): the bind mutates process-global
+// window/self/document for the whole duration of fn(), and fn() awaits real
+// async work (BotGuardClient.create/snapshot, WebPoMinter.create/mint). Any
+// unrelated task interleaving on the event loop during those awaits sees
+// `typeof window !== "undefined"` and can take browser branches or trip
+// server-only guards (e.g. a concurrent first getSql()). The bind cannot be
+// narrowed to just the synchronous VM call: the obfuscated BotGuard program
+// also reads these globals from its own async continuations, so narrowing is
+// only falsifiable at runtime against live YouTube. The real fix — running
+// the minter in an isolated vm/worker context so globalThis is never mutated
+// on the request event loop — is deferred until it can be designed and
+// soak-tested; mint correctness outweighs this intermittent window.
 function withBgWindow<T>(fn: () => Promise<T>): Promise<T> {
   const run = bindChain.then(async () => {
     bindBgWindow();
@@ -131,15 +148,65 @@ function stubCanvas(window: { HTMLCanvasElement?: { prototype: { getContext?: un
   };
 }
 
-async function createMinter(): Promise<Minter> {
-  try {
-    bgDom?.window.close();
-  } catch {
-    /* already torn down */
-  }
-  bgDom = null;
-  bgWindow = null;
+const MINT_FETCH_TIMEOUT_MS = 10_000;
 
+async function createMinter(): Promise<Minter> {
+  // All network I/O stays outside withBgWindow: while the fake youtube.com
+  // window is bound to globalThis, every other handler on the event loop sees
+  // `typeof window !== "undefined"` and takes browser branches (server-only
+  // guards throw, SSR origin checks read youtube.com). The bind must only
+  // span synchronous VM work, never awaits that can stall on the network —
+  // and without timeouts a blackholed connection holds undici open ~300s.
+  const pageResponse = await fetch("https://www.youtube.com/", {
+    headers: {
+      accept: "*/*",
+      "accept-language": "en-US,en;q=0.8",
+      "user-agent": USER_AGENT,
+    },
+    signal: AbortSignal.timeout(MINT_FETCH_TIMEOUT_MS),
+  });
+  if (!pageResponse.ok) throw new Error(`YouTube homepage ${pageResponse.status}`);
+  const pageHtml = await pageResponse.text();
+  if (pageHtml.includes("Sign in to confirm") || pageHtml.length < 2000) {
+    throw new Error("YouTube served a bot wall instead of BotGuard.");
+  }
+
+  // These two extractions are the module's only contact surface with
+  // YouTube's markup, so they match braces rather than the call syntax around
+  // them — `ytcfg.set({…}, 1)`, a missing semicolon and a wrapped line are all
+  // shapes YouTube ships, and a regex pinned to one of them fails the whole
+  // mint (silently downgrading to the weaker cold-start token).
+  const ytConfig = sliceBalancedObject(pageHtml, "ytcfg.set(");
+  if (!ytConfig) throw new Error("Missing ytcfg on homepage.");
+  let ytConfigParsed: unknown;
+  try {
+    ytConfigParsed = JSON.parse(ytConfig);
+  } catch {
+    // Otherwise this surfaces as a bare SyntaxError with no hint of the cause.
+    throw new Error("ytcfg on the homepage was not JSON — player HTML shape changed.");
+  }
+
+  const attestation = sliceBalancedObject(pageHtml, "ytAtN");
+  if (!attestation) throw new Error("Missing BotGuard challenge (ytAtN).");
+  const parsed = parseLooseJSON(attestation) as { R?: ChallengeResponse };
+  const challenge = parsed.R?.bgChallenge;
+  if (!challenge) throw new Error("Missing bgChallenge program.");
+
+  const interpreterUrl =
+    challenge.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
+  const script = await (
+    await fetch(`https:${interpreterUrl}`, {
+      signal: AbortSignal.timeout(MINT_FETCH_TIMEOUT_MS),
+    })
+  ).text();
+  if (!script.includes("function") && script.length < 100)
+    throw new Error("Empty BotGuard VM script.");
+
+  // Swap in the fresh jsdom only now that everything remote is in hand. The
+  // old window is closed through bindChain, not synchronously: a mint queued
+  // on the old minter may still be executing closures against it, and closing
+  // it mid-mint degrades that request to a cold-start token.
+  const oldDom = bgDom;
   const dom = new JSDOM("<!DOCTYPE html><html><head></head><body></body></html>", {
     url: "https://www.youtube.com/",
     referrer: "https://www.youtube.com/",
@@ -148,50 +215,20 @@ async function createMinter(): Promise<Minter> {
   });
   const window = dom.window as unknown as typeof globalThis & { yt?: { config_: unknown } };
   stubCanvas(window);
+  window.yt = { config_: ytConfigParsed };
   bgDom = dom;
   bgWindow = window;
-
-  return withBgWindow(async () => {
-    const pageResponse = await fetch("https://www.youtube.com/", {
-      headers: {
-        accept: "*/*",
-        "accept-language": "en-US,en;q=0.8",
-        "user-agent": USER_AGENT,
-      },
+  if (oldDom) {
+    bindChain = bindChain.then(() => {
+      try {
+        oldDom.window.close();
+      } catch {
+        /* already torn down */
+      }
     });
-    if (!pageResponse.ok) throw new Error(`YouTube homepage ${pageResponse.status}`);
-    const pageHtml = await pageResponse.text();
-    if (pageHtml.includes("Sign in to confirm") || pageHtml.length < 2000) {
-      throw new Error("YouTube served a bot wall instead of BotGuard.");
-    }
+  }
 
-    // These two extractions are the module's only contact surface with
-    // YouTube's markup, so they match braces rather than the call syntax around
-    // them — `ytcfg.set({…}, 1)`, a missing semicolon and a wrapped line are all
-    // shapes YouTube ships, and a regex pinned to one of them fails the whole
-    // mint (silently downgrading to the weaker cold-start token).
-    const ytConfig = sliceBalancedObject(pageHtml, "ytcfg.set(");
-    if (!ytConfig) throw new Error("Missing ytcfg on homepage.");
-    let ytConfigParsed: unknown;
-    try {
-      ytConfigParsed = JSON.parse(ytConfig);
-    } catch {
-      // Otherwise this surfaces as a bare SyntaxError with no hint of the cause.
-      throw new Error("ytcfg on the homepage was not JSON — player HTML shape changed.");
-    }
-    window.yt = { config_: ytConfigParsed };
-
-    const attestation = sliceBalancedObject(pageHtml, "ytAtN");
-    if (!attestation) throw new Error("Missing BotGuard challenge (ytAtN).");
-    const parsed = parseLooseJSON(attestation) as { R?: ChallengeResponse };
-    const challenge = parsed.R?.bgChallenge;
-    if (!challenge) throw new Error("Missing bgChallenge program.");
-
-    const interpreterUrl =
-      challenge.interpreterUrl.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
-    const script = await (await fetch(`https:${interpreterUrl}`)).text();
-    if (!script.includes("function") && script.length < 100)
-      throw new Error("Empty BotGuard VM script.");
+  const { webPoSignalOutput, botguardResponse } = await withBgWindow(async () => {
     const vm = new Function(
       "window",
       "self",
@@ -210,31 +247,35 @@ async function createMinter(): Promise<Minter> {
       globalObject: window,
     });
 
-    const webPoSignalOutput: WebPoSignalOutput = [];
-    const botguardResponse = await botGuardClient.snapshot({ webPoSignalOutput });
-    if (!botguardResponse) throw new Error("BotGuard snapshot was empty.");
+    const signals: WebPoSignalOutput = [];
+    const response = await botGuardClient.snapshot({ webPoSignalOutput: signals });
+    if (!response) throw new Error("BotGuard snapshot was empty.");
+    return { webPoSignalOutput: signals, botguardResponse: response };
+  });
 
-    const integrityTokenResponse = await fetch(buildURL("GenerateIT", true), {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify([REQUEST_KEY, botguardResponse]),
-    });
-    if (!integrityTokenResponse.ok) throw new Error(`GenerateIT ${integrityTokenResponse.status}`);
-    const integrityTokenJson = (await integrityTokenResponse.json()) as [
-      string,
-      number,
-      number,
-      string,
-    ];
-    const [integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken] =
-      integrityTokenJson;
-    if (!integrityToken) throw new Error("Empty integrity token.");
+  const integrityTokenResponse = await fetch(buildURL("GenerateIT", true), {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify([REQUEST_KEY, botguardResponse]),
+    signal: AbortSignal.timeout(MINT_FETCH_TIMEOUT_MS),
+  });
+  if (!integrityTokenResponse.ok) throw new Error(`GenerateIT ${integrityTokenResponse.status}`);
+  const integrityTokenJson = (await integrityTokenResponse.json()) as [
+    string,
+    number,
+    number,
+    string,
+  ];
+  const [integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken] =
+    integrityTokenJson;
+  if (!integrityToken) throw new Error("Empty integrity token.");
 
-    return await WebPoMinter.create(
+  return await withBgWindow(() =>
+    WebPoMinter.create(
       { integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken },
       webPoSignalOutput,
-    );
-  });
+    ),
+  );
 }
 
 function getMinter(): Promise<Minter> {
@@ -344,7 +385,7 @@ async function mintPoTokenUncached(
       tokenCache.set(cacheKey, {
         token,
         method: "cold-start",
-        expires: Date.now() + 30 * 60 * 1000,
+        expires: Date.now() + COLD_START_TTL_MS,
       });
       evictTokenCache();
       return { token, method: "cold-start", error };

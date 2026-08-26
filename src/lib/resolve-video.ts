@@ -9,7 +9,7 @@ const querySchema = z.object({
   query: z.string().min(1).max(200),
 });
 
-const probeSchema = z.object({
+const playbackSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]{11}$/),
   itag: z.number().int().positive(),
 });
@@ -25,13 +25,6 @@ export const resolveVideo = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { resolveYoutubeVideo } = await import("@/lib/youtube.server");
     return resolveYoutubeVideo(data.url);
-  });
-
-export const probeDownload = createServerFn({ method: "POST" })
-  .validator((input: unknown) => probeSchema.parse(input))
-  .handler(async ({ data }) => {
-    const { probeYoutubeDownload } = await import("@/lib/youtube.server");
-    return probeYoutubeDownload(data.id, data.itag);
   });
 
 export const searchVideos = createServerFn({ method: "POST" })
@@ -56,7 +49,7 @@ export const mintPoToken = createServerFn({ method: "POST" })
   });
 
 export const resolvePlayback = createServerFn({ method: "POST" })
-  .validator((input: unknown) => probeSchema.parse(input))
+  .validator((input: unknown) => playbackSchema.parse(input))
   .handler(async ({ data }) => {
     const { getPlaybackUrl } = await import("@/lib/youtube.server");
     return getPlaybackUrl(data.id, data.itag);

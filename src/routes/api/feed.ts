@@ -12,7 +12,12 @@ async function resolveChannelId(raw: string): Promise<string | null> {
   const ref = parseChannelInput(raw);
   if (!ref) return null;
   if ("channelId" in ref) return ref.channelId;
-  const path = "handle" in ref ? `@${ref.handle}` : `user/${ref.user}`;
+  const path =
+    "handle" in ref
+      ? `@${ref.handle}`
+      : "vanity" in ref
+        ? `c/${ref.vanity}`
+        : `user/${ref.user}`;
   const page = await fetch(`https://www.youtube.com/${path}`, {
     headers: { accept: "text/html", "accept-language": "en-US,en;q=0.9" },
     signal: AbortSignal.timeout(12_000),
@@ -40,6 +45,12 @@ export const Route = createFileRoute("/api/feed")({
         const params = new URL(request.url).searchParams;
         const rawChannel = params.get("channel") ?? "";
         const directId = params.get("channelId") ?? "";
+
+        // Resolving a raw @handle/vanity fetches a YouTube page server-side, so
+        // gate the route on the cheap per-IP backstop before any upstream work.
+        const { metadataBackstopResponse } = await import("@/lib/guest-limit.server");
+        const limited = metadataBackstopResponse(request);
+        if (limited) return limited;
 
         let channelId = CHANNEL_ID_RE.test(directId) ? directId : "";
         if (!channelId && rawChannel) {

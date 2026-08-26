@@ -57,11 +57,16 @@ const CLIENT_VER: Record<string, string> = {
 
 export function parsePlaybackUrl(raw: string): URL | null {
   try {
-    if (raw.includes("signatureCipher") || /^s=/.test(raw) || raw.includes("&url=http")) {
-      const args = new URLSearchParams(raw.startsWith("http") ? new URL(raw).search : raw);
-      const nested = args.get("url");
-      if (nested) return new URL(nested);
-    }
+    const absolute = /^https?:\/\//i.test(raw);
+    const args = new URLSearchParams(absolute ? new URL(raw).search : raw);
+    const nested = args.get("url");
+    // A signatureCipher blob is `s=…&sp=…&url=…`, where the real playback URL is
+    // the nested `url`. Require an actual signature param alongside it: keying
+    // off a bare `&url=http` also matched a legitimate absolute URL that merely
+    // carries a `url=` query param, silently resolving to that other host.
+    const isCipher =
+      raw.includes("signatureCipher") || args.has("s") || args.has("sp") || args.has("sig");
+    if (nested && isCipher) return new URL(nested);
     return new URL(raw);
   } catch {
     return null;

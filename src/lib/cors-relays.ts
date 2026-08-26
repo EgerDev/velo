@@ -41,6 +41,21 @@ export function isRelayTarget(raw: string): boolean {
   }
 }
 
+/**
+ * True for any googlevideo media host, regardless of path. The relay charges a
+ * download token for these — keying on the literal `/videoplayback` substring
+ * instead would let a guest fetch googlevideo bytes uncharged via a manifest/init
+ * path or a URL that only redirects into `/videoplayback`.
+ */
+export function isMediaHostTarget(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && MEDIA_HOST.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function isPublicHtmlTarget(raw: string): boolean {
   try {
     const url = new URL(raw);

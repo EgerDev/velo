@@ -62,12 +62,24 @@ async function main() {
         await client.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
         await client.query("COMMIT");
       } catch (err) {
-        console.error(`[migrate] error applying ${name}`);
         try {
           await client.query("ROLLBACK");
         } catch {
           // ROLLBACK fails when the connection died — keep the original error.
         }
+        // Two deploys can build concurrently, read the same pending list, and
+        // both apply it. The loser trips the _migrations primary key — but the
+        // file did land, from the winner's identical bytes, so this is not a
+        // failure worth failing a build over. (An advisory lock is the other
+        // fix; session-level locks are unsafe through a transaction-mode pooler
+        // like PgBouncer/Neon, where a leaked one wedges every later deploy.)
+        // Scoped to that exact constraint so a unique violation from the
+        // migration's own SQL still fails loudly.
+        if (err?.code === "23505" && err?.constraint === "_migrations_pkey") {
+          console.log(`[migrate] ${name} already applied by a concurrent deploy — skipping.`);
+          continue;
+        }
+        console.error(`[migrate] error applying ${name}`);
         throw err;
       }
       console.log(`[migrate] applied ${name}`);

@@ -10,7 +10,8 @@
  *    137+140  1080p H.264 + AAC — the hop that works
  *    137+251  1080p H.264 + Opus in mkv if AAC is missing
  *    96       HLS 1080 MPEG-TS stitch if DASH is blocked
- *    Muxed 22 / 18 is the client muxedFallback after this selector fails.
+ *    Muxed 22 / 18 is offered to the user as a fallback prompt (pickMuxedFallback
+ *    in routes/index.tsx) after this selector fails — never substituted silently.
  *
  * 3. Fallback order (stop at first real file)
  *    logged-in innertube on this host → SOCKS web_embedded (137+140/137+251)

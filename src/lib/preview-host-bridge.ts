@@ -78,6 +78,7 @@ export function installPreviewHostBridge(
   if (parentOrigin === null) return () => {};
 
   const ROOT_STATE_KEY = "__grokPreviewBridgeRoot";
+  const ROOT_FLAG_KEY = "__grokPreviewBridgeInstalled";
   const originalPushState = window.history.pushState.bind(window.history);
   const originalReplaceState = window.history.replaceState.bind(window.history);
 
@@ -99,7 +100,18 @@ export function installPreviewHostBridge(
       typeof current === "object" &&
       Object.prototype.hasOwnProperty.call(current, ROOT_STATE_KEY);
     if (!alreadyTagged) {
-      const isRoot = window.history.length <= 1;
+      // history.length can't tell "first entry in THIS frame" from "first in the
+      // tab": inside the preview iframe it counts the whole top-level session, so
+      // it is > 1 in every real embed and the Back floor never engages. A
+      // per-frame sessionStorage flag — set on first install, surviving same-frame
+      // document navigations — identifies the true in-frame root instead.
+      let isRoot: boolean;
+      try {
+        isRoot = window.sessionStorage.getItem(ROOT_FLAG_KEY) === null;
+        window.sessionStorage.setItem(ROOT_FLAG_KEY, "1");
+      } catch {
+        isRoot = window.history.length <= 1;
+      }
       const marked =
         current && typeof current === "object"
           ? { ...current, [ROOT_STATE_KEY]: isRoot }

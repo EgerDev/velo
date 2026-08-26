@@ -14,7 +14,7 @@ import {
   type AudioProfileId,
 } from "@/lib/audio-profiles";
 import { isEncoderSupported, preloadEncoder, type EncodeProgress } from "@/lib/audio-encoder";
-import { beginBuilderSave, saveMediaBlob } from "@/lib/builder-save";
+import { beginBuilderSave, discardPendingSave, saveMediaBlob } from "@/lib/builder-save";
 
 type AudioStudioProps = {
   videoId: string;
@@ -82,6 +82,17 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset, sig
     const abort = new AbortController();
     abortRef.current = abort;
 
+    // Open the Save picker synchronously with the click. showSaveFilePicker
+    // needs the user gesture, and awaiting the fetch/encode first (seconds to
+    // minutes) consumes it — the picker would then reject and silently fall back
+    // to <a download>, which is exactly the path that misfires in the framed
+    // preview. encodeAudio derives result.filename from this same call.
+    const outName = outputFilename(title, profile, audioPreset.ext);
+    const pending = beginBuilderSave(outName);
+    // The picker created the destination on confirm; release it unless this run
+    // writes it, so a cancel or failure leaves no 0-byte file behind.
+    let wrote = false;
+
     try {
       setPhase({ kind: "fetching", percent: 4, label: "Fetching audio" });
 
@@ -100,7 +111,10 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset, sig
           itag: audioPreset.itag,
           cookies: cookiesForDownload(signedIn),
           signal: abort.signal,
-          onProgress: (label, percent) => setPhase({ kind: "fetching", percent, label }),
+          onProgress: (label, percent) => {
+            if (abort.signal.aborted) return;
+            setPhase({ kind: "fetching", percent, label });
+          },
         });
       }
       if (abort.signal.aborted) return;
@@ -119,13 +133,15 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset, sig
         cover,
         metadata: { title, artist: author, comment: `https://www.youtube.com/watch?v=${videoId}` },
         signal: abort.signal,
-        onProgress: (progress: EncodeProgress) =>
-          setPhase({ kind: "converting", percent: progress.percent }),
+        onProgress: (progress: EncodeProgress) => {
+          if (abort.signal.aborted) return;
+          setPhase({ kind: "converting", percent: progress.percent });
+        },
       });
       if (abort.signal.aborted) return;
 
-      const pending = beginBuilderSave(result.filename);
       await saveMediaBlob(result.blob, result.filename, pending, { videoId, itag: audioPreset.itag }, abort.signal);
+      wrote = true;
       setPhase({ kind: "done", filename: result.filename, size: result.blob.size });
       toast.success(`Saved ${result.filename}`);
     } catch (err) {
@@ -135,6 +151,9 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset, sig
       }
       setPhase({ kind: "idle" });
       toast.error(err instanceof Error ? err.message : "Couldn’t convert that audio.");
+    } finally {
+      // Covers the three `abort.signal.aborted` early returns above too.
+      if (!wrote) void discardPendingSave(pending);
     }
   }
 

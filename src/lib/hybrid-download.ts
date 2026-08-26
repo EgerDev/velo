@@ -98,6 +98,14 @@ async function readBlob(
     // body locked and the socket held. `builder-download.ts` already does this.
     reader.releaseLock();
   }
+  // A stream cut short still ends with `done`, so without this a truncated
+  // transfer was saved as a complete file — the container header parses and the
+  // size check passes, and the user is told it succeeded.
+  if (total > 0 && loaded < total) {
+    throw new Error(
+      `Download ended early — got ${loaded} of ${total} bytes. The connection dropped; try again.`,
+    );
+  }
   const bytes = new Uint8Array(loaded);
   let offset = 0;
   for (const chunk of chunks) {

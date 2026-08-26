@@ -37,12 +37,14 @@ describe("parseChannelInput", () => {
     });
   });
 
-  it("accepts /user/ and /c/ URLs as user refs", () => {
+  it("maps /user/ to a legacy user ref and /c/ to a distinct vanity ref", () => {
+    // /user/ and /c/ are different YouTube namespaces — resolving a /c/ name
+    // through /user/ 404s for most channels, so they must not collapse together.
     assert.deepEqual(parseChannelInput("https://www.youtube.com/user/scishow"), {
       user: "scishow",
     });
     assert.deepEqual(parseChannelInput("https://www.youtube.com/c/veritasium"), {
-      user: "veritasium",
+      vanity: "veritasium",
     });
   });
 

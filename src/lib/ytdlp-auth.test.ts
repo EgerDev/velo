@@ -31,6 +31,7 @@ import {
   PO_TOKEN_STEPS,
   ytdlpFamilyArgs,
   classifyYtdlpFailure,
+  formatYtdlpFailure,
   mapYtdlpExit,
   looksLikeIpv6Mismatch,
   poTokenArgs,
@@ -368,6 +369,39 @@ test("ULA ip= in the log is an IPv6 mismatch", () => {
   );
   assert.equal(fail.kind, "ipv6");
   assert.equal(fail.next, "next-socks");
+});
+
+test("proxy authority is fully redacted before it can reach a client", () => {
+  // Credentialed hop: neither the user:pass nor the host:port may survive into
+  // errorLine or the formatted message (which becomes the /api/ytdlp 502 body).
+  const credentialed = mapYtdlpExit(
+    1,
+    "ERROR: Unable to connect to proxy socks5h://user:pass@10.0.0.5:1080: Connection refused",
+  );
+  const message = formatYtdlpFailure("web_embedded", credentialed);
+  for (const leak of ["user", "pass", "10.0.0.5", "0.5", "1080"]) {
+    assert.ok(!credentialed.errorLine.includes(leak), `errorLine leaks ${leak}`);
+    assert.ok(!credentialed.hint.includes(leak), `hint leaks ${leak}`);
+    assert.ok(!message.includes(leak), `formatted failure leaks ${leak}`);
+  }
+  assert.match(credentialed.errorLine, /socks5h:\/\/\*\*\*/);
+  assert.equal(credentialed.kind, "network");
+  assert.equal(credentialed.next, "next-socks");
+
+  // No userinfo at all: the bare host:port is still the internal hop address.
+  const bare = mapYtdlpExit(
+    1,
+    "[download] Got error: <urlopen error [Errno 111] Connection refused> (socks5://198.51.100.7:9050)",
+  );
+  for (const leak of ["198", "51", "100", "7", "9050"]) {
+    assert.ok(!bare.errorLine.includes(leak), `errorLine leaks ${leak}: ${bare.errorLine}`);
+    assert.ok(!bare.hint.includes(leak), `hint leaks ${leak}: ${bare.hint}`);
+  }
+  assert.match(bare.errorLine, /socks5:\/\/\*\*\*/);
+
+  // A plain error line without a proxy URL passes through untouched.
+  const plain = mapYtdlpExit(1, "ERROR: [youtube] jNQXAC9IVRw: No video formats found!");
+  assert.equal(plain.errorLine, "[youtube] jNQXAC9IVRw: No video formats found!");
 });
 
 test("the interpreter is configurable, since `python3` is not always the name", () => {

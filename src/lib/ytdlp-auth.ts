@@ -59,7 +59,8 @@ const VIDEO_ONLY = new Set([
  * then H.264 + Opus (mkv), then HLS stitch, then muxed 720/360. Skip 1080p60
  * / AV1 / VP9 on the automatic hop — they stall, throttle, or fail mux more often.
  * Do not fall through to muxed 720/360 here: Save would label 360p as Full HD.
- * Muxed 22/18 is the client muxedFallback after this selector fails.
+ * Muxed 22/18 is offered as a user-confirmed fallback prompt after this selector
+ * fails (pickMuxedFallback in routes/index.tsx), never substituted silently.
  */
 export const WORKING_1080_SELECTOR = "137+140/137+251/96";
 export const BEST_1080_SELECTOR = WORKING_1080_SELECTOR;
@@ -740,12 +741,16 @@ function lastErrorLine(stderr: string): string {
     (row) =>
       /^ERROR:/i.test(row) || /\[download\] Got error:/i.test(row) || /^Postprocessing:/i.test(row),
   );
-  // Redact proxy userinfo. This string reaches an unauthenticated caller as the
-  // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole `user:pass@host`
-  // into yt-dlp's stderr verbatim.
+  // Redact the FULL proxy authority — userinfo, host and port — keeping only
+  // the scheme. This string reaches an unauthenticated caller as the
+  // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole
+  // `user:pass@host:port` into yt-dlp's stderr verbatim; the internal hop
+  // address is as sensitive as the credentials. `[^\s/]` stops at the first
+  // slash, so an https path (e.g. a watch URL's video id) stays readable —
+  // only the authority is masked.
   return (errors.at(-1) ?? lines.at(-1) ?? stderr.trim())
     .replace(/^ERROR:\s*/i, "")
-    .replace(/\b(socks[45]h?|https?):\/\/[^\s/@]+@/gi, "$1://***@");
+    .replace(/\b(socks[45]?[ah]?|https?):\/\/[^\s/]+/gi, "$1://***");
 }
 
 /**

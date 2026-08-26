@@ -138,20 +138,26 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
     };
   }, [activeCues, deletedCueIds]);
 
+  // Distinct from reqIdRef (which guards caption fetches): guards the whole
+  // resolve→setVideo flow so a slow first URL can't overwrite a newer one the
+  // user submitted after it.
+  const videoReqRef = useRef(0);
+
   async function loadVideoTranscript(targetUrl: string) {
     const cleanUrl = targetUrl.trim();
     if (!cleanUrl) return;
 
+    const currentReq = ++videoReqRef.current;
     setError(null);
     setLoading(true);
     try {
       const resolved = await resolveVideo({ data: { url: cleanUrl } });
+      if (currentReq !== videoReqRef.current) return;
       setVideo(resolved);
 
       if (!resolved.captions || resolved.captions.length === 0) {
         setError("No subtitle or transcript tracks found for this video.");
         setCues([]);
-        setLoading(false);
         return;
       }
 
@@ -161,11 +167,12 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
       setSelectedLanguage(defaultTrack.vssId);
       await loadCaptionContent(resolved.id, defaultTrack.vssId);
     } catch (err) {
+      if (currentReq !== videoReqRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to load video transcripts.");
       setVideo(null);
       setCues([]);
     } finally {
-      setLoading(false);
+      if (currentReq === videoReqRef.current) setLoading(false);
     }
   }
 
@@ -561,6 +568,7 @@ export function TranscriptStudio({ initialUrl = "", onOpenInDownloader }: Transc
                   {searchQuery && (
                     <button
                       type="button"
+                      aria-label="Clear search"
                       onClick={() => setSearchQuery("")}
                       className="absolute right-2 top-2 text-subtle hover:text-fg"
                     >

@@ -11,6 +11,9 @@ test("maps OAuth and credential failures for the login page", () => {
   assert.equal(describeAuthError("temporarily_unavailable").code, "oauth_server");
   assert.equal(describeAuthError("USER_ALREADY_EXISTS").code, "exists");
   assert.equal(describeAuthError("invalid password").code, "credentials");
+  // better-auth's actual wrong-password/unknown-account message — must map to
+  // "credentials", NOT fall through to the "invalid email" bucket.
+  assert.equal(describeAuthError("Invalid email or password").code, "credentials");
   assert.equal(describeAuthError("Invalid origin").code, "origin");
   assert.match(friendlyAuthError("Pop-up blocked — allow pop-ups for sign-in"), /Pop-up blocked/);
 });

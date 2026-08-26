@@ -1,5 +1,15 @@
 import { isGrokHost, isSandboxHost } from "./builder-env.ts";
 
+/**
+ * A parent frame we will exchange bridge messages with: the Grok chat/app hosts
+ * and localhost (covered by `isGrokEmbedderOrigin`), plus the sandbox preview
+ * shells that serve the live preview. Membership is decided by the PARENT's
+ * hostname — never by our own.
+ */
+function isTrustedEmbedderHost(parentHostname: string): boolean {
+  return isGrokHost(parentHostname) || isSandboxHost(parentHostname);
+}
+
 /** grok.com chat, grok.me apps, and local preview parents. */
 export function isGrokEmbedderOrigin(origin: string): boolean {
   try {
@@ -42,9 +52,17 @@ export function resolveParentEmbedderOrigin(
       const url = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
       if (url.protocol !== "https:" && url.protocol !== "http:") continue;
       if (isGrokEmbedderOrigin(url.origin)) return url.origin;
-      if (isSandboxPreviewGuestHost(guestHostname) || isRemintPreviewPair(guestHostname, url.hostname)) {
+      // A sandbox-hosted guest may also be framed by a sandbox shell rather
+      // than grok.com itself — but the PARENT has to be one of those hosts.
+      // Testing only `isSandboxPreviewGuestHost(guestHostname)` asked "am I in
+      // the sandbox?", which is true for every deployed preview, and so
+      // returned whatever origin framed us: any site could embed the preview,
+      // read the location/routes we post, and drive navigation back through
+      // the bridge.
+      if (isSandboxPreviewGuestHost(guestHostname) && isTrustedEmbedderHost(url.hostname)) {
         return url.origin;
       }
+      if (isRemintPreviewPair(guestHostname, url.hostname)) return url.origin;
     } catch {
       /* try next candidate */
     }

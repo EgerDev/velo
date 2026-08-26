@@ -30,6 +30,12 @@ interface GrokPwaEvent {
   req: { method: string; headers: Headers };
 }
 
+/** True only for a real content coding — `identity` means the body is plain. */
+function isEncoded(header: string | null): boolean {
+  const value = String(header ?? "").trim().toLowerCase();
+  return value !== "" && value !== "identity";
+}
+
 function requestHost(event: GrokPwaEvent): string {
   return (
     event.req.headers.get("x-forwarded-host") ?? event.req.headers.get("host") ?? event.url.host
@@ -103,7 +109,8 @@ export default async function grokPwaMiddleware(
     result instanceof Response &&
     result.body &&
     String(result.headers.get("content-type") ?? "").includes("text/html") &&
-    !result.headers.get("content-encoding")
+    // `identity` is "explicitly not encoded", so it must not disable injection.
+    !isEncoded(result.headers.get("content-encoding"))
   ) {
     return injectHeadStreaming(result, requestHost(event));
   }

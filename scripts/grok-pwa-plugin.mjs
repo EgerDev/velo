@@ -111,7 +111,12 @@ function wrapHtmlResponses(middlewares, cwd) {
     const decideMode = () => {
       if (mode) return mode;
       const isHtml = String(res.getHeader("content-type") ?? "").includes("text/html");
-      const encoded = Boolean(res.getHeader("content-encoding"));
+      // `identity` means "explicitly NOT encoded" — TanStack's preview server
+      // sets it on HTML to keep Vite's compression off. Treating any header
+      // value as "compressed, don't touch" therefore skipped injection for
+      // every page under `npm run preview`.
+      const encoding = String(res.getHeader("content-encoding") ?? "").trim().toLowerCase();
+      const encoded = encoding !== "" && encoding !== "identity";
       mode = isHtml && !encoded ? "inject" : "passthrough";
       // Streaming SSR flushes headers before the first body chunk, so the
       // header may no longer be removable — chunked responses don't carry one.
@@ -130,11 +135,16 @@ function wrapHtmlResponses(middlewares, cwd) {
     res.write = (chunk, encoding, cb) => {
       if (decideMode() === "passthrough") return originalWrite(chunk, encoding, cb);
       const done = typeof encoding === "function" ? encoding : cb;
+      // Forward the real "buffer full" signal. Returning a hardcoded `true`
+      // tells the SSR streamer (srvx) the socket can always take more, so it
+      // never waits for 'drain' and the write buffer grows unbounded on a slow
+      // client.
+      let ok = true;
       if (chunk) {
-        for (const out of injector.push(toBuffer(chunk, encoding))) originalWrite(out);
+        for (const out of injector.push(toBuffer(chunk, encoding))) ok = originalWrite(out) && ok;
       }
       if (typeof done === "function") done();
-      return true;
+      return ok;
     };
 
     res.end = (chunk, encoding, cb) => {

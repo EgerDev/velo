@@ -16,6 +16,8 @@ type WatchState = {
   markSeen: (channelId: string, ms: number) => void;
 };
 
+const WATCH_STORE_KEY = "velo-watch";
+
 const noopStorage = {
   getItem: () => null,
   setItem: () => undefined,
@@ -46,9 +48,27 @@ export const useWatchStore = create<WatchState>()(
         })),
     }),
     {
-      name: "velo-watch",
+      name: WATCH_STORE_KEY,
       version: 1,
       storage: createJSONStorage(() => (typeof localStorage !== "undefined" ? localStorage : noopStorage)),
+      // Without a migrate, a version bump makes zustand DISCARD the persisted
+      // payload — the user's whole watch list. Carry the channels across.
+      migrate: (persisted) => {
+        const prior = persisted as { channels?: unknown } | null;
+        const channels = Array.isArray(prior?.channels) ? (prior.channels as WatchedChannel[]) : [];
+        return { channels } as WatchState;
+      },
     },
   ),
 );
+
+if (typeof window !== "undefined") {
+  // Every mutation persists the WHOLE channels array, so a tab holding a stale
+  // copy silently drops what another tab added. `storage` fires only in the
+  // other tabs, so rehydrating here keeps each tab's next write on top of the
+  // latest state instead of clobbering it.
+  window.addEventListener("storage", (event) => {
+    if (event.key !== WATCH_STORE_KEY) return;
+    void useWatchStore.persist.rehydrate();
+  });
+}

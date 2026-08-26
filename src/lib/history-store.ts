@@ -167,15 +167,36 @@ export const useHistoryStore = create<HistoryState>()(
       adoptOwner: (ownerId) =>
         set((state) => {
           const id = ownerId || "guest";
-          const current = state.shelves[state.ownerId];
-          if (current) writePersistedShelf(state.ownerId, current);
+          // Deliberately does NOT flush the in-memory shelf first. Hydration
+          // seeds `shelves` with an EMPTY stub (the persist `getItem` below
+          // returns one on purpose), so writing the outgoing shelf here wrote
+          // that stub straight over the real saved list — on every page load,
+          // before it was ever read back. Every mutation persists immediately,
+          // so there is nothing pending that a flush would rescue.
           const shelf = readPersistedShelf(id);
-          if (state.ownerId === id && state.items === shelf.items && state.shelves[id]) return state;
+          const unchanged =
+            state.ownerId === id &&
+            state.shelves[id] !== undefined &&
+            state.lastPresetId === shelf.lastPresetId &&
+            state.items.length === shelf.items.length &&
+            state.items.every(
+              (item, index) =>
+                item.id === shelf.items[index]?.id &&
+                item.downloadedAt === shelf.items[index]?.downloadedAt,
+            );
+          if (unchanged) return state;
           return writeShelf(id, shelf);
         }),
       record: (item) =>
         set((state) => {
-          const current = state.shelves[state.ownerId] ?? EMPTY_SHELF;
+          // Build on the persisted shelf, not this tab's in-memory copy: every
+          // mutation rewrites the WHOLE per-owner shelf, and another tab on the
+          // same account may have persisted items that this tab's `storage`
+          // replay (below the store) has not delivered yet. Every mutation
+          // persists before it returns, so the persisted copy is never behind
+          // memory — basing writes on it keeps concurrent tabs additive
+          // instead of last-writer-wins. Same in rememberPreset/remove.
+          const current = readPersistedShelf(state.ownerId);
           const next: HistoryItem = { ...item, downloadedAt: Date.now() };
           const rest = current.items.filter((existing) => existing.id !== item.id);
           const shelf = {
@@ -187,14 +208,14 @@ export const useHistoryStore = create<HistoryState>()(
         }),
       rememberPreset: (id) =>
         set((state) => {
-          const current = state.shelves[state.ownerId] ?? EMPTY_SHELF;
+          const current = readPersistedShelf(state.ownerId);
           const shelf = { ...current, lastPresetId: id };
           writePersistedShelf(state.ownerId, shelf);
           return writeShelf(state.ownerId, shelf);
         }),
       remove: (id) =>
         set((state) => {
-          const current = state.shelves[state.ownerId] ?? EMPTY_SHELF;
+          const current = readPersistedShelf(state.ownerId);
           const shelf = { ...current, items: current.items.filter((item) => item.id !== id) };
           writePersistedShelf(state.ownerId, shelf);
           return writeShelf(state.ownerId, shelf);
@@ -239,6 +260,30 @@ export const useHistoryStore = create<HistoryState>()(
     },
   ),
 );
+
+/**
+ * Pull another tab's shelf write into this tab's state. Only the ACTIVE
+ * owner's shelf key counts, and the owner is re-read per event so the match
+ * follows account switches. Routed through `adoptOwner`, which re-reads the
+ * persisted shelf with a no-change guard and never writes back — so replaying
+ * an event can't ping-pong between tabs. (`persist.rehydrate()` would NOT
+ * work here: hydration deliberately serves an empty stub, see `adoptOwner`.)
+ * Exported so tests without a browser `window` can drive the listener path.
+ */
+export function reconcilePersistedShelf(key: string | null) {
+  const { ownerId, adoptOwner } = useHistoryStore.getState();
+  if (key !== shelfStorageKey(ownerId)) return;
+  adoptOwner(ownerId);
+}
+
+if (typeof window !== "undefined") {
+  // Every mutation rewrites the whole per-owner shelf, so a tab holding a
+  // stale in-memory copy would silently clobber what another tab recorded.
+  // `storage` fires only in the tabs that did NOT write; replaying the
+  // persisted shelf here keeps each tab's view (and its next write) on top of
+  // the latest state — the same defense watch-store uses.
+  window.addEventListener("storage", (event) => reconcilePersistedShelf(event.key));
+}
 
 export function useHistoryHydrated(): boolean {
   const [hydrated, setHydrated] = useState(false);

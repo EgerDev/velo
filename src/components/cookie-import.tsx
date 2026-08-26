@@ -45,7 +45,7 @@ type FilePickerWindow = Window & {
 
 type ViewTab = "import" | "paste" | "health" | "guides";
 
-export function CookieImport() {
+export function CookieImport({ revealSignal = 0 }: { revealSignal?: number } = {}) {
   const { user, isPending } = useCurrentUserState();
   const raw = useCookieStore((state) => state.raw);
   const count = useCookieStore((state) => state.count);
@@ -54,6 +54,12 @@ export function CookieImport() {
   const clear = useCookieStore((state) => state.clear);
 
   const [open, setOpen] = useState(false);
+
+  // The header's session chip scrolls here and bumps this counter, so the panel
+  // is already expanded when the user arrives instead of needing a second click.
+  useEffect(() => {
+    if (revealSignal > 0) setOpen(true);
+  }, [revealSignal]);
   const [activeTab, setActiveTab] = useState<ViewTab>("import");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -61,18 +67,18 @@ export function CookieImport() {
   const [manualText, setManualText] = useState("");
   const [browser, setBrowser] = useState<BrowserTab>("bookmarklet");
   const [probeResult, setProbeResult] = useState<{
-    ok: boolean;
-    loggedIn: boolean;
-    latencyMs: number;
+    // What YouTube actually said — see `validateVaultSession`. `latencyMs` is
+    // null when no round trip completed, so the UI can't report a timeout as one.
+    probe: "live" | "signed-out" | "unreachable";
+    reason: string | null;
+    latencyMs: number | null;
     count: number;
     hasSapisid?: boolean;
     hasSid?: boolean;
-    note?: string;
   } | null>(null);
   const [probing, setProbing] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const lastClipRef = useRef("");
 
   useEffect(() => {
     scrubCookiePersist();
@@ -100,6 +106,17 @@ export function CookieImport() {
     if (!user) {
       setStatus("Sign in to save YouTube credentials.");
       return;
+    }
+    // Saving upserts the whole vault, so an import replaces whatever session is
+    // already stored. Never do that silently — make the user say yes first.
+    if (count > 0) {
+      const replace = window.confirm(
+        `Replace your ${count} saved YouTube session cookies with the ones from ${source}?`,
+      );
+      if (!replace) {
+        setStatus("Import cancelled — your saved session was left unchanged.");
+        return;
+      }
     }
     setBusy(true);
     setStatus(null);
@@ -163,21 +180,6 @@ export function CookieImport() {
     return () => window.removeEventListener("paste", onPaste);
   }, [open, user]);
 
-  useEffect(() => {
-    if (!open || !user) return;
-    const timer = window.setInterval(() => {
-      void navigator.clipboard
-        .readText()
-        .then((text) => {
-          if (!text || text === lastClipRef.current || !looksLikeSessionExport(text)) return;
-          lastClipRef.current = text;
-          void persistRef.current(text, "clipboard");
-        })
-        .catch(() => undefined);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [open, user]);
-
   async function testConnection() {
     setProbing(true);
     try {
@@ -187,10 +189,12 @@ export function CookieImport() {
         setProbeResult(null);
       } else {
         setProbeResult(res);
-        if (res.loggedIn) {
-          toast.success(`YouTube session confirmed active (${res.latencyMs}ms)`);
+        if (res.probe === "live") {
+          toast.success(`YouTube confirmed this session is signed in (${res.latencyMs}ms)`);
+        } else if (res.probe === "signed-out") {
+          toast.warning("YouTube served this session as signed out — re-export your cookies.");
         } else {
-          toast.warning("Session tokens saved, but YouTube reported visitor status.");
+          toast.warning(res.reason ?? "Could not verify the session with YouTube.");
         }
       }
     } catch {
@@ -300,6 +304,7 @@ export function CookieImport() {
       {/* Header Bar */}
       <button
         type="button"
+        aria-expanded={open}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer hover:bg-elevated/30 transition-colors"
         onClick={() => setOpen((value) => !value)}
       >
@@ -509,19 +514,27 @@ export function CookieImport() {
                 <div
                   className={cn(
                     "rounded-lg p-3 text-xs border space-y-1",
-                    probeResult.loggedIn
+                    probeResult.probe === "live"
                       ? "bg-success/10 border-success/25 text-success"
                       : "bg-warn/10 border-warn/25 text-warn",
                   )}
+                  role="status"
                 >
                   <p className="font-semibold flex items-center gap-1.5">
                     <Check className="size-4 stroke-[2.5]" />
-                    {probeResult.loggedIn ? "Session Verified Active" : "Visitor Session Detected"}
+                    {probeResult.probe === "live"
+                      ? "YouTube confirmed this session"
+                      : probeResult.probe === "signed-out"
+                        ? "YouTube sees this as signed out"
+                        : "Not verified"}
                   </p>
                   <p className="text-xs opacity-90">
-                    Round-trip latency: <strong className="font-mono">{probeResult.latencyMs}ms</strong> · Verified {probeResult.count} tokens.
+                    {/* Only claim a round trip when one actually happened. */}
+                    {probeResult.latencyMs != null
+                      ? `Round-trip ${probeResult.latencyMs}ms · ${probeResult.count} cookies sent.`
+                      : `${probeResult.count} cookies saved — not checked against YouTube.`}
                   </p>
-                  {probeResult.note ? <p className="text-xs opacity-80">{probeResult.note}</p> : null}
+                  {probeResult.reason ? <p className="text-xs opacity-80">{probeResult.reason}</p> : null}
                 </div>
               ) : null}
 

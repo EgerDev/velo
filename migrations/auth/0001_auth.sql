@@ -65,3 +65,4 @@ create table if not exists "verification" (
 create index if not exists "session_userId_idx" on "session" ("userId");
 create index if not exists "account_userId_idx" on "account" ("userId");
 create index if not exists "verification_identifier_idx" on "verification" ("identifier");
+create index if not exists "verification_value_idx" on "verification" ("value");

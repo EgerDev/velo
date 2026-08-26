@@ -66,8 +66,22 @@ function isYoutubeUrl(url: string): boolean {
 
 const GOOGLE_COOKIE_NAMES = /^(SID|HSID|SSID|APISID|SAPISID|__SECURE-1PSID|__SECURE-3PSID|__SECURE-1PAPISID|__SECURE-3PAPISID)$/i;
 
+/**
+ * Where a cookie with no recorded domain belongs.
+ *
+ * yt-dlp reads the jar scoped to www.youtube.com, so a bare `Cookie:` paste or
+ * a DevTools table — which the UI tells people to take from a signed-in
+ * youtube.com tab — has to land on `.youtube.com`, or the extractor never sees
+ * the session at all. Google-account cookies are issued on `.google.com` too in
+ * a real browser and some Google endpoints read them there, so mirror those
+ * across both domains exactly like a real export would.
+ */
+function defaultCookieDomains(name: string): string[] {
+  return GOOGLE_COOKIE_NAMES.test(name) ? [".youtube.com", ".google.com"] : [".youtube.com"];
+}
+
 function defaultCookieDomain(name: string): string {
-  return GOOGLE_COOKIE_NAMES.test(name) ? ".google.com" : ".youtube.com";
+  return defaultCookieDomains(name)[0]!;
 }
 
 type CookiePair = {
@@ -106,28 +120,56 @@ function collect(pairs: CookiePair[]): ParsedCookies {
   const lines = ["# Netscape HTTP Cookie File"];
   const header: string[] = [];
   const seen = new Set<string>();
+  // One credential can legitimately occupy several jar rows — mirrored across
+  // .youtube.com and .google.com here, and present on both domains in any real
+  // browser export. The `Cookie:` header and the count are per NAME, so the
+  // reported total means "cookies you have" and stays identical when the jar is
+  // parsed again (the vault re-parses what it saved).
+  const named = new Set<string>();
   for (const cookie of pairs) {
     if (!cookie.name || cookie.value == null) continue;
     if (cookie.domain && !isYoutubeDomain(cookie.domain)) continue;
-    const domain = cookie.domain || defaultCookieDomain(cookie.name);
-    const key = `${domain}:${cookie.name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lines.push(netscapeLine({ ...cookie, domain }));
-    header.push(`${cookie.name}=${cookie.value}`);
+    const domains = cookie.domain ? [cookie.domain] : defaultCookieDomains(cookie.name);
+    for (const domain of domains) {
+      const key = `${domain}:${cookie.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(netscapeLine({ ...cookie, domain }));
+    }
+    if (!named.has(cookie.name)) {
+      named.add(cookie.name);
+      header.push(`${cookie.name}=${cookie.value}`);
+    }
   }
   if (header.length === 0) throw new Error("No YouTube session tokens in that export.");
   return { netscape: `${lines.join("\n")}\n`, header: header.join("; "), count: header.length };
 }
 
-function unixExpiry(value: unknown): number | undefined {
-  if (typeof value === "string" && value.trim()) {
-    const n = Number(value);
-    return Number.isFinite(n) ? unixExpiry(n) : undefined;
+/**
+ * Cookie expiry, normalised to whole Unix seconds.
+ *
+ * Sources disagree on the shape: extension exports use a numeric epoch (seconds
+ * or milliseconds), the HAR 1.2 spec stores an ISO-8601 date string, and a
+ * `Set-Cookie` header carries an HTTP-date. Reading only numbers silently threw
+ * away every date-shaped expiry, which then wrote a session-cookie `0` and made
+ * the "your session is stale, re-export" check unreachable.
+ */
+export function cookieExpiryToUnix(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return undefined;
+    return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
   }
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
-  return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) return cookieExpiryToUnix(numeric);
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed / 1000);
 }
+
+const unixExpiry = cookieExpiryToUnix;
 
 function fromCookieList(list: JsonCookie[]): ParsedCookies {
   const pairs: CookiePair[] = [];
@@ -215,14 +257,18 @@ function fromHar(parsed: HarFile): ParsedCookies {
       const idx = first.indexOf("=");
       if (idx < 1) continue;
       const domain = header.value.match(/domain=([^;]+)/i)?.[1]?.trim();
-      const maxAge = header.value.match(/max-age=(\d+)/i)?.[1];
+      const maxAge = header.value.match(/max-age=(-?\d+)/i)?.[1];
+      // Max-Age wins over Expires per RFC 6265.
+      const expiresAt = header.value.match(/expires=([^;]+)/i)?.[1]?.trim();
       pairs.push({
         name: first.slice(0, idx).trim(),
         value: first.slice(idx + 1).trim(),
         domain,
         httpOnly: /;\s*httponly/i.test(header.value),
         secure: /;\s*secure/i.test(header.value),
-        expires: maxAge ? unixExpiry(Date.now() / 1000 + Number(maxAge)) : undefined,
+        expires: maxAge
+          ? unixExpiry(Math.floor(Date.now() / 1000) + Number(maxAge))
+          : unixExpiry(expiresAt),
       });
     }
   }
@@ -244,6 +290,11 @@ function fromJson(raw: string): ParsedCookies {
 
 function fromNetscape(raw: string): ParsedCookies {
   const header: string[] = [];
+  // Same rule as `collect`: one entry per cookie NAME, not per jar row. A real
+  // export (and our own mirrored output) carries a credential on both
+  // .youtube.com and .google.com, and counting rows made the total climb every
+  // time the vault re-parsed the jar it had just saved.
+  const named = new Set<string>();
   const kept = ["# Netscape HTTP Cookie File"];
   for (const line of raw.split(/\r?\n/)) {
     let trimmed = line.trim();
@@ -266,7 +317,10 @@ function fromNetscape(raw: string): ParsedCookies {
         httpOnly: line.trim().startsWith("#HttpOnly_"),
       }),
     );
-    header.push(`${name}=${value}`);
+    if (!named.has(name)) {
+      named.add(name);
+      header.push(`${name}=${value}`);
+    }
   }
   if (header.length === 0) throw new Error("No YouTube cookies in that Netscape file.");
   return { netscape: `${kept.join("\n")}\n`, header: header.join("; "), count: header.length };
@@ -416,8 +470,13 @@ export function analyzeCookieFormat(raw: string, now = Date.now()): CookieFormat
     const hasSapisid = names.some((name) => name.toUpperCase().includes("SAPISID"));
     const hasSid = names.some((name) => name.toUpperCase() === "SID");
     const nowSec = Math.floor(now / 1000);
-    const expiredNames = rows.filter((row) => row.expires > 0 && row.expires < nowSec).map((row) => row.name);
-    const sessionNames = rows.filter((row) => row.expires <= 0).map((row) => row.name);
+    // A credential mirrored onto both .youtube.com and .google.com is one
+    // cookie in two rows — report the name once.
+    const uniq = (values: string[]) => [...new Set(values)];
+    const expiredNames = uniq(
+      rows.filter((row) => row.expires > 0 && row.expires < nowSec).map((row) => row.name),
+    );
+    const sessionNames = uniq(rows.filter((row) => row.expires <= 0).map((row) => row.name));
     const sid = rows.find((row) => row.name.toUpperCase() === "SID");
     const sidExpiresAt = sid && sid.expires > 0 ? sid.expires : null;
     if (!hasSapisid && !hasLogin) issues.push("No SAPISID / LOGIN_INFO — YouTube may still treat this as signed out.");

@@ -8,7 +8,8 @@ import type {
   VideoFormat,
   MediaKind,
 } from "@/lib/youtube";
-import { nsigCache, nsigCacheLookup, nsigReport, readNParam, rememberNsig } from "@/lib/nsig";
+import { cipherUrl, nsigCache, nsigCacheLookup, nsigReport, readNParam, rememberNsig } from "@/lib/nsig";
+import { orderedParallelStream } from "@/lib/parallel-stream";
 import {
   buildPresets,
   codecFromMime,
@@ -336,6 +337,9 @@ function uniqueHits(items: SearchHit[]): SearchHit[] {
 type PlayableInfo = Awaited<ReturnType<InnertubeClient["getBasicInfo"]>>;
 
 const PLAYABLE_TTL_MS = 10 * 60_000;
+/** Short TTL for degraded answers (bot check, LOGIN_REQUIRED, missing formats)
+ *  so a transient hiccup doesn't pin an id for the full success TTL. */
+const PLAYABLE_FAILURE_TTL_MS = 30_000;
 const MAX_PLAYABLE_CACHE = 200;
 const playableCache = new Map<string, { value: PlayableInfo; expires: number }>();
 const playableInflight = new Map<string, Promise<PlayableInfo>>();
@@ -411,7 +415,10 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
   }
 
   if (fallback) {
-    playableCache.set(id, { value: fallback, expires: Date.now() + PLAYABLE_TTL_MS });
+    // Every client failed the OK+formats check, so this answer is degraded.
+    // Cache it briefly to absorb request bursts without re-throwing a stale
+    // bot check for the full success TTL after YouTube recovers.
+    playableCache.set(id, { value: fallback, expires: Date.now() + PLAYABLE_FAILURE_TTL_MS });
     evictPlayableCache();
     return fallback;
   }
@@ -622,6 +629,7 @@ export async function streamYoutubeCaptions(
       accept: "text/vtt, text/plain, */*",
       referer: "https://www.youtube.com/",
     },
+    signal: AbortSignal.timeout(12_000),
   });
   if (!upstream.ok || !upstream.body) {
     throw new Error("Could not fetch captions.");
@@ -689,6 +697,7 @@ export async function getTranscriptText(
       accept: "text/vtt, text/plain, */*",
       referer: "https://www.youtube.com/",
     },
+    signal: AbortSignal.timeout(12_000),
   });
 
   if (!upstream.ok) {
@@ -790,6 +799,17 @@ async function openStream(url: string, range?: { start: number; end: number }, s
   return response;
 }
 
+/**
+ * A googlevideo "200" carrying an HTML or JSON body is a soft-block page, not
+ * media. Same test as bypass.server.ts / hybrid-download.ts, so the download
+ * route sees a 403 and falls back instead of streaming the page as video.
+ */
+function isBlock(type: string | null, status: number): boolean {
+  if (status < 200 || status >= 300) return true;
+  const mime = (type ?? "").toLowerCase();
+  return mime.includes("text/html") || mime.includes("application/json");
+}
+
 function bumpRn(url: string, n: number): string {
   try {
     const parsed = new URL(url);
@@ -800,45 +820,36 @@ function bumpRn(url: string, n: number): string {
   }
 }
 
-function parallelStream(url: string, size: number, connections: number): ReadableStream<Uint8Array> {
-  const count = Math.min(connections, Math.max(1, Math.ceil(size / (2 * 1024 * 1024))));
-  const chunk = Math.ceil(size / count);
-  const ranges = Array.from({ length: count }, (_, i) => {
-    const start = i * chunk;
-    const end = Math.min(size - 1, start + chunk - 1);
-    return { start, end };
-  });
-  const abort = new AbortController();
-
-  return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const responses: Response[] = [];
-      try {
-        for (let i = 0; i < ranges.length; i++) {
-          if (abort.signal.aborted) throw new Error("aborted");
-          const range = ranges[i];
-          if (!range) continue;
-          const response = await openStream(bumpRn(url, i + 1), range, abort.signal);
-          responses.push(response);
-          if (!response.ok || !response.body) {
-            throw new Error("A parallel range request was blocked.");
-          }
-          const reader = response.body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) controller.enqueue(value);
-          }
-        }
-        controller.close();
-      } catch (err) {
-        abort.abort();
-        for (const response of responses) await response.body?.cancel().catch(() => undefined);
-        controller.error(err);
+/**
+ * Fetch a file over several concurrent range requests, emitting bytes in order.
+ *
+ * YouTube throttles per connection, so N connections each carrying a slice beat
+ * one connection carrying everything. The ordering, backpressure and memory
+ * bound live in `orderedParallelStream`; this only supplies the per-lane range
+ * request, stamping a distinct `rn=` so each hop looks like its own client.
+ */
+function parallelStream(
+  url: string,
+  size: number,
+  connections: number,
+  signal?: AbortSignal,
+): ReadableStream<Uint8Array> {
+  return orderedParallelStream({
+    size,
+    connections,
+    openRange: async (range, index, laneSignal) => {
+      // Honour the caller's abort as well as the lane's own, so a disconnected
+      // client stops the range fetches instead of running them to completion.
+      const merged =
+        signal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([laneSignal, signal])
+          : laneSignal;
+      const response = await openStream(bumpRn(url, index + 1), range, merged);
+      if (isBlock(response.headers.get("content-type"), response.status) || !response.body) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("A parallel range request was blocked.");
       }
-    },
-    cancel() {
-      abort.abort();
+      return response.body;
     },
   });
 }
@@ -880,11 +891,15 @@ export async function decipherRawFormat(input: {
   if (!player?.decipher) throw new Error("Player script isn’t ready. Try again.");
   const raw = input.url || input.signatureCipher || input.cipher;
   if (!raw) throw new Error("Missing stream cipher.");
-  const rawN = readNParam(raw) ?? readNParam(input.url);
+  // The pre-decipher stream URL: a bare `url`, or the one buried inside the
+  // signatureCipher/cipher query string. `readNParam` can't see the `n` inside
+  // a raw cipher (it's percent-encoded), so derive the real URL first.
+  const rawUrl = input.url ?? cipherUrl(input.signatureCipher) ?? cipherUrl(input.cipher) ?? undefined;
+  const rawN = readNParam(rawUrl);
   try {
     const cached = nsigCacheLookup(rawN);
     const solved = await player.decipher(input.url, input.signatureCipher, input.cipher, nsigCache);
-    const report = nsigReport(raw, solved, "miss" in cached ? "miss" : "hit");
+    const report = nsigReport(rawUrl, solved, "miss" in cached ? "miss" : "hit");
     rememberNsig(report.raw, report.solved);
     if (report.raw && !report.transformed) {
       nsigCache.delete(report.raw);
@@ -935,22 +950,15 @@ export async function getPlaybackUrl(id: string, itag: number): Promise<Playback
   };
 }
 
-export async function probeYoutubeDownload(
+export async function streamYoutubeDownload(
   id: string,
   itag: number,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await findRawFormat(id, itag);
-    return { ok: true };
-  } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : "Could not reach the media file.",
-    };
-  }
-}
-
-export async function streamYoutubeDownload(id: string, itag: number): Promise<Response> {
+  signal?: AbortSignal,
+): Promise<Response> {
+  // The client races this against the same-hop path and aborts the loser, so
+  // without these checks the server keeps resolving, deciphering, minting a POT
+  // and probing googlevideo for a connection that is already gone.
+  if (signal?.aborted) throw new Error("aborted");
   const { format, title, cpn } = await findRawFormat(id, itag);
   if (format.has_video && !format.has_audio) {
     return Response.json(
@@ -958,12 +966,14 @@ export async function streamYoutubeDownload(id: string, itag: number): Promise<R
       { status: 422 },
     );
   }
+  if (signal?.aborted) throw new Error("aborted");
   const deciphered = await decipherRawFormat({
     url: format.url,
     signatureCipher: format.signature_cipher,
     cipher: format.cipher,
   });
   const urls = await decorateUrls(deciphered, cpn, id);
+  if (signal?.aborted) throw new Error("aborted");
 
   const ext = containerExt(format.mime_type, format.has_video);
   const mime = format.mime_type.split(";")[0]?.trim() || "application/octet-stream";
@@ -974,8 +984,8 @@ export async function streamYoutubeDownload(id: string, itag: number): Promise<R
     "Cache-Control": "no-store",
   };
 
-  const probe = await openStream(urls.directUrl, { start: 0, end: 2047 });
-  if (!probe.ok) {
+  const probe = await openStream(urls.directUrl, { start: 0, end: 2047 }, signal);
+  if (isBlock(probe.headers.get("content-type"), probe.status)) {
     await probe.body?.cancel().catch(() => undefined);
     return Response.json(
       { error: "YouTube blocked this server. The app will try PO token + CORS relays." },
@@ -987,12 +997,13 @@ export async function streamYoutubeDownload(id: string, itag: number): Promise<R
   const useParallel = typeof size === "number" && size > 8 * 1024 * 1024;
   if (useParallel) {
     headers["Content-Length"] = String(size);
-    const body = parallelStream(urls.directUrl, size, 4);
+    const body = parallelStream(urls.directUrl, size, 4, signal);
     return new Response(body, { status: 200, headers });
   }
 
-  const upstream = await openStream(urls.directUrl);
-  if (!upstream.ok || !upstream.body) {
+  const upstream = await openStream(urls.directUrl, undefined, signal);
+  if (isBlock(upstream.headers.get("content-type"), upstream.status) || !upstream.body) {
+    await upstream.body?.cancel().catch(() => undefined);
     return Response.json(
       { error: "YouTube blocked this server. The app will try PO token + CORS relays." },
       { status: 403 },

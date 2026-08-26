@@ -11,7 +11,7 @@ import {
   gateIdentityEnabled,
   gateIdentityFromHeaders,
   sessionBoundToGateIdentity,
-} from "./gate-identity.server";
+} from "./gate-identity.server.ts";
 
 export const GATE_PROVIDER_ID = "grok-gate";
 const GATE_ACCOUNT_ISSUER = "https://grok.com";
@@ -148,6 +148,30 @@ function removeRequestCookie(headers: Headers, name: string): void {
   }
 }
 
+/**
+ * Fail closed. The request carries a gate identity header for THIS viewer but
+ * we either couldn't verify it at all, couldn't confirm the cookie's session
+ * belongs to them, or couldn't mint the gate session. Expire both cookies and
+ * strip them from this request so /get-session resolves signed-out — never
+ * serving the previous viewer's session on a shared machine on a transient
+ * verification or DB error.
+ */
+async function signOutUnverifiedSession(
+  ctx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+  inbound: Headers,
+  sessionCookieName: string,
+): Promise<{ context: { headers: Headers } }> {
+  const sessionData = ctx.context.authCookies.sessionData;
+  await expireSessionDataCookie(ctx, ctx.context.authCookies.sessionToken);
+  await expireSessionDataCookie(ctx, sessionData);
+  const headers = new Headers(Object.fromEntries(inbound.entries()));
+  removeRequestCookie(headers, sessionCookieName);
+  removeRequestCookie(headers, sessionData.name);
+  // A bearer would otherwise resolve the very session we are refusing to trust.
+  headers.delete("authorization");
+  return { context: { headers } };
+}
+
 export function gateIdentitySessions() {
   return {
     id: "grok-gate-identity",
@@ -162,8 +186,8 @@ export function gateIdentitySessions() {
               console.error(`${LOG} no request headers on /get-session`);
               return;
             }
-            // Bearer auth (live-preview popup) already carries a session — leave it alone.
-            if (inbound.get("authorization")) return;
+            // No gate identity: nothing to swap to, so a bearer session
+            // (live-preview popup) or plain cookie owns the request.
             if (!inbound.get(GATE_IDENTITY_HEADER)) return;
 
             const identity = await gateIdentityFromHeaders(inbound);
@@ -171,12 +195,26 @@ export function gateIdentitySessions() {
               console.error(
                 `${LOG} ${GATE_IDENTITY_HEADER} present but verification failed`,
               );
-              return;
+              // Fail closed: this viewer arrived through the gate but we could
+              // not verify who they are, so never fall through to the ambient
+              // session cookie — on a shared browser that is the PREVIOUS
+              // viewer's session.
+              return signOutUnverifiedSession(
+                ctx,
+                inbound,
+                ctx.context.authCookies.sessionToken.name,
+              );
             }
 
+            // A verified gate identity outranks a client-supplied bearer: the
+            // bearer sits in same-origin sessionStorage and is NOT cleared when
+            // the platform account switches, so deferring to it served the
+            // previous viewer's session. Fall through and let the swap below
+            // decide, treating the bearer like any other existing session.
             const sessionCookieName = ctx.context.authCookies.sessionToken.name;
             const cookieHeader = inbound.get("cookie") ?? "";
-            if (cookieHeader.includes(`${sessionCookieName}=`)) {
+            const hasBearer = Boolean(inbound.get("authorization"));
+            if (cookieHeader.includes(`${sessionCookieName}=`) || hasBearer) {
               const existing = await getSessionFromCtx(ctx).catch((err) => {
                 console.error(`${LOG} getSessionFromCtx failed`, err);
                 return null;
@@ -190,10 +228,10 @@ export function gateIdentitySessions() {
                   });
                 if (!accounts) {
                   console.error(
-                    `${LOG} could not load accounts for existing session user`,
+                    `${LOG} could not load accounts for existing session user — failing closed`,
                     { userId: existing.user.id },
                   );
-                  return;
+                  return signOutUnverifiedSession(ctx, inbound, sessionCookieName);
                 }
                 if (
                   sessionBoundToGateIdentity(
@@ -234,12 +272,15 @@ export function gateIdentitySessions() {
                 } as GateAccount,
               });
               if (result.error || !result.data) {
-                console.error(`${LOG} handleOAuthUserInfo failed`, {
+                console.error(`${LOG} handleOAuthUserInfo failed — failing closed`, {
                   error: result.error,
                   hasData: Boolean(result.data),
                   sub: identity.sub,
                 });
-                return;
+                // The stale session may already be deleted above, but its
+                // session_data cache could still satisfy /get-session for up to
+                // its TTL — expire + strip so this resolves signed-out.
+                return signOutUnverifiedSession(ctx, inbound, sessionCookieName);
               }
 
               // Persist session rows + internal newSession state.
@@ -271,6 +312,10 @@ export function gateIdentitySessions() {
               );
               setRequestCookie(headers, sessionCookieName, sessionValue);
               removeRequestCookie(headers, sessionDataCookie.name);
+              // Drop any bearer so the session we just minted for THIS gate
+              // viewer is what resolves, not a token left over from a prior
+              // sign-in on the same browser.
+              headers.delete("authorization");
               return { context: { headers } };
             } catch (err) {
               console.error(`${LOG} gate identity session hook threw`, err);

@@ -40,6 +40,23 @@ export type NsigReport = {
   cache: "hit" | "miss" | "bypass" | "stale";
 };
 
+/**
+ * The playable URL embedded in a `signatureCipher`/`cipher` value. Those come
+ * as a query string (`s=…&sp=sig&url=<percent-encoded url>`), so the real
+ * pre-decipher stream URL — and the raw `n=` inside it — is only reachable by
+ * pulling the `url` param out first. Reading `n` off the cipher string directly
+ * fails (its inner `n=` is percent-encoded), which silently defeated the nsig
+ * transform check for every signatureCipher format.
+ */
+export function cipherUrl(cipher: string | undefined | null): string | null {
+  if (!cipher) return null;
+  try {
+    return new URLSearchParams(cipher).get("url");
+  } catch {
+    return null;
+  }
+}
+
 export function readNParam(url: string | undefined | null): string | null {
   if (!url) return null;
   try {

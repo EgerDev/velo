@@ -24,10 +24,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (rawUrl && !rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
       rawUrl = "http://" + rawUrl;
     }
-    rawUrl = rawUrl.replace("localhost", "127.0.0.1");
 
     try {
-      new URL(rawUrl);
+      const parsed = new URL(rawUrl);
+      // Only the bare "localhost" host needs the 127.0.0.1 rewrite (some setups
+      // don't resolve it). A substring replace would mangle a *.localhost dev
+      // host (velo.localhost -> velo.127.0.0.1, an unresolvable name).
+      if (parsed.hostname === "localhost") {
+        parsed.hostname = "127.0.0.1";
+        rawUrl = parsed.toString().replace(/\/$/, "");
+      }
     } catch {
       rawUrl = "http://127.0.0.1:8080";
     }

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StepLog } from "@/components/step-log";
 import type { OfferedFile } from "@/lib/download-client";
 import { downloadViaHybrid, type HybridStep } from "@/lib/hybrid-download";
-import { beginBuilderSave } from "@/lib/builder-save";
+import { beginBuilderSave, discardPendingSave } from "@/lib/builder-save";
 import { downloadViaBuilder } from "@/lib/builder-download";
 import { cookiesForDownload, useCookieStore } from "@/lib/cookie-store";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
@@ -55,6 +55,10 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
     const abort = new AbortController();
     abortRef.current = abort;
     const pendingSave = beginBuilderSave(file.filename);
+    // The picker created the destination file on confirm; release the handle
+    // unless this run actually writes it, so a failure or cancel doesn't leave a
+    // 0-byte file where the user chose to save.
+    let wrote = false;
     setBusy(file.filename);
     setFailedFile(null);
     setHint(null);
@@ -111,6 +115,7 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
           },
         },
       );
+      wrote = true;
       setStatus(`Saved ${file.filename}`);
       toast.success(`Saved ${file.qualityLabel}`);
     } catch (err) {
@@ -129,6 +134,8 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
       );
       toast.error(error.message);
     } finally {
+      // Also covers the user-abort early return above.
+      if (!wrote) void discardPendingSave(pendingSave);
       setBusy(null);
     }
   }

@@ -109,17 +109,29 @@ function run(
   });
 }
 
+/** Plenty for `--version`; a caption-heavy `-J` dump needs JSON_STDOUT_MAX. */
+const STDOUT_MAX_DEFAULT = 2_000_000;
+/**
+ * `yt-dlp -J` emits every format URL plus the automatic_captions/subtitles URL
+ * set for ~150 languages, which passes 2 MB on long or caption-heavy videos. Cut
+ * short, the JSON no longer parses and format enrichment silently returned []
+ * after burning a pool slot, a POT mint and four 40s runs.
+ */
+const JSON_STDOUT_MAX = 24_000_000;
+
 function runCapture(
   command: string,
   args: string[],
   timeoutMs: number,
   signal?: AbortSignal,
+  stdoutMax = STDOUT_MAX_DEFAULT,
 ): Promise<{
   code: number;
   stdout: string;
   stderr: string;
   signal: NodeJS.Signals | null;
   timedOut: boolean;
+  truncated: boolean;
 }> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -128,8 +140,9 @@ function runCapture(
     }
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
     let stdoutBytes = 0;
+    let truncated = false;
     const stdoutChunks: Buffer[] = [];
-    const STDOUT_MAX = 2_000_000;
+    const STDOUT_MAX = stdoutMax;
     let stderr = "";
     let timedOut = false;
     let killed = false;
@@ -153,9 +166,13 @@ function runCapture(
       killTree(child);
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
-      if (stdoutBytes >= STDOUT_MAX) return;
+      if (stdoutBytes >= STDOUT_MAX) {
+        truncated = true;
+        return;
+      }
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       const room = STDOUT_MAX - stdoutBytes;
+      if (room < buf.length) truncated = true;
       stdoutChunks.push(room < buf.length ? buf.subarray(0, room) : buf);
       stdoutBytes += Math.min(room, buf.length);
     });
@@ -175,6 +192,7 @@ function runCapture(
           stderr,
           signal: forced ? "SIGKILL" : (sig ?? null),
           timedOut,
+          truncated,
         }),
       );
     });
@@ -248,10 +266,23 @@ function optionalModule(module: string, pipName: string): () => Promise<boolean>
       );
       return install.code === 0;
     })();
-    state = { at: Date.now(), result };
-    void result.then((ok) => {
-      if (ok && state) state.at = Number.POSITIVE_INFINITY;
-    });
+    // Hold at a far-future stamp WHILE the probe is in flight so a second caller
+    // arriving mid-install (the pip step can run ~90s, longer than PROBE_RETRY_MS)
+    // gets this same promise instead of kicking off a concurrent pip install into
+    // the same site-packages. Mutate this entry directly (not the module-level
+    // `state`, which a racing call may have replaced) so the settle pins the
+    // right probe: forever on success, `now` on failure so the cooldown runs
+    // from when it failed rather than caching `false` until restart.
+    const entry = { at: Number.POSITIVE_INFINITY, result };
+    state = entry;
+    void result.then(
+      (ok) => {
+        entry.at = ok ? Number.POSITIVE_INFINITY : Date.now();
+      },
+      () => {
+        entry.at = Date.now();
+      },
+    );
     return result;
   };
 }
@@ -351,6 +382,23 @@ async function sweepStaleYtdlpDirs() {
 
 void sweepStaleYtdlpDirs();
 
+// A one-shot sweep at module load misses dirs leaked at runtime (an abort racing
+// a SIGKILL'd yt-dlp, a crash) — including written cookies.txt session cookies —
+// until the next process start, and formatCache rows expire logically but are
+// never deleted, so the Map grows one entry per unique video id for the process
+// lifetime. Sweep both on an interval that never keeps the process alive.
+const ytdlpSweepTimer = setInterval(
+  () => {
+    void sweepStaleYtdlpDirs();
+    const now = Date.now();
+    for (const [id, entry] of formatCache) {
+      if (entry.expires <= now) formatCache.delete(id);
+    }
+  },
+  10 * 60 * 1000,
+);
+ytdlpSweepTimer.unref?.();
+
 type MuxResult = FileHit & { client: string; auth: string; tmpDir: string };
 
 async function muxOne(opts: {
@@ -429,6 +477,11 @@ async function muxOne(opts: {
         const message = err instanceof Error ? err.message : String(err);
         if (/abort/i.test(message)) throw err;
         errors.push(message);
+        // A "stop" verdict (private / members-only) is permanent and needs
+        // cookies — no other anonymous client or proxy hop can help. Abort the
+        // whole ladder now instead of burning the remaining clients and, below,
+        // three SOCKS hops (each a full re-download for the ffmpeg-missing case).
+        if ((err as { ytdlp?: YtdlpFailure }).ytdlp?.next === "stop") throw err;
       }
     }
 
@@ -452,7 +505,12 @@ async function muxOne(opts: {
               const message = err instanceof Error ? err.message : "failed";
               if (/abort/i.test(message)) throw err;
               errors.push(`${client}@socks: ${message}`.slice(0, 180));
-              if (!fail || fail.next === "next-socks" || fail.next === "stop") {
+              // "stop" is a permanent per-video verdict, not this hop's fault —
+              // marking the proxy dead would poison a healthy proxy for every
+              // user (persisted 15 min) and the outer loop would repeat it on
+              // two more proxies. Abort the ladder without touching the proxy.
+              if (fail?.next === "stop") throw err;
+              if (!fail || fail.next === "next-socks") {
                 markSocksDead(proxy);
                 break;
               }
@@ -578,6 +636,8 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
                 `https://www.youtube.com/watch?v=${id}`,
               ],
               40_000,
+              undefined,
+              JSON_STDOUT_MAX,
             );
             if (result.code !== 0 || result.timedOut) {
               const fail = mapYtdlpExit(result.code, result.stderr, {
@@ -589,6 +649,13 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
                 break;
               }
               continue;
+            }
+            if (result.truncated) {
+              // Not the hop's fault and not fixable by retrying: every client and
+              // hop would overflow identically. Say so and stop instead of
+              // failing four runs with an opaque SyntaxError.
+              console.warn(`[ytdlp] -J output exceeded ${JSON_STDOUT_MAX} bytes for ${id}`);
+              return [];
             }
             const json = JSON.parse(result.stdout) as { formats?: YtDlpJsonFormat[] };
             const mapped = ytdlpJsonToFormats(json.formats ?? []);

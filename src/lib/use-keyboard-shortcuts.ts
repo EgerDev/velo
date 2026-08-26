@@ -52,6 +52,11 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
       // Ignore single character shortcuts if user is typing in an input
       if (isInput) return;
 
+      // The single-key shortcuts below own a bare keypress only. With a modifier
+      // held they belong to the browser (Cmd/Ctrl+1/2/3 switch tabs, Cmd+A is
+      // select-all) — never preventDefault or fire our handler on those.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       // 4. '1', '2', '3' for View Mode
       if (e.key === "1") {
         e.preventDefault();

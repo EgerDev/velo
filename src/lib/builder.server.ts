@@ -33,7 +33,7 @@ export async function streamBuilderDownload(opts: {
 
   const tryInnertube = async () => {
     const { streamYoutubeDownload } = await import("@/lib/youtube.server");
-    const result = await streamYoutubeDownload(opts.id, opts.itag);
+    const result = await streamYoutubeDownload(opts.id, opts.itag, opts.signal);
     if (isMediaResponse(result)) return tag(result, "innertube");
     let detail = `innertube ${result.status}`;
     try {

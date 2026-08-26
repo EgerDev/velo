@@ -17,6 +17,13 @@ export const Route = createFileRoute("/api/captions")({
           return Response.json({ error: "Missing video or caption track." }, { status: 400 });
         }
 
+        // A caption lookup fans out to up to ~14 InnerTube calls plus a BotGuard
+        // mint, so an unmetered flood of attacker-chosen ids can get the server
+        // IP rate-banned by YouTube. Clear the cheap per-IP backstop first.
+        const { metadataBackstopResponse } = await import("@/lib/guest-limit.server");
+        const limited = metadataBackstopResponse(request);
+        if (limited) return limited;
+
         const { streamYoutubeCaptions } = await import("@/lib/youtube.server");
         try {
           return await streamYoutubeCaptions(id, lang, vss);

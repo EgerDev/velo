@@ -135,7 +135,7 @@
     queueBtn.onclick = withExtensionContext(async () => {
       const title = document.querySelector("h1.ytd-watch-metadata")?.textContent?.trim() || document.title.replace(" - YouTube", "");
       const author = document.querySelector("#channel-name")?.textContent?.trim() || "";
-      await chrome.runtime.sendMessage({
+      const res = await chrome.runtime.sendMessage({
         type: "QUEUE_ADD",
         item: {
           id: videoId,
@@ -145,7 +145,9 @@
           addedAt: Date.now(),
         },
       });
-      showToast("Added to Velo Download Queue!", "📑");
+      // Only claim success when the background actually stored it.
+      if (res?.ok) showToast("Added to Velo Download Queue!", "📑");
+      else showToast(res?.error ? `Couldn’t queue: ${res.error}` : "Couldn’t add to the queue.", "⚠️");
     });
 
     btnGroup.appendChild(downloadBtn);

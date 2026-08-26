@@ -9,6 +9,7 @@ import {
   verifyGateIdentityToken,
   type GateJwks,
 } from "./gate-identity.server.ts";
+import { gateIdentitySessions } from "./gate-session.server.ts";
 
 const ISSUER = "https://gate.app-builder-testing.com";
 const AUDIENCE = "app:proj-123";
@@ -322,5 +323,78 @@ describe("sessionBoundToGateIdentity", () => {
       false,
     );
     assert.equal(sessionBoundToGateIdentity([], "user-1", provider), false);
+  });
+});
+
+// Lives here (not in a gate-session.test.ts) because package.json's node --test
+// invocation runs an explicit file list that already includes this file.
+describe("gateIdentitySessions /get-session before-hook", () => {
+  it("fails closed when the gate header is present but unverifiable", async () => {
+    // Unrecognized host + no GROK_GATE_ORIGIN → resolveGateEndpoints yields
+    // null, so verification fails deterministically without any network I/O.
+    process.env.GROK_PROJECT_ID = "proj-123";
+    delete process.env.GROK_GATE_ORIGIN;
+    try {
+      const sessionTokenName = "better-auth.session_token";
+      const sessionDataName = "better-auth.session_data";
+      const responseHeaders = new Headers();
+      const hook = gateIdentitySessions().hooks.before[0];
+      const input = {
+        path: "/get-session",
+        method: "GET",
+        headers: new Headers({
+          host: "kiosk.internal",
+          "x-grok-identity": "present-but-unverifiable",
+          cookie:
+            `${sessionTokenName}=viewer-a-token.sig; ` +
+            `${sessionDataName}=viewer-a-cache`,
+          authorization: "Bearer viewer-a-bearer",
+        }),
+        // Only what the fail-closed path touches; the hook never reaches the
+        // adapter/OAuth machinery when verification fails.
+        context: {
+          authCookies: {
+            sessionToken: {
+              name: sessionTokenName,
+              attributes: { path: "/", secure: false },
+            },
+            sessionData: {
+              name: sessionDataName,
+              attributes: { path: "/", secure: false },
+            },
+          },
+          responseHeaders,
+        },
+      };
+      const result = (await hook.handler(
+        input as unknown as Parameters<typeof hook.handler>[0],
+      )) as { context: { headers: Headers } } | undefined;
+
+      // Regression: a bare `return` (undefined) performed no context merge, so
+      // /get-session resolved viewer A's ambient cookie for viewer B.
+      assert.ok(
+        result?.context?.headers,
+        "hook must fail closed with a context merge, not fall through",
+      );
+      const forwardedCookie = result.context.headers.get("cookie") ?? "";
+      assert.ok(!forwardedCookie.includes(`${sessionTokenName}=`));
+      assert.ok(!forwardedCookie.includes(`${sessionDataName}=`));
+      assert.equal(result.context.headers.get("authorization"), null);
+
+      // And the browser's copies are expired so they don't come back.
+      const setCookies = responseHeaders.getSetCookie();
+      assert.ok(
+        setCookies.some(
+          (c) => c.startsWith(`${sessionTokenName}=`) && c.includes("Max-Age=0"),
+        ),
+      );
+      assert.ok(
+        setCookies.some(
+          (c) => c.startsWith(`${sessionDataName}=`) && c.includes("Max-Age=0"),
+        ),
+      );
+    } finally {
+      delete process.env.GROK_PROJECT_ID;
+    }
   });
 });

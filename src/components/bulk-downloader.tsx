@@ -35,7 +35,8 @@ import {
 } from "@/lib/bulk-download";
 import { resolveBulkVideos, resolvePlaylist, resolveVideo } from "@/lib/resolve-video";
 import { downloadPresetFile, type DownloadProgress } from "@/lib/download-client";
-import { beginBuilderSave } from "@/lib/builder-save";
+import { isUserAbort } from "@/lib/download-error";
+import { beginBuilderSave, discardPendingSave, type PendingSave } from "@/lib/builder-save";
 import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
 
 type BulkDownloaderProps = {
@@ -268,6 +269,10 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
   // Download a single item through the Velo pipeline
   const processSingleItem = async (item: BulkItem) => {
+    // Hoisted so the catch can release the picker handle: the chosen file is
+    // created on confirm, so a failed item would otherwise leave a 0-byte file.
+    let pendingSave: PendingSave | undefined;
+    let wrote = false;
     try {
       // 1. Resolve video details if not already resolved
       let title = item.title;
@@ -290,7 +295,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
       }
 
       const filename = `${title || `video-${item.id}`}.${ext}`;
-      const pendingSave = beginBuilderSave(filename);
+      pendingSave = beginBuilderSave(filename);
 
       const presetObj: VideoPreset = {
         id: `bulk-${targetPresetItag}`,
@@ -326,6 +331,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
         },
       });
 
+      wrote = true;
       setItems((prev) =>
         prev.map((i) =>
           i.id === item.id
@@ -334,6 +340,19 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
         ),
       );
     } catch (err) {
+      if (!wrote) void discardPendingSave(pendingSave);
+      // Pausing/clearing aborts the shared controller, rejecting every in-flight
+      // item. That's not a failure: mark it back to "ready" without spending a
+      // retry, or a couple of pauses would silently exhaust maxRetries and drop
+      // the item from the Resume candidate set.
+      if (isUserAbort(err, abortControllerRef.current?.signal)) {
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: "ready", progress: 0 } : i,
+          ),
+        );
+        return;
+      }
       const errMsg = err instanceof Error ? err.message : "Download failed.";
       setItems((prev) =>
         prev.map((i) =>
@@ -450,6 +469,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
             <div>
               <label className="text-subtle font-medium block mb-1">Quality Preset</label>
               <select
+                aria-label="Quality preset"
                 value={globalPreset}
                 onChange={(e) => {
                   const p = e.target.value as BulkQualityPreset;
@@ -468,6 +488,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
             <div>
               <label className="text-subtle font-medium block mb-1">Max Concurrency</label>
               <select
+                aria-label="Max concurrency"
                 value={queueOptions.maxConcurrency}
                 onChange={(e) =>
                   setQueueOptions((prev) => ({ ...prev, maxConcurrency: Number(e.target.value) }))
@@ -483,6 +504,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
             <div>
               <label className="text-subtle font-medium block mb-1">Stagger Delay (Anti-Burst)</label>
               <select
+                aria-label="Stagger delay"
                 value={queueOptions.staggerDelayMs}
                 onChange={(e) =>
                   setQueueOptions((prev) => ({ ...prev, staggerDelayMs: Number(e.target.value) }))
@@ -515,6 +537,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
           <div className="relative">
             <textarea
               rows={4}
+              aria-label="YouTube links to queue"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Paste YouTube URLs here (one per line, comma separated, or mixed text)...&#10;https://www.youtube.com/watch?v=...&#10;https://youtu.be/...&#10;https://www.youtube.com/playlist?list=..."
@@ -523,6 +546,7 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
             {inputText ? (
               <button
                 type="button"
+                aria-label="Clear pasted links"
                 onClick={() => setInputText("")}
                 className="absolute top-3 right-3 text-subtle hover:text-fg p-1 rounded-md cursor-pointer"
               >
@@ -584,7 +608,14 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
               {/* Overall Progress Bar */}
               <div className="flex items-center gap-3 mt-2 w-full sm:w-80">
-                <div className="flex-1 h-2 rounded-full bg-border overflow-hidden">
+                <div
+                  role="progressbar"
+                  aria-label="Batch download progress"
+                  aria-valuenow={stats.totalProgress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="flex-1 h-2 rounded-full bg-border overflow-hidden"
+                >
                   <div
                     className="h-full bg-accent transition-all duration-300 ease-out"
                     style={{ width: `${stats.totalProgress}%` }}
@@ -736,12 +767,15 @@ export function BulkDownloader({ onSelectSingleVideo }: BulkDownloaderProps) {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span
+                        {/* A real button: as a click-only span this was the one
+                            action in the row a keyboard could never reach. */}
+                        <button
+                          type="button"
                           onClick={() => onSelectSingleVideo?.(item.url)}
-                          className="font-medium text-xs text-fg hover:text-accent cursor-pointer truncate"
+                          className="font-medium text-xs text-fg hover:text-accent cursor-pointer truncate text-left"
                         >
                           {item.title || `Video ID: ${item.id}`}
-                        </span>
+                        </button>
                       </div>
 
                       <div className="flex items-center gap-2 text-[11px] text-muted mt-0.5 font-mono">

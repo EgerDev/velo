@@ -1,7 +1,9 @@
 import "@/lib/ipv4-bind.server";
 import { createFileRoute } from "@tanstack/react-router";
-import { isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
-import { isVideoplaybackUrl } from "@/lib/bypass-parse";
+import { isMediaHostTarget, isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
+
+/** Overall ceiling per upstream hop so a stalled relay cannot pin a connection. */
+const RELAY_HOP_TIMEOUT_MS = 20_000;
 
 /**
  * The upstream headers worth forwarding to the client.
@@ -40,11 +42,18 @@ export const Route = createFileRoute("/api/relay")({
           );
         }
 
-        const { downloadQuotaResponse, downloadQuotaRefund } =
+        const { downloadQuotaResponse, downloadQuotaRefund, metadataBackstopResponse } =
           await import("@/lib/guest-limit.server");
-        const media = isVideoplaybackUrl(target);
+        // Meter EVERY request. googlevideo bytes (any path) spend a download
+        // token; page/HTML fetches clear the cheap per-IP metadata backstop.
+        // Without this the non-media path was an unauthenticated, uncapped proxy
+        // that also amplified onto three third-party CORS services per request.
+        const media = isMediaHostTarget(target);
         if (media) {
           const limited = await downloadQuotaResponse(request, 1);
+          if (limited) return limited;
+        } else {
+          const limited = metadataBackstopResponse(request);
           if (limited) return limited;
         }
 
@@ -53,6 +62,7 @@ export const Route = createFileRoute("/api/relay")({
         const errors: string[] = [];
 
         for (const href of attempts) {
+          if (request.signal.aborted) break;
           try {
             const headers: Record<string, string> = {
               accept: "*/*",
@@ -61,7 +71,11 @@ export const Route = createFileRoute("/api/relay")({
               referer: "https://www.youtube.com/",
             };
             if (range) headers.range = range;
-            const upstream = await fetch(href, { headers, redirect: "manual" });
+            const signal = AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(RELAY_HOP_TIMEOUT_MS),
+            ]);
+            const upstream = await fetch(href, { headers, redirect: "manual", signal });
             if (upstream.status >= 300 && upstream.status < 400) {
               const location = upstream.headers.get("location");
               await upstream.body?.cancel().catch(() => undefined);
@@ -72,6 +86,7 @@ export const Route = createFileRoute("/api/relay")({
               const hopped = await fetch(new URL(location, href).toString(), {
                 headers,
                 redirect: "manual",
+                signal,
               });
               if (hopped.status >= 300 && hopped.status < 400) {
                 await hopped.body?.cancel().catch(() => undefined);

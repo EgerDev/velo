@@ -42,7 +42,7 @@ const buckets = new Map<string, Bucket>();
 const ipBuckets = new Map<string, Bucket>();
 
 const bucketsFor = (plan: QuotaPlan): Map<string, Bucket> =>
-  plan.name === IP_PLAN.name ? ipBuckets : buckets;
+  plan.name === IP_PLAN.name || plan.name === META_PLAN.name ? ipBuckets : buckets;
 
 /** What each in-flight request actually spent, so a refund cannot land elsewhere. */
 const charged = new WeakMap<Request, Array<{ key: string; plan: QuotaPlan }>>();
@@ -90,12 +90,40 @@ export const IP_PLAN: QuotaPlan = {
   windowMs: 10 * 60_000,
 };
 
+/**
+ * Coarse per-IP backstop for cheap metadata routes (captions, channel feed,
+ * non-media relay). These do not spend a download token but each fans out to
+ * real upstream work — up to ~14 InnerTube calls plus a BotGuard mint for a
+ * caption lookup — so an unmetered flood of attacker-chosen ids can get the
+ * server IP rate-banned by YouTube. Sized generously above honest browsing and
+ * held in `ipBuckets`, keyed by real network, so it can't be reset by rotating
+ * a client-set header. Separate plan from `IP_PLAN` so metadata traffic and
+ * download traffic don't drain each other's backstop.
+ */
+export const META_PLAN: QuotaPlan = {
+  name: "meta",
+  capacity: 40,
+  refillPerMs: 300 / (10 * 60_000),
+  windowMax: 300,
+  windowMs: 10 * 60_000,
+};
+
 const GUEST_ID_RE = /^[a-z0-9_-]{8,64}$/i;
 
 export function clientIp(request: Request): string {
-  const cfRay = request.headers.get("cf-ray")?.trim();
-  const cfIp = request.headers.get("cf-connecting-ip")?.trim();
-  if (cfRay && cfIp) return cfIp;
+  // `cf-ray` / `cf-connecting-ip` are only trustworthy when Cloudflare actually
+  // fronts the origin and strips inbound copies. On a bare Vercel deploy (this
+  // app's target) they are client-settable and reach the function verbatim, so
+  // trusting them ahead of the platform headers lets a guest rotate the per-IP
+  // backstop key at will — a spoofed `cf-ray` plus a rotating `cf-connecting-ip`
+  // mints a fresh full bucket every request and defeats the cap on every
+  // download route. Gate the branch behind an explicit opt-in that is only set
+  // when a Cloudflare edge is really in front; default off.
+  if (process.env.TRUST_CLOUDFLARE === "1") {
+    const cfRay = request.headers.get("cf-ray")?.trim();
+    const cfIp = request.headers.get("cf-connecting-ip")?.trim();
+    if (cfRay && cfIp) return cfIp;
+  }
   const real = request.headers.get("x-real-ip")?.trim();
   if (real) return real;
   const forwarded = request.headers.get("x-forwarded-for");
@@ -366,6 +394,22 @@ export async function downloadQuotaResponse(request: Request, cost = 1): Promise
   return Response.json(
     { error: message, code: "rate" },
     { status: 429, headers: quotaHeaders(quota) },
+  );
+}
+
+/**
+ * Per-IP backstop for cheap upstream-fanout routes that do not spend a download
+ * token (captions, channel feed, non-media relay). Synchronous on purpose — no
+ * session lookup — so metadata stays fast; signed-in callers clear it too since
+ * the goal is bounding anonymous fan-out by real network, not billing a person.
+ * Returns a 429 Response when the network is over its metadata budget, else null.
+ */
+export function metadataBackstopResponse(request: Request): Response | null {
+  const result = takeTokens(`meta:${clientIp(request)}`, META_PLAN, 1);
+  if (result.ok) return null;
+  return Response.json(
+    { error: "Too many requests from this network. Wait a moment, then retry.", code: "rate" },
+    { status: 429, headers: quotaHeaders(result) },
   );
 }
 

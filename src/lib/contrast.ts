@@ -43,10 +43,14 @@ export const PALETTE = {
   fg: "#f4f4f5",
   muted: "#c4c4cc",
   subtle: "#9a9aa3",
-  accent: "#d4d4d8",
-  accentFg: "#0a0a0b",
+  // These two drifted: they still held the pre-rebrand neutral gray, so the
+  // guard was locking a palette the app hasn't shipped since the gold accent
+  // landed — and would have kept passing through a real regression.
+  accent: "#e0a43c",
+  accentFg: "#191006",
   danger: "#f0a090",
   success: "#9fbf9a",
+  warn: "#e5bd7a",
 } as const;
 
 export const AA_PAIRS: Array<{ fg: keyof typeof PALETTE; bg: keyof typeof PALETTE; large?: boolean }> = [
@@ -64,4 +68,11 @@ export const AA_PAIRS: Array<{ fg: keyof typeof PALETTE; bg: keyof typeof PALETT
   { fg: "danger", bg: "surface" },
   { fg: "success", bg: "bg" },
   { fg: "success", bg: "surface" },
+  // `warn` is real body text in a dozen places but had no guard at all.
+  { fg: "warn", bg: "bg" },
+  { fg: "warn", bg: "surface" },
+  { fg: "warn", bg: "elevated" },
+  // The accent is used as plain text, not only as a button fill.
+  { fg: "accent", bg: "bg" },
+  { fg: "accent", bg: "surface" },
 ];

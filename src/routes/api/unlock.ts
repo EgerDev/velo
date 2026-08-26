@@ -29,6 +29,17 @@ export const Route = createFileRoute("/api/unlock")({
           return Response.json({ error: "Need a stream URL." }, { status: 400 });
         }
         const videoId = data.videoId ? parseVideoId(data.videoId) : undefined;
+
+        // Server-side decipher (nsig VM) runs on every call and a BotGuard mint
+        // when pot+videoId are set; without a quota gate an unauthenticated
+        // caller rotating videoId defeats the mint cache and pins CPU + outbound
+        // fetches. Every other expensive route gates the same way.
+        const { downloadQuotaResponse, downloadQuotaRefund } = await import(
+          "@/lib/guest-limit.server"
+        );
+        const limited = await downloadQuotaResponse(request, 1);
+        if (limited) return limited;
+
         try {
           const { unlockPlaybackUrl } = await import("@/lib/youtube.server");
           const { analyzeStreamUrl } = await import("@/lib/stream-unlock");
@@ -39,6 +50,7 @@ export const Route = createFileRoute("/api/unlock")({
             report: analyzeStreamUrl(unlocked.url),
           });
         } catch (err) {
+          await downloadQuotaRefund(request, 1);
           const message = err instanceof Error ? err.message : "Unlock failed.";
           return Response.json({ error: message }, { status: 502 });
         }

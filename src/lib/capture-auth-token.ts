@@ -110,7 +110,11 @@ const AUTH_ERRORS: Array<{ test: (message: string) => boolean; info: AuthErrorIn
     },
   },
   {
-    test: (m) => m.includes("invalid password") || m.includes("invalid credentials") || m.includes("invalid_password"),
+    test: (m) =>
+      m.includes("invalid email or password") ||
+      m.includes("invalid password") ||
+      m.includes("invalid credentials") ||
+      m.includes("invalid_password"),
     info: {
       code: "credentials",
       title: "Email or password is wrong",

@@ -44,12 +44,11 @@ export function parseVideoId(input: string): string | null {
   if (!raw) return null;
   if (VIDEO_ID_RE.test(raw)) return raw;
 
-  // Direct shorts match (e.g. shorts/3jz_K5qX52o). Bare paths only — a full URL
-  // still has to clear the host allowlist below, the same as `watch?v=` does.
-  if (!/^https?:\/\//i.test(raw)) {
-    const shortsDirect = raw.match(/(?:^|\/|\.)shorts\/([a-zA-Z0-9_-]{11})/i);
-    if (shortsDirect && shortsDirect[1]) return shortsDirect[1];
-  }
+  // Direct shorts match (e.g. shorts/3jz_K5qX52o). Truly bare paths only — a
+  // string with a host in front (protocol or not) has to clear the host
+  // allowlist below, the same as `watch?v=` does.
+  const shortsDirect = raw.match(/^\/?shorts\/([a-zA-Z0-9_-]{11})(?=[/?#]|$)/i);
+  if (shortsDirect && shortsDirect[1]) return shortsDirect[1];
 
   const url = asYoutubeUrl(raw);
   if (!url) return null;

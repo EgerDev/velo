@@ -10,7 +10,13 @@ export function getGuestId(): string {
     let id = window.localStorage.getItem(GUEST_KEY);
     if (!id || !GUEST_RE.test(id)) {
       const raw = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}${Math.random()}`;
-      id = raw.replace(/-/g, "").slice(0, 22);
+      // Strip every character GUEST_RE forbids, not just hyphens: the non-UUID
+      // fallback (insecure context / old browser) carries the "." from
+      // Math.random(), which would fail validation on the next read and churn a
+      // fresh id — and a mangled id per fetch, each collapsing to the shared
+      // per-IP quota bucket the id exists to avoid.
+      id = raw.replace(/[^a-z0-9_-]/gi, "").slice(0, 22);
+      if (id.length < 8) id = `g${Date.now().toString(36)}${id}`.slice(0, 22);
       window.localStorage.setItem(GUEST_KEY, id);
     }
     return id;

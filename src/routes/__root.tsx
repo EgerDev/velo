@@ -1,23 +1,16 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Velo";
 
-const fetchSessionUser = createServerFn({ method: "GET" }).handler(async () => {
-  try {
-    const { getSessionUser } = await import("@/lib/auth/verify.server");
-    const user = await getSessionUser();
-    return user ? { id: user.id, email: user.email } : null;
-  } catch {
-    return null;
-  }
-});
-
+// No `beforeLoad` here on purpose. It used to fetch a session user into route
+// context, but nothing ever read it — and unlike `loader`, `beforeLoad` has no
+// staleness gate, so as an ancestor of every route it blocked each navigation
+// (and every SSR render) on a server round-trip whose result was discarded.
+// Auth state comes from `useCurrentUserState()` instead.
 export const Route = createRootRoute({
-  beforeLoad: async () => ({ sessionUser: await fetchSessionUser() }),
   head: () => ({
     meta: [
       { charSet: "utf-8" },

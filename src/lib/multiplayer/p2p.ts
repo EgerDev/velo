@@ -368,6 +368,10 @@ export class P2PRoom {
     roster: Set<string>,
   ): Promise<void> {
     if (this.closed) return;
+    // The relay does not authenticate `from`, and the roster always vouches
+    // for self — a forged self-signal would create an unprunable phantom slot
+    // (reconcileRoster can never remove it) that pins fast-polling forever.
+    if (from === this.opts.selfId) return;
     let slot = this.peers.get(from);
     if (!slot) {
       // New peers dial us in the same poll that adds them to the roster.
@@ -393,6 +397,11 @@ export class P2PRoom {
           // offer (stale DTLS fingerprint). Rebuild the pair once and apply
           // the same offer to the fresh pc before giving up.
           if (kind !== "offer" || slot.recreatedForOffer) throw err;
+          // The pair can be rebuilt underneath us while we await (watchdog
+          // dialer rebuild, roster reconcile). Recreating from this stale slot
+          // would delete and replace THEIR fresh pc, clobbering the rebuild —
+          // drop the offer instead and let the live pc run its own cycle.
+          if (this.peers.get(from) !== slot) return;
           const attempts = slot.recoveryAttempts;
           const name = slot.info.name;
           const pending = slot.pendingCandidates;
@@ -412,7 +421,11 @@ export class P2PRoom {
         if (kind === "offer") {
           await slot.pc.setLocalDescription();
           if (this.closed) return;
-          await this.sendSignal(from, "answer", slot.pc.localDescription!.toJSON());
+          // Not awaited: onSignal runs inside the poll loop, and a struggling
+          // POST (3×6s timeouts + backoff) would starve the roster heartbeat
+          // past the relay's peer TTL. The per-peer queue keeps ordering and
+          // postSignal never rejects, so nothing is lost by detaching.
+          void this.sendSignal(from, "answer", slot.pc.localDescription!.toJSON());
         }
       } else if (kind === "ice") {
         const candidate = payload as RTCIceCandidateInit;
@@ -545,12 +558,32 @@ export class P2PRoom {
     // relay = TURN (none configured by default); srflx/host = direct path.
     try {
       const stats = await slot.pc.getStats();
+      // Prefer the transport's explicitly selected pair. After an ICE restart
+      // getStats() still carries nominated pairs from earlier generations, so
+      // keeping whichever iterates last can report a stale path.
       let selected: RTCIceCandidatePairStats | undefined;
       stats.forEach((s) => {
-        if (s.type === "candidate-pair" && (s as RTCIceCandidatePairStats).nominated) {
-          selected = s as RTCIceCandidatePairStats;
-        }
+        if (s.type !== "transport") return;
+        const id = (s as RTCTransportStats).selectedCandidatePairId;
+        const pair = id ? (stats.get(id) as RTCIceCandidatePairStats | undefined) : undefined;
+        if (pair) selected = pair;
       });
+      if (!selected) {
+        // No transport stat (older impls): take the most recently active pair
+        // that actually succeeded, not merely one that was nominated.
+        stats.forEach((s) => {
+          if (s.type !== "candidate-pair") return;
+          const pair = s as RTCIceCandidatePairStats;
+          if (!pair.nominated || pair.state !== "succeeded") return;
+          const prev = selected;
+          if (
+            !prev ||
+            (pair.lastPacketReceivedTimestamp ?? 0) > (prev.lastPacketReceivedTimestamp ?? 0)
+          ) {
+            selected = pair;
+          }
+        });
+      }
       const localId = selected?.localCandidateId;
       if (localId) {
         const local = stats.get(localId) as { candidateType?: string } | undefined;
