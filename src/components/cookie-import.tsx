@@ -375,18 +375,15 @@ export function CookieImport() {
           {activeTab === "import" && (
             <div className="space-y-2.5">
               {/*
-                One file affordance, not two. The old layout had an "Upload"
-                button directly above a dropzone that did the same job — and the
-                dropzone's click actually read the clipboard, which no file icon
-                would ever suggest. Drop or click here means files; the clipboard
-                and bookmarklet are separate, quieter actions below.
+                Three ways in, side by side, so the row uses the panel's width
+                instead of stacking sparse full-width blocks. The whole group is
+                the drop target — a dedicated dropzone box would just be more
+                empty space to look at.
               */}
-              <button
-                type="button"
-                disabled={busy}
+              <div
                 className={cn(
-                  "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-surface px-4 py-5 text-xs text-muted transition-all cursor-pointer hover:border-subtle hover:bg-elevated/40 disabled:cursor-not-allowed",
-                  dragging && "border-accent bg-accent/10 text-fg",
+                  "rounded-lg border border-dashed p-1.5 transition-colors",
+                  dragging ? "border-accent bg-accent/5" : "border-border",
                 )}
                 onDragOver={(event) => {
                   event.preventDefault();
@@ -394,47 +391,61 @@ export function CookieImport() {
                 }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
-                onClick={() => fileRef.current?.click()}
               >
                 {busy ? (
-                  <span className="font-medium text-accent">Importing session…</span>
+                  <p className="px-3 py-6 text-center text-xs font-medium text-accent">
+                    Importing session…
+                  </p>
+                ) : dragging ? (
+                  <p className="px-3 py-6 text-center text-xs font-medium text-accent">
+                    Drop the file to import it
+                  </p>
                 ) : (
-                  <>
-                    <FileUp className="size-4 shrink-0 text-subtle" />
-                    <span>
-                      Drop <span className="font-mono text-fg">cookies.txt</span>,{" "}
-                      <span className="font-mono text-fg">.json</span> or{" "}
-                      <span className="font-mono text-fg">.har</span> — or click to choose a file
-                    </span>
-                  </>
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                    {(
+                      [
+                        {
+                          icon: FileUp,
+                          label: "Choose a file",
+                          hint: "or drop cookies.txt · .json · .har",
+                          onClick: () => fileRef.current?.click(),
+                        },
+                        {
+                          icon: Clipboard,
+                          label: "Paste from clipboard",
+                          hint: "if you already copied them",
+                          onClick: () => void grab(),
+                        },
+                        {
+                          icon: Bookmark,
+                          label: "Bookmarklet",
+                          hint: "export from YouTube in one click",
+                          onClick: () => {
+                            setActiveTab("guides");
+                            setBrowser("bookmarklet");
+                          },
+                        },
+                      ] as const
+                    ).map(({ icon: Icon, label, hint, onClick }) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={onClick}
+                        className="flex items-start gap-2.5 rounded-md border border-transparent bg-elevated/40 p-2.5 text-left transition-colors cursor-pointer hover:border-border-strong hover:bg-elevated"
+                      >
+                        <Icon className="size-4 shrink-0 text-subtle mt-0.5" />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium leading-tight text-fg">
+                            {label}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-tight text-subtle">
+                            {hint}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2.5 text-[11px]"
-                  disabled={busy}
-                  onClick={() => void grab()}
-                >
-                  <Clipboard className="size-3 mr-1.5" />
-                  Paste from clipboard
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2.5 text-[11px]"
-                  onClick={() => {
-                    setActiveTab("guides");
-                    setBrowser("bookmarklet");
-                  }}
-                >
-                  <Bookmark className="size-3 mr-1.5" />
-                  Use the bookmarklet
-                </Button>
               </div>
             </div>
           )}
