@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, Link, Navigate, useNavigate, useRouter } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
@@ -275,7 +276,10 @@ function Login() {
                     variant="secondary"
                     className="h-9 w-full"
                     onClick={() => {
-                      void navigator.clipboard.writeText(magicHref).then(() => setCopied(true));
+                      navigator.clipboard
+                        .writeText(magicHref)
+                        .then(() => setCopied(true))
+                        .catch(() => toast.error("Couldn’t copy the link — select and copy it above."));
                     }}
                   >
                     {copied ? "Copied" : "Copy sign-in link"}

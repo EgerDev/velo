@@ -53,10 +53,9 @@ async function checkDatabase(deep: boolean): Promise<Check> {
       }
     }
     return { ok: true, latencyMs: Date.now() - started };
-  } catch (err) {
-    // Message only — never the underlying connection string / stack.
-    const detail = err instanceof Error ? err.message : "database unreachable";
-    return { ok: false, detail, latencyMs: Date.now() - started };
+  } catch {
+    // Fixed string — never the driver message, connection string, or stack.
+    return { ok: false, detail: "database unreachable", latencyMs: Date.now() - started };
   }
 }
 

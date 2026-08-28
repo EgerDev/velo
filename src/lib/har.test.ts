@@ -164,6 +164,61 @@ test("a rotated cookie keeps its newest value, not the first one seen", () => {
   assert.ok(expires > Math.floor(Date.now() / 1000), "expiry should survive the bare Cookie header");
 });
 
+test("parseHar mines video ids only from YouTube-family URLs", () => {
+  // A real youtube.com capture is full of third-party requests whose `?v=`
+  // cache-busters and `/v/` asset paths look like ids. Minting ids from them
+  // also mis-attributes the following googlevideo playback.
+  const entry = (url: string, extra: Record<string, unknown> = {}) => ({
+    request: { url, headers: [], ...extra },
+    response: { status: 200, headers: [] },
+  });
+  const mixed = {
+    log: {
+      entries: [
+        entry("https://www.youtube.com/watch?v=dQw4w9WgXcQ", { queryString: [{ name: "v", value: "dQw4w9WgXcQ" }] }),
+        entry("https://cdn.example.net/app/bundle.js?v=20240826abcdef", {
+          queryString: [{ name: "v", value: "20240826abcdef" }],
+        }),
+        entry("https://static.example.org/v/abcdefghijk/x.png", { queryString: [{ name: "v", value: "abcdefghijk" }] }),
+        entry("https://rr1---sn-abc.googlevideo.com/videoplayback?itag=137&mime=video%2Fmp4&clen=1000"),
+      ],
+    },
+  };
+  const har = parseHar(mixed);
+  assert.deepEqual(har.videoIds, ["dQw4w9WgXcQ"]);
+  assert.equal(har.playbacks.length, 1);
+  assert.equal(har.playbacks[0]?.videoId, "dQw4w9WgXcQ");
+
+  // A longer token is not a truncated id, even on youtube.com.
+  const longToken = {
+    log: {
+      entries: [
+        entry("https://www.youtube.com/s/player/base.js?v=20240826abcdef"),
+        entry("https://rr1---sn-abc.googlevideo.com/videoplayback?itag=140&mime=audio%2Fmp4&clen=1000"),
+      ],
+    },
+  };
+  assert.deepEqual(parseHar(longToken).videoIds, []);
+});
+
+test("parseHar attributes a playback to the most recently seen id, not the Set's last insertion", () => {
+  // Watch A, then B, then back to A: A's playback belongs to A.
+  const entry = (url: string) => ({ request: { url, headers: [] }, response: { status: 200, headers: [] } });
+  const revisit = {
+    log: {
+      entries: [
+        entry("https://www.youtube.com/watch?v=AAAAAAAAAAA"),
+        entry("https://www.youtube.com/watch?v=BBBBBBBBBBB"),
+        entry("https://www.youtube.com/watch?v=AAAAAAAAAAA"),
+        entry("https://rr1---sn-abc.googlevideo.com/videoplayback?itag=137&mime=video%2Fmp4&clen=1000"),
+      ],
+    },
+  };
+  const har = parseHar(revisit);
+  assert.deepEqual(har.videoIds, ["AAAAAAAAAAA", "BBBBBBBBBBB"]);
+  assert.equal(har.playbacks[0]?.videoId, "AAAAAAAAAAA");
+});
+
 test("parseHar warns when cookies are redacted", () => {
   const redacted = {
     log: {

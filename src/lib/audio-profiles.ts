@@ -7,6 +7,8 @@
  * ffmpeg.wasm.
  */
 
+import { fileBasename } from "./safe-filename.ts";
+
 export type AudioProfileId =
   | "mp3_320"
   | "mp3_v0"
@@ -159,13 +161,7 @@ export function loudnormFilter(lufs: number): string {
 }
 
 export function safeAudioStem(title: string): string {
-  return (
-    title
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
-      .trim()
-      .replace(/\s+/g, "_")
-      .slice(0, 80) || "audio"
-  );
+  return fileBasename(title, "audio", 80).replace(/ /g, "_");
 }
 
 /** Extension for a profile's output; `copy` keeps the source container. */

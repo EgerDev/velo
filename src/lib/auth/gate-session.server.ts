@@ -299,7 +299,7 @@ export function gateIdentitySessions() {
                   `${LOG} session created in DB but cookie was not emitted`,
                   { userId: result.data.user.id },
                 );
-                return;
+                return signOutUnverifiedSession(ctx, inbound, sessionCookieName);
               }
 
               const sessionDataCookie = ctx.context.authCookies.sessionData;
@@ -319,7 +319,7 @@ export function gateIdentitySessions() {
               return { context: { headers } };
             } catch (err) {
               console.error(`${LOG} gate identity session hook threw`, err);
-              return;
+              return signOutUnverifiedSession(ctx, inbound, sessionCookieName);
             }
           }),
         },

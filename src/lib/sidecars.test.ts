@@ -31,6 +31,29 @@ describe("chaptersVttSidecar", () => {
     assert.match(sc.content, /00:03:00\.000 --> 00:04:00\.000\nEnd/);
   });
 
+  it("escapes WebVTT markup characters in chapter titles", () => {
+    const chapters = parseChapters("0:00 <Intro> Q&A\n1:00 A --> B", 120);
+    const sc = chaptersVttSidecar("Talk", chapters);
+    assert.ok(sc);
+    assert.match(sc.content, /\n&lt;Intro> Q&amp;A\n/);
+    // Only the timing lines may carry "-->".
+    assert.match(sc.content, /\nA → B\n/);
+    assert.equal(sc.content.match(/-->/g)?.length, 2);
+  });
+
+  it("rolls a rounded-up millisecond into the next second instead of a 4-digit field", () => {
+    // 12.9996 rounds to 13.000; rounding the fraction on its own gave
+    // "00:00:12.1000", which is not a WebVTT timestamp.
+    const sc = chaptersVttSidecar("Talk", [
+      { index: 0, start: 5, end: 12.9996, startFormatted: "0:05", title: "Body" },
+      { index: 1, start: 12.9996, end: 59.9999, startFormatted: "0:12", title: "End" },
+    ]);
+    assert.ok(sc);
+    assert.match(sc.content, /00:00:05\.000 --> 00:00:13\.000\nBody/);
+    assert.match(sc.content, /00:00:13\.000 --> 00:01:00\.000\nEnd/);
+    assert.doesNotMatch(sc.content, /\.\d{4}/);
+  });
+
   it("returns null when there are no chapters", () => {
     assert.equal(chaptersVttSidecar("Talk", []), null);
   });

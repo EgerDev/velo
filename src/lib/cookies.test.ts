@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeCookieFormat, cookieExpiryToUnix, parseCookieImport } from "./cookies.ts";
+import { analyzeCookieFormat, cookieExpiryToUnix, detectCookieFormat, parseCookieImport } from "./cookies.ts";
 import { classifyDownloadError } from "./download-error.ts";
 
 test("cookieExpiryToUnix normalises epochs, ms, and date strings", () => {
@@ -184,4 +184,52 @@ test("flags expired SID and keeps a future SID", () => {
   const liveReport = analyzeCookieFormat(live.netscape, 1_700_000_000_000);
   assert.equal(liveReport.expiredNames.includes("SID"), false);
   assert.ok((liveReport.sidExpiresAt ?? 0) > 1_700_000_000);
+});
+
+test("a Netscape jar whose value ends in \"-b\" is not mistaken for a cURL command", () => {
+  // `-b\s` used to match the tab/newline that terminates any field ending in
+  // "-b" (Google values are base64url), routing a valid jar to the cURL parser.
+  const raw = [
+    "# Netscape HTTP Cookie File",
+    ".youtube.com\tTRUE\t/\tTRUE\t1999999999\tSID\tg.a000abc-b",
+    ".youtube.com\tTRUE\t/\tTRUE\t1999999999\tSAPISID\txyz",
+  ].join("\n");
+  assert.equal(detectCookieFormat(raw), "netscape");
+  const parsed = parseCookieImport(raw);
+  assert.equal(parsed.count, 2);
+  assert.match(parsed.header, /SID=g\.a000abc-b/);
+  // A real `-b` flag still takes the cURL path.
+  assert.equal(detectCookieFormat("curl https://www.youtube.com/ -b 'SID=abc; SAPISID=xyz'"), "curl");
+});
+
+test("parses a headerless DevTools cookie table paste", () => {
+  // Rows copied without the Name/Value header line start with a cookie name,
+  // which looked like a Cookie header and threw "No YouTube session tokens".
+  const rows = [
+    "SID\tdevsid\t.youtube.com\t/\t2027-01-01T00:00:00.000Z\t✓\t✓",
+    "SAPISID\tdevsap\t.youtube.com\t/\t2027-01-01T00:00:00.000Z\t\t✓",
+    "other\tx\t.example.com\t/\t\t\t",
+  ].join("\n");
+  assert.equal(detectCookieFormat(rows), "devtools");
+  const parsed = parseCookieImport(rows);
+  assert.equal(parsed.count, 2);
+  assert.match(parsed.header, /SID=devsid/);
+  assert.match(parsed.header, /SAPISID=devsap/);
+  assert.doesNotMatch(parsed.netscape, /example\.com/);
+  // The table parser sits ahead of the Netscape path; a real jar still parses.
+  const jar = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n";
+  assert.equal(parseCookieImport(jar).header, "SID=abc");
+});
+
+test("parses Chrome's Windows \"Copy as cURL (cmd)\" caret quoting", () => {
+  const cmd = [
+    'curl ^"https://www.youtube.com/watch?v=dQw4w9WgXcQ^" ^',
+    '  -H ^"accept: text/html^" ^',
+    '  -H ^"cookie: SID=abc%^3D; SAPISID=xyz^" ^',
+    '  -H ^"user-agent: Mozilla/5.0^"',
+  ].join("\r\n");
+  const parsed = parseCookieImport(cmd);
+  // `%^3D` is cmd escaping for `%3D` — the caret must not survive into the value.
+  assert.equal(parsed.header, "SID=abc%3D; SAPISID=xyz");
+  assert.equal(parsed.count, 2);
 });

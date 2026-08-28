@@ -153,6 +153,10 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
       });
 
       lastLog = "";
+      // Before exec: ffmpeg creates the output on open and writes progressively,
+      // so a non-zero exit would otherwise leave a partial file in the
+      // session-long MEMFS. deleteFile of a missing file is already caught.
+      written.push(outputName);
       let code: number;
       try {
         code = await ffmpeg.exec(args, -1, { signal: options.signal });
@@ -169,7 +173,6 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
       if (code !== 0) {
         throw new Error(lastLog ? `Conversion failed: ${lastLog}` : "Conversion failed.");
       }
-      written.push(outputName);
 
       const data = await ffmpeg.readFile(outputName);
       const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;

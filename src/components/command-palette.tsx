@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Film, ListPlus, FileText, Bell, Search, ShieldCheck, LogIn, Link2 } from "lucide-react";
+import { Film, ListPlus, FileText, Bell, Search, ShieldCheck, LogIn, Link2, RefreshCw } from "lucide-react";
 import type { ViewMode } from "@/lib/view-mode";
 
 /**
- * ⌘K command palette. Velo is effectively one page with four modes plus a few
+ * ⌘K command palette. Velo is effectively one page with a few modes plus a few
  * session actions, so the palette's job is fast keyboard navigation between
  * them — no routing, no server calls. It drives the same `Home` state the
  * segmented control does, so the two stay in lockstep.
@@ -33,9 +33,10 @@ const MODE_META: Record<ViewMode, { label: string; icon: typeof Film; hint: stri
   bulk: { label: "Bulk & playlists", icon: ListPlus, hint: "Queue many at once" },
   transcript: { label: "Transcript", icon: FileText, hint: "Captions & AI summary" },
   watch: { label: "Channels", icon: Bell, hint: "Follow channel feeds" },
+  tools: { label: "Tools", icon: RefreshCw, hint: "Extractor versions" },
 };
 
-const MODE_ORDER: ViewMode[] = ["single", "bulk", "transcript", "watch"];
+const MODE_ORDER: ViewMode[] = ["single", "bulk", "transcript", "watch", "tools"];
 
 export function CommandPalette({
   mode,
@@ -65,7 +66,8 @@ export function CommandPalette({
     setTimeout(run, 0);
   };
 
-  const modeActions: Action[] = MODE_ORDER.filter((m) => m !== mode).map((m) => ({
+  // Tools needs a session (its server fn is auth-gated) — don't offer it to guests.
+  const modeActions: Action[] = MODE_ORDER.filter((m) => m !== mode && (m !== "tools" || signedIn)).map((m) => ({
     id: `mode-${m}`,
     label: `Go to ${MODE_META[m].label}`,
     hint: MODE_META[m].hint,

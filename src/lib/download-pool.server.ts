@@ -231,6 +231,14 @@ export async function looksLikeMediaFile(path: string): Promise<boolean> {
   }
 }
 
+const MEDIA_MIME: Record<string, string> = {
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mkv: "video/x-matroska",
+  m4a: "audio/mp4",
+  mp3: "audio/mpeg",
+};
+
 export function mediaFileResponse(
   path: string,
   filename: string,
@@ -240,9 +248,11 @@ export function mediaFileResponse(
   onClose?: () => void,
 ): Response {
   const stream = createReadStream(path, { highWaterMark: 64 * 1024 });
-  const ext = filename.split(".").pop()?.toLowerCase() || "mp4";
-  const mime =
-    ext === "webm" ? "video/webm" : ext === "m4a" || ext === "mp3" ? "audio/mp4" : "video/mp4";
+  const ext = (filename.split(".").pop()?.toLowerCase() || "mp4").replace(/[^a-z0-9]/g, "") || "mp4";
+  // yt-dlp merges VP9+AAC / H.264+Opus into Matroska (`--merge-output-format
+  // mp4/mkv`); the real container has to reach the client or it names the
+  // save after the preset it asked for.
+  const mime = MEDIA_MIME[ext] ?? "video/mp4";
   let closed = false;
   const done = () => {
     if (closed) return;
@@ -257,7 +267,7 @@ export function mediaFileResponse(
     headers: {
       "Content-Type": mime,
       "Content-Length": String(size),
-      "Content-Disposition": "attachment",
+      "Content-Disposition": `attachment; filename="media.${ext}"`,
       "Cache-Control": "no-store",
       "X-Velo-Client": client,
       "X-Velo-Auth": auth,

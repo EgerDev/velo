@@ -7,6 +7,7 @@ import {
   MAX_YTDLP,
   acquireYtdlpSlot,
   isQueueError,
+  mediaFileResponse,
   muxCacheGet,
   muxCachePut,
   queueError,
@@ -97,4 +98,24 @@ test("a row already removed during muxCacheGet's awaits must not evict an unrela
   // A itself is fully gone: no index row, no file left behind.
   assert.equal(await muxCacheGet("vid-a", 137), null);
   await assert.rejects(stat(hitA.path));
+});
+
+test("mediaFileResponse tells the client the real container", async (t: TestContext) => {
+  const dir = await mkdtemp(join(tmpdir(), "velo-pool-mime-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const cases: [string, string][] = [
+    ["media.mkv", "video/x-matroska"],
+    ["media.mp4", "video/mp4"],
+    ["media.webm", "video/webm"],
+    ["media.m4a", "audio/mp4"],
+    ["media.mp3", "audio/mpeg"],
+  ];
+  for (const [filename, mime] of cases) {
+    const path = join(dir, filename);
+    await writeFile(path, fakeMedia());
+    const res = mediaFileResponse(path, filename, "test", "anon", 4096);
+    assert.equal(res.headers.get("Content-Type"), mime, filename);
+    assert.equal(res.headers.get("Content-Disposition"), `attachment; filename="${filename}"`);
+    await res.body?.cancel();
+  }
 });

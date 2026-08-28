@@ -278,3 +278,16 @@ test("an empty transfer closes cleanly", async () => {
   );
   assert.equal(out.byteLength, 0);
 });
+
+test("a lane that delivers more than its range fails instead of splicing the head of the file in", async () => {
+  // A hop that ignores `range=` answers with the whole object. The old guard
+  // was one-sided, so the extra bytes went out under the already-sent size.
+  const size = 1000;
+  const stream = orderedParallelStream({
+    size,
+    connections: 4,
+    minSliceBytes: 100,
+    openRange: async () => slowStream({ start: 0, end: size - 1 }, 4),
+  });
+  await assert.rejects(drain(stream), /delivered more than its 250-byte slice/);
+});

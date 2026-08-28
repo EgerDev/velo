@@ -118,7 +118,7 @@ export function classifyDownloadError(
   }
   if (
     opts?.status === 403 ||
-    lower.includes("403") ||
+    /\b403\b/.test(lower) ||
     lower.includes("blocked") ||
     lower.includes("access denied") ||
     lower.includes("locked cdn")

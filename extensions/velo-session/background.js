@@ -81,12 +81,35 @@ async function extractSession() {
   return toNetscape(cookies);
 }
 
+function rememberCapture(payload) {
+  lastCapture = payload;
+  try {
+    void chrome.storage?.session?.set({ veloLastHar: payload });
+  } catch {
+    /* session storage optional */
+  }
+}
+
+async function loadCapture() {
+  if (lastCapture) return lastCapture;
+  try {
+    const stored = await chrome.storage.session.get("veloLastHar");
+    if (stored?.veloLastHar?.header) {
+      lastCapture = stored.veloLastHar;
+      return lastCapture;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function attachCapture(extra) {
   chrome.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
       const cookie = details.requestHeaders?.find((header) => header.name.toLowerCase() === "cookie");
       if (!cookie?.value) return;
-      lastCapture = { url: details.url, header: cookie.value, at: Date.now() };
+      rememberCapture({ url: details.url, header: cookie.value, at: Date.now() });
       for (const pair of parseHeader(cookie.value)) {
         capturedPairs.set(pair.name, pair.value);
       }
@@ -114,23 +137,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "capture-har") {
-    if (!lastCapture && capturedPairs.size === 0) {
-      sendResponse({
-        ok: false,
-        error: "No YouTube traffic yet. Open youtube.com, play a video, then capture again.",
-      });
-      return true;
-    }
-    const header =
-      lastCapture?.header ||
-      [...capturedPairs.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
-    const har = buildHar(lastCapture?.url, header);
-    sendResponse({
-      ok: true,
-      har: JSON.stringify(har, null, 2),
-      header,
-      count: header.split(";").length,
-    });
+    loadCapture()
+      .then((capture) => {
+        if (!capture && capturedPairs.size === 0) {
+          sendResponse({
+            ok: false,
+            error: "No YouTube traffic yet. Open youtube.com, play a video, then capture again.",
+          });
+          return;
+        }
+        const header =
+          capture?.header ||
+          [...capturedPairs.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+        const har = buildHar(capture?.url, header);
+        sendResponse({
+          ok: true,
+          har: JSON.stringify(har, null, 2),
+          header,
+          count: header.split(";").length,
+        });
+      })
+      .catch(() => sendResponse({ ok: false, error: "Capture failed." }));
     return true;
   }
   return undefined;

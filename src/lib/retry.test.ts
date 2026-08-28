@@ -17,6 +17,24 @@ test("does not retry 403 / sign-in / 429 / 503, does retry timeouts", () => {
   assert.equal(isRetryable(new Error("aborted")), false);
 });
 
+test("status codes match on word boundaries, not inside byte counts", () => {
+  // Truncation errors embed raw byte counts; "1403211" is not a 403.
+  assert.equal(
+    isRetryable(new Error("Download ended early — got 1403211 of 5000000 bytes. The connection dropped; try again.")),
+    false,
+  );
+  // ...and "1502000" is not a 502 either — an otherwise identical message is not retried.
+  assert.equal(
+    isRetryable(new Error("Download ended early — got 1502000 of 5000000 bytes. The connection dropped; try again.")),
+    false,
+  );
+  assert.equal(isRetryable(new Error("Download ended early — got 1234567 of 5000000 bytes.")), false);
+  assert.equal(isRetryable(new Error("relay 502 Bad Gateway")), true);
+  assert.equal(isRetryable(new Error("cloudflare 522")), true);
+  assert.equal(isRetryable(new Error("HTTP 403")), false);
+  assert.equal(isRetryable(new Error("got 429")), false);
+});
+
 test("retries then succeeds", async () => {
   let n = 0;
   const waits: number[] = [];

@@ -47,7 +47,7 @@ export function exportMarkersDavinciCsv(cues: TranscriptCue[], fps = 30, nameFro
     const timeIn = secondsToTimecode(cue.start, fps);
     const timeOut = secondsToTimecode(cue.end, fps);
     const name = nameFromText
-      ? cue.text.replace(/"/g, '""').replace(/\r?\n/g, " ").slice(0, 80)
+      ? cue.text.replace(/\r?\n/g, " ").slice(0, 80).replace(/"/g, '""')
       : `Cue ${index + 1}`;
     // Escape quotes and commas in notes
     const cleanNotes = `"${cue.text.replace(/"/g, '""').replace(/\r?\n/g, " ")}"`;
@@ -77,18 +77,25 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
   // Cues are sorted by start, but overlapping segments (SponsorBlock allows
   // them) mean the last cue isn't necessarily the one that ends last.
   const maxEnd = cues.reduce((max, cue) => Math.max(max, cue.end), 0);
-  const totalDuration = cues.length ? Math.ceil(maxEnd + 5) : 3600;
   // FCPX wants the exact NTSC rational for 29.97 / 59.94 — 1001/30000s, not
   // 100/2997s, which is a different number — and names those formats "2997" /
   // "5994" rather than with a decimal point. Both are one click away in the UI.
   const ntsc = Math.abs(fps - Math.round(fps)) > 0.001;
-  const frameDuration = ntsc ? `1001/${Math.round(fps) * 1000}s` : `100/${Math.round(fps * 100)}s`;
+  const num = ntsc ? 1001 : 100;
+  const den = ntsc ? Math.round(fps) * 1000 : Math.round(fps * 100);
+  const frameDuration = `${num}/${den}s`;
   const formatName = `FFVideoFormat1080p${ntsc ? Math.round(fps * 100) : Math.round(fps)}`;
+  // FCP refuses any start/duration that is not a whole multiple of
+  // frameDuration ("not on an edit frame boundary"), so every time is snapped
+  // to a frame and written as a rational in frameDuration's own base.
+  const toFrames = (seconds: number) => Math.round((seconds * den) / num);
+  const rational = (frames: number) => (frames === 0 ? "0s" : `${frames * num}/${den}s`);
+  const totalDuration = rational(Math.ceil(((cues.length ? maxEnd + 5 : 3600) * den) / num));
 
   let markersXml = "";
   cues.forEach((cue, index) => {
-    const startSec = cue.start.toFixed(3);
-    const durSec = Math.max(0.1, cue.end - cue.start).toFixed(3);
+    const startSec = rational(toFrames(cue.start));
+    const durSec = rational(Math.max(1, toFrames(cue.end - cue.start)));
     const textEscaped = cue.text.replace(/[<>&'"]/g, (c) => {
       switch (c) {
         case "<": return "&lt;";
@@ -100,7 +107,7 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
       }
     });
 
-    markersXml += `                <marker start="${startSec}s" duration="${durSec}s" value="Cue ${index + 1}: ${textEscaped}" />\n`;
+    markersXml += `                <marker start="${startSec}" duration="${durSec}" value="Cue ${index + 1}: ${textEscaped}" />\n`;
   });
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -112,9 +119,9 @@ export function exportMarkersFcpxml(cues: TranscriptCue[], videoTitle = "Velo Vi
   <library>
     <event name="Velo Ingest">
       <project name="${safeTitle}">
-        <sequence format="r1" duration="${totalDuration}s">
+        <sequence format="r1" duration="${totalDuration}">
           <spine>
-            <gap name="Transcript Markers" offset="0s" duration="${totalDuration}s" start="0s">
+            <gap name="Transcript Markers" offset="0s" duration="${totalDuration}" start="0s">
 ${markersXml}            </gap>
           </spine>
         </sequence>

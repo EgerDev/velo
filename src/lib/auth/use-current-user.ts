@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { authClient, authEnabled } from "./client";
 
 /** Normalized user shape used across the app, auth on or off. */
@@ -51,26 +52,34 @@ export type CurrentUserState = {
  *   if (isPending) return null;              // still resolving — don't redirect yet
  *   if (!user) return <RedirectToSignIn />;  // definitely signed out
  *
- * `authEnabled` is a module-level constant fixed at load, so the guarded hook
- * call keeps a stable hook order across every render of a given component.
+ * `authEnabled` is fixed at module load, so which session hook we call is
+ * stable for the life of the page — never a per-render branch.
  */
+const readSession = authEnabled
+  ? authClient.useSession
+  : (): { data: null; isPending: false } => ({ data: null, isPending: false });
+
 export function useCurrentUserState(): CurrentUserState {
+  const { data, isPending } = readSession();
+  const { id, name, email, image } = data?.user ?? {};
+  // Memoized on the fields, not the session object: a fresh `user` literal
+  // every render re-fires any effect that depends on it (the cookie vault load
+  // looped on exactly that).
+  const user = useMemo<AppUser | null>(
+    () =>
+      id
+        ? {
+            id,
+            displayName: name ?? null,
+            primaryEmail: email ?? null,
+            profileImageUrl: image ?? null,
+            isDevFallback: false,
+          }
+        : null,
+    [id, name, email, image],
+  );
   if (!authEnabled) return { user: DEV_USER, isPending: false };
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- authEnabled is constant for the app's lifetime
-  const { data, isPending } = authClient.useSession();
-  const user = data?.user;
-  return {
-    user: user
-      ? {
-          id: user.id,
-          displayName: user.name ?? null,
-          primaryEmail: user.email ?? null,
-          profileImageUrl: user.image ?? null,
-          isDevFallback: false,
-        }
-      : null,
-    isPending,
-  };
+  return { user, isPending };
 }
 
 /**

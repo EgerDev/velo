@@ -1708,6 +1708,7 @@ export function VideoPanel({
                     <label className="text-subtle font-medium block mb-1">Start Time (MM:SS)</label>
                     <input
                       type="text"
+                      aria-label="Start time (MM:SS)"
                       value={trimStart}
                       onChange={(e) => setTrimStart(e.target.value)}
                       placeholder="00:00"
@@ -1718,6 +1719,7 @@ export function VideoPanel({
                     <label className="text-subtle font-medium block mb-1">End Time (MM:SS)</label>
                     <input
                       type="text"
+                      aria-label="End time (MM:SS)"
                       value={trimEnd}
                       onChange={(e) => setTrimEnd(e.target.value)}
                       placeholder="01:30"
@@ -1788,8 +1790,12 @@ export function VideoPanel({
                     onClick={async () => {
                       const section = formatYtdlpSection(parsedStart, parsedEnd);
                       const cmd = `yt-dlp --download-sections "${section}" --force-keyframes-at-cuts "${video.url}"`;
-                      await navigator.clipboard.writeText(cmd);
-                      toast.success("yt-dlp range command copied to clipboard!");
+                      try {
+                        await navigator.clipboard.writeText(cmd);
+                        toast.success("yt-dlp range command copied to clipboard!");
+                      } catch {
+                        toast.error("Couldn’t copy to clipboard.");
+                      }
                     }}
                   >
                     <Copy className="size-3 mr-1.5" />

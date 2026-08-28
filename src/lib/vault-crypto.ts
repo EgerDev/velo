@@ -12,10 +12,11 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
  *   1. 64 hex chars                              -> used directly as the 32-byte key
  *   2. base64/base64url decoding to exactly 32 B -> used directly as the key
  *   3. anything else (a passphrase of any length) -> key = SHA-256(secret)
- * Unset or empty -> encryption is SKIPPED (dev/local keeps working): both
- * functions pass values through unchanged, and a single warning is logged the
- * first time a write is left unencrypted. Once the env var is set, encryption
- * is enforced.
+ * Unset or empty -> encryption is SKIPPED (dev/local keeps working): writes are
+ * stored as plaintext (a single warning is logged the first time), plaintext
+ * reads pass through unchanged, but reading an existing envelope THROWS — a
+ * lost key must be loud, not silently served as garbage. Once the env var is
+ * set, encryption is enforced.
  *
  * Envelope (a plain string, so the existing `text` column is unchanged):
  *   v1:gcm:<iv-b64>:<tag-b64>:<ciphertext-b64>
@@ -72,13 +73,17 @@ export function encryptCookies(plaintext: string): string {
 /**
  * Decrypt a stored vault value. Envelope rows are decrypted (throwing on a
  * wrong key or tampered data); legacy plaintext rows — anything without the
- * envelope prefix — are returned as-is. With no key configured the input is
- * returned unchanged.
+ * envelope prefix — are returned as-is. With no key configured a legacy row
+ * still passes through, but an envelope throws.
  */
 export function decryptCookies(stored: string): string {
-  const key = resolveKey();
-  if (!key) return stored;
   if (!stored.startsWith(ENVELOPE_PREFIX)) return stored; // legacy plaintext row
+  const key = resolveKey();
+  // An envelope can never be a valid jar without its key: fail here instead of
+  // handing ciphertext to yt-dlp and surfacing an unrelated parse error.
+  if (!key) {
+    throw new Error("vault-crypto: stored vault is encrypted but VELO_VAULT_KEY is not set");
+  }
   const parts = stored.split(":");
   const ivB64 = parts[2];
   const tagB64 = parts[3];

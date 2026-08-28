@@ -145,6 +145,28 @@ describe("transcript export formats", () => {
     assert.match(srt, /map A → B/);
   });
 
+  it("escapes '&' and '<' in WebVTT cue text but leaves SRT alone", () => {
+    // YouTube ships `&lt;` and cleanSubtitleText decodes it, so a code caption
+    // like `x < y` would be written raw and a WebVTT parser eats everything up
+    // to the next `>`.
+    const markupCues = [
+      {
+        id: 1,
+        start: 0,
+        end: 2,
+        startFormatted: "00:00",
+        endFormatted: "00:02",
+        text: "if x < y && y > z",
+      },
+    ];
+    const vtt = cuesToVtt(markupCues);
+    assert.match(vtt, /\nif x &lt; y &amp;&amp; y > z$/);
+    // Our own reader gets the original text back.
+    assert.equal(parseWebVttIntoCues(vtt)[0]?.text, "if x < y && y > z");
+    // SRT has no entity decoding; escaping there would show `&amp;` on screen.
+    assert.match(cuesToSrt(markupCues), /\nif x < y && y > z\n/);
+  });
+
   it("converts cues to valid JSON", () => {
     const jsonStr = cuesToJson(cues);
     const parsed = JSON.parse(jsonStr);

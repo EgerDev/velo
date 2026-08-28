@@ -231,20 +231,24 @@ function ownsRow(row: CachedMedia, owner = mediaOwner): boolean {
 
 export async function listCachedKeys(): Promise<string[]> {
   if (typeof indexedDB === "undefined") return [];
-  const db = await openDb();
+  // Open inside the try: a blocked IDB (third-party iframe, private mode)
+  // throws on open and should read as an empty cache, not an unhandled rejection.
   try {
-    const all = await tx<CachedMedia[]>(db, "readonly", (store) => store.getAll());
-    const usable: string[] = [];
-    for (const row of all) {
-      if (!row?.key || !ownsRow(row)) continue;
-      if (await blobIsMedia(row.blob)) usable.push(String(row.key));
-      else await tx(db, "readwrite", (store) => store.delete(row.key)).catch(() => undefined);
+    const db = await openDb();
+    try {
+      const all = await tx<CachedMedia[]>(db, "readonly", (store) => store.getAll());
+      const usable: string[] = [];
+      for (const row of all) {
+        if (!row?.key || !ownsRow(row)) continue;
+        if (await blobIsMedia(row.blob)) usable.push(String(row.key));
+        else await tx(db, "readwrite", (store) => store.delete(row.key)).catch(() => undefined);
+      }
+      return usable;
+    } finally {
+      db.close();
     }
-    return usable;
   } catch {
     return [];
-  } finally {
-    db.close();
   }
 }
 
@@ -269,14 +273,18 @@ export async function removeCachedMedia(videoId: string, itag?: number): Promise
 
 export async function clearCachedMedia(): Promise<void> {
   if (typeof indexedDB === "undefined") return;
-  const db = await openDb();
   try {
-    const all = await tx<CachedMedia[]>(db, "readonly", (store) => store.getAll());
-    await Promise.all(
-      all.filter((row) => ownsRow(row)).map((row) => tx(db, "readwrite", (store) => store.delete(row.key))),
-    );
-  } finally {
-    db.close();
+    const db = await openDb();
+    try {
+      const all = await tx<CachedMedia[]>(db, "readonly", (store) => store.getAll());
+      await Promise.all(
+        all.filter((row) => ownsRow(row)).map((row) => tx(db, "readwrite", (store) => store.delete(row.key))),
+      );
+    } finally {
+      db.close();
+    }
+  } catch {
+    return;
   }
 }
 

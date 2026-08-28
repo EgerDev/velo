@@ -204,6 +204,16 @@ function neutralizeTimingDelimiter(text: string): string {
 }
 
 /**
+ * WebVTT cue text is markup: `<` opens a tag and `&` starts a character
+ * reference, so a decoded caption like `x < y` renders with everything up to
+ * the next `>` swallowed. Re-escape for .vtt only — SRT has no entity decoding
+ * and would show `&amp;` literally.
+ */
+export function escapeVttText(text: string): string {
+  return neutralizeTimingDelimiter(text).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+/**
  * Format cues as SubRip (.srt) subtitle format
  */
 export function cuesToSrt(cues: TranscriptCue[]): string {
@@ -221,7 +231,7 @@ export function cuesToSrt(cues: TranscriptCue[]): string {
  */
 export function cuesToVtt(cues: TranscriptCue[]): string {
   const body = cues
-    .map((c) => `${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${neutralizeTimingDelimiter(c.text)}`)
+    .map((c) => `${formatVttTime(c.start)} --> ${formatVttTime(c.end)}\n${escapeVttText(c.text)}`)
     .join("\n\n");
   return `WEBVTT\n\n${body}`;
 }

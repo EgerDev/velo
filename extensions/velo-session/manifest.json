@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Velo YouTube Session",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Extract YouTube HttpOnly cookies, capture live HAR cookie headers, and send them to Velo.",
-  "permissions": ["cookies", "tabs", "clipboardWrite", "downloads", "webRequest"],
+  "permissions": ["cookies", "tabs", "clipboardWrite", "downloads", "webRequest", "storage"],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://*.youtube-nocookie.com/*",
@@ -25,7 +25,8 @@
     }
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
   },
   "content_scripts": [
     {

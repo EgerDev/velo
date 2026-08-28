@@ -5,7 +5,8 @@ const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 function parseVideoId(value: string): string | null {
   const raw = value.trim();
   if (VIDEO_ID_RE.test(raw)) return raw;
-  const fromQuery = raw.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  // Tail anchor: `v=20240826abcdef` is not a truncated 11-char id.
+  const fromQuery = raw.match(/[?&]v=([a-zA-Z0-9_-]{11})(?=[&#/?]|$)/);
   if (fromQuery?.[1]) return fromQuery[1];
   const fromPath = raw.match(/\/(?:shorts|embed|live|watch|v)\/([a-zA-Z0-9_-]{11})/);
   if (fromPath?.[1]) return fromPath[1];
@@ -197,10 +198,12 @@ function isYoutubeUrl(url: string): boolean {
   }
 }
 
-function pushVideoId(ids: Set<string>, value: string | null | undefined) {
-  if (!value) return;
+/** Returns the id it recorded so the caller can track the most recent one. */
+function pushVideoId(ids: Set<string>, value: string | null | undefined): string | null {
+  if (!value) return null;
   const id = parseVideoId(value);
   if (id) ids.add(id);
+  return id;
 }
 
 function decodeContent(content: HarContent | undefined): string {
@@ -503,6 +506,10 @@ export function parseHar(raw: string | HarFile): ParsedHar {
   if (!entries.length) throw new Error("That JSON is not a HAR file (no log.entries).");
 
   const videoIds = new Set<string>();
+  // The id most recently seen in the capture, which is what a following
+  // googlevideo playback belongs to. Not the Set's last element: a Set keeps
+  // first-insertion order, so watch A, B, A would attribute A's playback to B.
+  let lastVideoId: string | null = null;
   const poTokens = new Set<string>();
   const playbacks: HarPlayback[] = [];
   const seenItag = new Set<string>();
@@ -512,31 +519,37 @@ export function parseHar(raw: string | HarFile): ParsedHar {
 
   for (const entry of entries) {
     const url = entry.request?.url ?? "";
-    if (url && isYoutubeUrl(url)) {
+    // Only YouTube-family URLs carry video ids. Third-party `?v=…` / `/v/…`
+    // (cache-busters, asset paths) otherwise mint fake ids and mis-attribute
+    // the next playback to them.
+    const youtubeUrl = Boolean(url) && isYoutubeUrl(url);
+    if (youtubeUrl) {
       youtubeEntryCount += 1;
       sawYoutube = true;
+      lastVideoId = pushVideoId(videoIds, url) ?? lastVideoId;
     }
-    pushVideoId(videoIds, url);
-    pushVideoId(videoIds, headerValue(entry.request?.headers, "referer"));
+    const referer = headerValue(entry.request?.headers, "referer");
+    if (referer && isYoutubeUrl(referer)) lastVideoId = pushVideoId(videoIds, referer) ?? lastVideoId;
     for (const query of entry.request?.queryString ?? []) {
-      if (query.name === "v" || query.name === "videoId") pushVideoId(videoIds, query.value);
+      if (youtubeUrl && (query.name === "v" || query.name === "videoId")) {
+        lastVideoId = pushVideoId(videoIds, query.value) ?? lastVideoId;
+      }
       if (query.name === "pot" && query.value) poTokens.add(query.value);
     }
     const post = entry.request?.postData?.text ?? "";
     const postVideo = post.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1];
-    pushVideoId(videoIds, postVideo);
+    lastVideoId = pushVideoId(videoIds, postVideo) ?? lastVideoId;
     const mime = (entry.response?.content?.mimeType ?? "").toLowerCase();
     if (mime.includes("json") || mime.includes("text")) {
       const body = decodeContent(entry.response?.content);
       const bodyVideo = body.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/)?.[1];
-      pushVideoId(videoIds, bodyVideo);
+      lastVideoId = pushVideoId(videoIds, bodyVideo) ?? lastVideoId;
     }
 
     const cookieHeader = headerValue(entry.request?.headers, "cookie") ?? "";
     if (REDACTED.test(cookieHeader) || cookieHeader.toLowerCase().includes("[redacted]")) sawRedacted = true;
 
-    const nearestId = [...videoIds][videoIds.size - 1] ?? null;
-    const playback = playbackFromUrl(url, nearestId);
+    const playback = playbackFromUrl(url, lastVideoId);
     if (playback) {
       const key = `${playback.videoId ?? ""}:${playback.itag}`;
       if (!seenItag.has(key)) {

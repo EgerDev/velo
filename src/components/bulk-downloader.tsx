@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -38,10 +38,17 @@ import { downloadPresetFile, type DownloadProgress } from "@/lib/download-client
 import { isUserAbort } from "@/lib/download-error";
 import { beginBuilderSave, discardPendingSave, type PendingSave } from "@/lib/builder-save";
 import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
+import { BulkQueueItem } from "@/components/bulk-queue-item";
+import { BulkView } from "@/components/bulk-view";
+import { processBulkItem } from "@/lib/bulk-process";
+import { startBulkQueue } from "@/lib/bulk-queue-run";
+import { loadBulkLinks, resolveBulkMetadata } from "@/lib/bulk-load";
 
 type BulkDownloaderProps = {
   onSelectSingleVideo?: (url: string) => void;
   initialIds?: string[];
+  /** Lets downloads send the vault cookies — guests always fetch anonymously. */
+  signedIn?: boolean;
 };
 
 const SAMPLE_BATCH = [
@@ -50,9 +57,21 @@ const SAMPLE_BATCH = [
   "https://www.youtube.com/shorts/5Eqb_-j3FDA",
 ];
 
-export function BulkDownloader({ onSelectSingleVideo, initialIds }: BulkDownloaderProps) {
+export function BulkDownloader({ onSelectSingleVideo, initialIds, signedIn }: BulkDownloaderProps) {
   const [inputText, setInputText] = useState("");
   const [items, setItems] = useState<BulkItem[]>([]);
+  // The queue's source of truth. Workers read it synchronously and every write
+  // goes through `mutate`, which mirrors it into state. Reading state back out
+  // of a setItems updater doesn't work: React defers the updater whenever an
+  // update is already queued on this component (a progress tick, or the
+  // setIsProcessing right before worker 0 starts), so the pick came back null.
+  const itemsRef = useRef<BulkItem[]>([]);
+  const mutate = useCallback((fn: (prev: BulkItem[]) => BulkItem[]) => {
+    itemsRef.current = fn(itemsRef.current);
+    setItems(itemsRef.current);
+  }, []);
+  // Bumped per startQueue so a paused run's workers can't outlive it.
+  const runRef = useRef(0);
   const [globalPreset, setGlobalPreset] = useState<BulkQualityPreset>("1080p");
   const [expandPlaylists, setExpandPlaylists] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -71,312 +90,67 @@ export function BulkDownloader({ onSelectSingleVideo, initialIds }: BulkDownload
   const extracted = useMemo(() => extractYoutubeLinks(inputText), [inputText]);
   const stats = useMemo(() => calculateQueueStats(items), [items]);
 
-  // Load input text into items
-  const handleLoadLinks = async () => {
-    // A pasted JSON manifest (from Export) round-trips through importBatchJson so
-    // each item keeps its saved preset — the plain-text path below only sees URLs.
-    const looksLikeManifest = /^\s*[[{]/.test(inputText);
-    if (looksLikeManifest) {
-      const { items: imported, error } = importBatchJson(inputText, globalPreset);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      const existing = new Set(items.map((i) => i.id));
-      const fresh = imported.filter((item) => !existing.has(item.id));
-      if (!fresh.length) {
-        toast.info("Every video in that manifest is already queued.");
-        return;
-      }
-      setItems((prev) => [...prev, ...fresh]);
-      setInputText("");
-      toast.success(`Imported ${fresh.length} video(s) from the manifest.`);
-      void resolveMetadataForItems(fresh);
-      return;
-    }
-
-    if (!extracted.totalUnique && !extracted.playlistIds.length) {
-      toast.error("No valid YouTube video or playlist links found in the text.");
-      return;
-    }
-
-    const newVideoIds = [...extracted.videoIds];
-
-    // If there are playlist IDs and option is enabled, resolve them
-    if (extracted.playlistIds.length > 0 && expandPlaylists) {
-      toast.info(`Expanding ${extracted.playlistIds.length} playlist(s)...`);
-      for (const plId of extracted.playlistIds) {
-        try {
-          const res = await resolvePlaylist({ data: { url: `https://www.youtube.com/playlist?list=${plId}` } });
-          for (const item of res.items) {
-            if (!newVideoIds.includes(item.id)) {
-              newVideoIds.push(item.id);
-            }
-          }
-        } catch {
-          toast.warning(`Could not expand playlist: ${plId}`);
-        }
-      }
-    }
-
-    if (!newVideoIds.length) {
-      toast.error("No video items could be extracted.");
-      return;
-    }
-
-    const existingIds = new Set(items.map((i) => i.id));
-    const uniqueNewIds = newVideoIds.filter((id) => !existingIds.has(id));
-
-    if (!uniqueNewIds.length) {
-      toast.info("All entered links are already in the queue.");
-      return;
-    }
-
-    const newItems = createBulkItems(uniqueNewIds, globalPreset);
-    setItems((prev) => [...prev, ...newItems]);
-    setInputText("");
-    toast.success(`Added ${newItems.length} video(s) to the download queue.`);
-
-    // Automatically trigger metadata resolution in background
-    void resolveMetadataForItems(newItems);
+  const resolveMetadataForItems = async (itemsToResolve: BulkItem[]) => {
+    await resolveBulkMetadata(itemsToResolve, mutate);
   };
 
-  // Background metadata resolver
-  const resolveMetadataForItems = async (itemsToResolve: BulkItem[]) => {
-    const ids = itemsToResolve.map((i) => i.id);
-    if (!ids.length) return;
-
-    setItems((prev) =>
-      prev.map((item) => (ids.includes(item.id) ? { ...item, status: "resolving" } : item)),
-    );
-
-    try {
-      const results = await resolveBulkVideos({ data: { ids } });
-      setItems((prev) =>
-        prev.map((item) => {
-          const match = results.find((r) => r.id === item.id);
-          if (!match) return item;
-          const nextStatus = item.status === "resolving" || item.status === "pending" ? "ready" : item.status;
-          if (match.ok && match.video) {
-            const v = match.video;
-            const targetPreset =
-              v.presets.find(
-                (p) => p.id === item.preset || (item.preset === "audio" && p.kind === "audio"),
-              ) ?? pickBestPreset(v.presets);
-            return {
-              ...item,
-              title: v.title,
-              author: v.author,
-              duration: v.duration,
-              durationFormatted: v.duration
-                ? `${Math.floor(v.duration / 60)}:${String(v.duration % 60).padStart(2, "0")}`
-                : null,
-              thumbnail: v.thumbnail,
-              status: nextStatus,
-              selectedItag: targetPreset?.itag ?? 137,
-              selectedAudioItag: targetPreset?.audioItag ?? null,
-              sizeFormatted: targetPreset?.size
-                ? `${(targetPreset.size / (1024 * 1024)).toFixed(1)} MB`
-                : null,
-              filename: `${v.title}.${targetPreset?.ext || "mp4"}`,
-            };
-          } else {
-            return {
-              ...item,
-              status: nextStatus,
-              error: match.error ?? null,
-            };
-          }
-        }),
-      );
-    } catch {
-      setItems((prev) =>
-        prev.map((item) => (ids.includes(item.id) ? { ...item, status: "ready" } : item)),
-      );
-    }
+  const handleLoadLinks = async () => {
+    await loadBulkLinks({
+      inputText,
+      items,
+      globalPreset,
+      expandPlaylists,
+      extracted,
+      mutate,
+      setInputText,
+    });
   };
 
   const seededRef = useRef(false);
+  const resolveMetadataRef = useRef(resolveMetadataForItems);
+  resolveMetadataRef.current = resolveMetadataForItems;
   useEffect(() => {
     if (seededRef.current || !initialIds?.length) return;
     seededRef.current = true;
     const seeded = createBulkItems(initialIds, globalPreset);
-    setItems(seeded);
-    void resolveMetadataForItems(seeded);
-  }, [initialIds, globalPreset]);
+    mutate(() => seeded);
+    void resolveMetadataRef.current(seeded);
+  }, [initialIds, globalPreset, mutate]);
 
-  // Process the queue with anti-throttling concurrency control
+  // Home unmounts this tab on a mode switch; the workers close over refs that
+  // outlive the component, so end the run or they keep saving files with no UI.
+  useEffect(
+    () => () => {
+      runRef.current++;
+      isProcessingRef.current = false;
+      abortControllerRef.current?.abort();
+    },
+    [],
+  );
+
   const startQueue = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    setIsPaused(false);
-    // The refs otherwise only sync during render, but worker 0 is started
-    // synchronously below — it would read the stale `false` and exit its loop
-    // immediately, so concurrency 1 downloaded nothing and still reported done.
-    isProcessingRef.current = true;
-    isPausedRef.current = false;
-    abortControllerRef.current = new AbortController();
-
-    toast.info(`Starting batch download queue (Concurrency: ${queueOptions.maxConcurrency})...`);
-
-    const runWorker = async () => {
-      while (isProcessingRef.current && !isPausedRef.current) {
-        // Find next eligible item
-        let nextItem: BulkItem | null = null;
-        setItems((currentItems) => {
-          const downloadingCount = currentItems.filter((i) => i.status === "downloading").length;
-          if (downloadingCount >= queueOptions.maxConcurrency) return currentItems;
-
-          const candidate = currentItems.find(
-            (i) => i.status === "ready" || i.status === "pending" || (i.status === "failed" && i.retryCount < queueOptions.maxRetries),
-          );
-
-          if (candidate) {
-            nextItem = candidate;
-            return currentItems.map((item) =>
-              item.id === candidate.id ? { ...item, status: "downloading", progress: 5 } : item,
-            );
-          }
-          return currentItems;
-        });
-
-        if (!nextItem) {
-          // Check if any are still downloading
-          let activeCount = 0;
-          setItems((current) => {
-            activeCount = current.filter((i) => i.status === "downloading").length;
-            return current;
-          });
-
-          if (activeCount === 0) {
-            // Queue is complete
-            break;
-          }
-
-          // Wait a bit before checking for available slots
-          await new Promise((r) => setTimeout(r, 600));
-          continue;
-        }
-
-        // Process this item with proper worker concurrency gating
-        const itemToProcess: BulkItem = nextItem;
-        await processSingleItem(itemToProcess);
-
-        // Anti-throttling stagger delay between launching successive downloads
-        await new Promise((r) => setTimeout(r, queueOptions.staggerDelayMs));
-      }
-    };
-
-    // Run workers with staggered startup up to max concurrency
-    const workers = Array.from({ length: queueOptions.maxConcurrency }, async (_, i) => {
-      if (i > 0) await new Promise((r) => setTimeout(r, queueOptions.staggerDelayMs * i));
-      return runWorker();
+    await startBulkQueue({
+      isProcessing,
+      setIsProcessing,
+      setIsPaused,
+      isProcessingRef,
+      isPausedRef,
+      abortControllerRef,
+      runRef,
+      itemsRef,
+      queueOptions,
+      mutate,
+      processItem: processSingleItem,
     });
-    await Promise.all(workers);
-    setIsProcessing(false);
-    toast.success("Batch download queue completed!");
   };
 
-  // Download a single item through the Velo pipeline
   const processSingleItem = async (item: BulkItem) => {
-    // Hoisted so the catch can release the picker handle: the chosen file is
-    // created on confirm, so a failed item would otherwise leave a 0-byte file.
-    let pendingSave: PendingSave | undefined;
-    let wrote = false;
-    try {
-      // 1. Resolve video details if not already resolved
-      let title = item.title;
-      let targetPresetItag = item.selectedItag ?? 137;
-      let targetAudioItag: number | null | undefined = item.selectedAudioItag;
-      let ext = "mp4";
-      let isAudio = item.preset === "audio";
-
-      if (!title) {
-        const v = await resolveVideo({ data: { url: item.url } });
-        title = v.title;
-        const targetPreset =
-          v.presets.find(
-            (p) => p.id === item.preset || (item.preset === "audio" && p.kind === "audio"),
-          ) ?? pickBestPreset(v.presets);
-        targetPresetItag = targetPreset?.itag ?? 137;
-        targetAudioItag = targetPreset?.audioItag;
-        ext = targetPreset?.ext ?? "mp4";
-        isAudio = targetPreset?.kind === "audio";
-      }
-
-      const filename = `${title || `video-${item.id}`}.${ext}`;
-      pendingSave = beginBuilderSave(filename);
-
-      const presetObj: VideoPreset = {
-        id: `bulk-${targetPresetItag}`,
-        itag: targetPresetItag,
-        audioItag: targetAudioItag ?? undefined,
-        kind: isAudio ? "audio" : "video",
-        title: item.preset,
-        hint: ext,
-        ext,
-        codec: null,
-        size: null,
-        height: null,
-        hasAudio: isAudio || Boolean(targetAudioItag),
-        availability: isAudio ? "ready" : targetAudioItag ? "muxed" : "ready",
-        streamType: targetAudioItag ? "dash-mux" : "direct",
-        recommended: true,
-      };
-
-      await downloadPresetFile({
-        videoId: item.id,
-        title: title || item.id,
-        preset: presetObj,
-        pendingSave,
-        signal: abortControllerRef.current?.signal,
-        onProgress: (prog: DownloadProgress) => {
-          setItems((prev) =>
-            prev.map((i) =>
-              i.id === item.id
-                ? { ...i, progress: Math.max(10, Math.min(95, prog.percent)) }
-                : i,
-            ),
-          );
-        },
-      });
-
-      wrote = true;
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === item.id
-            ? { ...i, status: "completed", progress: 100, filename, error: null }
-            : i,
-        ),
-      );
-    } catch (err) {
-      if (!wrote) void discardPendingSave(pendingSave);
-      // Pausing/clearing aborts the shared controller, rejecting every in-flight
-      // item. That's not a failure: mark it back to "ready" without spending a
-      // retry, or a couple of pauses would silently exhaust maxRetries and drop
-      // the item from the Resume candidate set.
-      if (isUserAbort(err, abortControllerRef.current?.signal)) {
-        setItems((prev) =>
-          prev.map((i) =>
-            i.id === item.id ? { ...i, status: "ready", progress: 0 } : i,
-          ),
-        );
-        return;
-      }
-      const errMsg = err instanceof Error ? err.message : "Download failed.";
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === item.id
-            ? {
-                ...i,
-                status: "failed",
-                error: errMsg,
-                retryCount: i.retryCount + 1,
-              }
-            : i,
-        ),
-      );
-    }
+    await processBulkItem({
+      item,
+      signedIn,
+      signal: abortControllerRef.current?.signal,
+      mutate,
+    });
   };
 
   const pauseQueue = () => {
@@ -393,7 +167,7 @@ export function BulkDownloader({ onSelectSingleVideo, initialIds }: BulkDownload
     if (isProcessing) {
       abortControllerRef.current?.abort();
     }
-    setItems([]);
+    mutate(() => []);
     setIsProcessing(false);
     setIsPaused(false);
     isProcessingRef.current = false;
@@ -402,462 +176,79 @@ export function BulkDownloader({ onSelectSingleVideo, initialIds }: BulkDownload
   };
 
   const retryFailed = () => {
-    setItems((prev) =>
+    mutate((prev) =>
       prev.map((i) => (i.status === "failed" ? { ...i, status: "ready", error: null } : i)),
     );
     void startQueue();
   };
 
   const removeItem = (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    mutate((prev) => prev.filter((i) => i.id !== id));
   };
 
   const pasteSampleBatch = () => {
     setInputText(SAMPLE_BATCH.join("\n"));
   };
 
+  // A denied clipboard write (framed preview, Firefox/Safari without a fresh
+  // gesture) rejects; without the catch it was an unhandled rejection and the
+  // export menu stayed open with no feedback.
+  const copyExport = async (text: string, done: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(done);
+    } catch {
+      toast.error("Couldn’t copy to clipboard.");
+    } finally {
+      setShowExportMenu(false);
+    }
+  };
+
   const copyScript = async () => {
     if (!items.length) return;
-    const script = exportYtdlpBatchScript(items);
-    await navigator.clipboard.writeText(script);
-    toast.success("yt-dlp batch shell script copied to clipboard!");
-    setShowExportMenu(false);
+    await copyExport(exportYtdlpBatchScript(items), "yt-dlp batch shell script copied to clipboard!");
   };
 
   const copyUrlList = async () => {
     if (!items.length) return;
-    const list = exportUrlList(items);
-    await navigator.clipboard.writeText(list);
-    toast.success("Clean URL list copied to clipboard!");
-    setShowExportMenu(false);
+    await copyExport(exportUrlList(items), "Clean URL list copied to clipboard!");
   };
 
   const copyJson = async () => {
     if (!items.length) return;
-    const json = exportBatchJson(items);
-    await navigator.clipboard.writeText(json);
-    toast.success("Queue metadata JSON copied to clipboard!");
-    setShowExportMenu(false);
+    await copyExport(exportBatchJson(items), "Queue metadata JSON copied to clipboard!");
   };
 
   return (
-    <div className="w-full space-y-6">
-      {/* Top Banner / Hero */}
-      <div className="rounded-2xl border border-border bg-card/70 backdrop-blur-md p-5 sm:p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center size-8 rounded-lg bg-accent/15 text-accent">
-                <ListPlus className="size-4" />
-              </span>
-              <h2 className="text-lg font-bold tracking-tight text-fg">Bulk & Playlist Downloader</h2>
-              <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-wider border-accent/40 text-accent">
-                Anti-Throttle Queue
-              </Badge>
-            </div>
-            <p className="text-xs text-muted mt-1 max-w-xl">
-              Paste multiple YouTube links or playlists. Velo uses staggered bursts, BotGuard PO token rotation, and zero-loss copy-muxing to prevent 429 rate-limiting.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowOptions(!showOptions)}
-              className="text-xs cursor-pointer gap-1.5"
-            >
-              <Sliders className="size-3.5" />
-              Queue Settings
-            </Button>
-          </div>
-        </div>
-
-        {/* Queue Settings Tray */}
-        {showOptions ? (
-          <div className="mt-4 pt-4 border-t border-border/60 grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <label className="text-subtle font-medium block mb-1">Quality Preset</label>
-              <select
-                aria-label="Quality preset"
-                value={globalPreset}
-                onChange={(e) => {
-                  const p = e.target.value as BulkQualityPreset;
-                  setGlobalPreset(p);
-                  setItems((prev) => prev.map((i) => ({ ...i, preset: p })));
-                }}
-                className="w-full rounded-md border border-border bg-elevated px-2.5 py-1.5 text-fg text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-              >
-                <option value="1080p">1080p Full HD</option>
-                <option value="720p">720p HD</option>
-                <option value="audio">Audio Only</option>
-                <option value="transcript">Subtitles Only</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-subtle font-medium block mb-1">Max Concurrency</label>
-              <select
-                aria-label="Max concurrency"
-                value={queueOptions.maxConcurrency}
-                onChange={(e) =>
-                  setQueueOptions((prev) => ({ ...prev, maxConcurrency: Number(e.target.value) }))
-                }
-                className="w-full rounded-md border border-border bg-elevated px-2.5 py-1.5 text-fg text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-              >
-                <option value={1}>1 (Safest — Single Stream)</option>
-                <option value={2}>2 (Recommended — Fast & Safe)</option>
-                <option value={3}>3 (High Throughput)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-subtle font-medium block mb-1">Stagger Delay (Anti-Burst)</label>
-              <select
-                aria-label="Stagger delay"
-                value={queueOptions.staggerDelayMs}
-                onChange={(e) =>
-                  setQueueOptions((prev) => ({ ...prev, staggerDelayMs: Number(e.target.value) }))
-                }
-                className="w-full rounded-md border border-border bg-elevated px-2.5 py-1.5 text-fg text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-              >
-                <option value={1000}>1.0s (Fast)</option>
-                <option value={1800}>1.8s (Recommended)</option>
-                <option value={3000}>3.0s (Strict Rate Limit Protection)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-subtle font-medium block mb-1">Playlist Auto-Expand</label>
-              <label className="flex items-center gap-2 mt-2 cursor-pointer text-fg">
-                <input
-                  type="checkbox"
-                  checked={expandPlaylists}
-                  onChange={(e) => setExpandPlaylists(e.target.checked)}
-                  className="rounded border-border text-accent focus:ring-accent size-4"
-                />
-                Expand playlist items
-              </label>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Input Box Area */}
-        <div className="mt-5 space-y-3">
-          <div className="relative">
-            <textarea
-              rows={4}
-              aria-label="YouTube links to queue"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Paste YouTube URLs here (one per line, comma separated, or mixed text)...&#10;https://www.youtube.com/watch?v=...&#10;https://youtu.be/...&#10;https://www.youtube.com/playlist?list=..."
-              className="w-full rounded-xl border border-border bg-elevated/80 p-3.5 text-xs text-fg font-mono placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent resize-y transition-all"
-            />
-            {inputText ? (
-              <button
-                type="button"
-                aria-label="Clear pasted links"
-                onClick={() => setInputText("")}
-                className="absolute top-3 right-3 text-subtle hover:text-fg p-1 rounded-md cursor-pointer"
-              >
-                <X className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={pasteSampleBatch}
-                className="cursor-pointer gap-1.5 text-xs h-8 border-border/80 bg-elevated/70 hover:bg-elevated text-fg"
-              >
-                Load Sample Batch
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {extracted.totalUnique > 0 || extracted.playlistIds.length > 0 ? (
-                <span className="text-xs font-mono font-medium text-accent">
-                  {extracted.totalUnique} video(s)
-                  {extracted.playlistIds.length > 0 ? ` + ${extracted.playlistIds.length} playlist(s)` : ""} detected
-                </span>
-              ) : null}
-
-              <Button
-                onClick={handleLoadLinks}
-                disabled={!extracted.totalUnique && !extracted.playlistIds.length}
-                className="cursor-pointer gap-1.5 text-xs h-8 bg-accent text-accent-fg font-medium hover:bg-accent/90"
-              >
-                <ListPlus className="size-3.5" />
-                Add to Queue
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Queue Section */}
-      {items.length > 0 ? (
-        <div className="rounded-2xl border border-border bg-card/70 backdrop-blur-md overflow-hidden shadow-sm">
-          {/* Queue Header & Action Bar */}
-          <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-elevated/40">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-fg">Download Queue</h3>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {stats.completed} / {stats.total} Finished
-                </Badge>
-                {stats.downloading > 0 ? (
-                  <Badge variant="default" className="bg-accent text-accent-fg text-xs animate-pulse">
-                    {stats.downloading} Active
-                  </Badge>
-                ) : null}
-              </div>
-
-              {/* Overall Progress Bar */}
-              <div className="flex items-center gap-3 mt-2 w-full sm:w-80">
-                <div
-                  role="progressbar"
-                  aria-label="Batch download progress"
-                  aria-valuenow={stats.totalProgress}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  className="flex-1 h-2 rounded-full bg-border overflow-hidden"
-                >
-                  <div
-                    className="h-full bg-accent transition-all duration-300 ease-out"
-                    style={{ width: `${stats.totalProgress}%` }}
-                  />
-                </div>
-                <span className="text-[11px] font-mono text-muted">{stats.totalProgress}%</span>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {isProcessing ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={pauseQueue}
-                  className="cursor-pointer gap-1.5 text-xs h-8 text-warn border-warn/30 hover:bg-warn/10"
-                >
-                  <Pause className="size-3.5" />
-                  Pause
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={startQueue}
-                  disabled={stats.isAllDone}
-                  className="cursor-pointer gap-1.5 text-xs h-8 bg-accent text-accent-fg hover:bg-accent/90"
-                >
-                  <Play className="size-3.5" />
-                  {stats.completed > 0 ? "Resume Queue" : "Start All Downloads"}
-                </Button>
-              )}
-
-              {stats.failed > 0 ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={retryFailed}
-                  className="cursor-pointer gap-1.5 text-xs h-8 text-danger border-danger/30 hover:bg-danger/10"
-                >
-                  <RefreshCw className="size-3.5" />
-                  Retry Failed ({stats.failed})
-                </Button>
-              ) : null}
-
-              {/* Export Scripts Dropdown */}
-              <div className="relative">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  className="cursor-pointer gap-1.5 text-xs h-8"
-                >
-                  <Download className="size-3.5" />
-                  Export Queue
-                  <ChevronDown className="size-3 text-subtle" />
-                </Button>
-
-                {showExportMenu ? (
-                  <div className="absolute right-0 mt-1 w-56 rounded-xl border border-border bg-elevated/95 backdrop-blur-md p-1.5 shadow-xl z-30 text-xs">
-                    <button
-                      type="button"
-                      onClick={copyScript}
-                      className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent/15 hover:text-accent cursor-pointer transition-colors"
-                    >
-                      <FileCode className="size-4 text-accent shrink-0" />
-                      <div>
-                        <div className="font-medium text-fg">yt-dlp Bash Script</div>
-                        <div className="text-[10px] text-muted">Runs anti-throttle batch locally</div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={copyUrlList}
-                      className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent/15 hover:text-accent cursor-pointer transition-colors"
-                    >
-                      <FileText className="size-4 text-accent shrink-0" />
-                      <div>
-                        <div className="font-medium text-fg">Clean URL List</div>
-                        <div className="text-[10px] text-muted">For IDM, JDownloader, aria2</div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={copyJson}
-                      className="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-accent/15 hover:text-accent cursor-pointer transition-colors"
-                    >
-                      <Copy className="size-4 text-accent shrink-0" />
-                      <div>
-                        <div className="font-medium text-fg">JSON Metadata</div>
-                        <div className="text-[10px] text-muted">Titles, URLs, and status</div>
-                      </div>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={clearQueue}
-                className="cursor-pointer gap-1.5 text-xs h-8 text-subtle hover:text-danger hover:bg-danger/10"
-              >
-                <Trash2 className="size-3.5" />
-                Clear
-              </Button>
-            </div>
-          </div>
-
-          {/* Queue Item List */}
-          <div className="divide-y divide-border/30 max-h-[460px] overflow-y-auto p-2 sm:p-3 space-y-1">
-            {items.map((item, idx) => {
-              return (
-                <div
-                  key={item.id}
-                  className={cn(
-                    "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2.5 rounded-xl transition-colors",
-                    item.status === "downloading"
-                      ? "bg-accent/10 border border-accent/30"
-                      : item.status === "completed"
-                        ? "bg-success/5 hover:bg-success/10"
-                        : item.status === "failed"
-                          ? "bg-danger/5 hover:bg-danger/10"
-                          : "hover:bg-elevated/60",
-                  )}
-                >
-                  {/* Left: Thumbnail & Info */}
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <span className="text-[11px] font-mono text-subtle w-5 shrink-0 text-center">
-                      {idx + 1}
-                    </span>
-
-                    <div className="relative size-12 rounded-lg overflow-hidden bg-black/40 shrink-0 border border-border/50">
-                      {item.thumbnail ? (
-                        <img
-                          src={item.thumbnail}
-                          alt={item.title || item.id}
-                          className="size-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="size-full flex items-center justify-center text-muted">
-                          <Play className="size-4" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        {/* A real button: as a click-only span this was the one
-                            action in the row a keyboard could never reach. */}
-                        <button
-                          type="button"
-                          onClick={() => onSelectSingleVideo?.(item.url)}
-                          className="font-medium text-xs text-fg hover:text-accent cursor-pointer truncate text-left"
-                        >
-                          {item.title || `Video ID: ${item.id}`}
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-[11px] text-muted mt-0.5 font-mono">
-                        <span>{item.author || "YouTube"}</span>
-                        {item.durationFormatted ? (
-                          <>
-                            <span>·</span>
-                            <span>{item.durationFormatted}</span>
-                          </>
-                        ) : null}
-                        {item.sizeFormatted ? (
-                          <>
-                            <span>·</span>
-                            <span>{item.sizeFormatted}</span>
-                          </>
-                        ) : null}
-                      </div>
-
-                      {/* Error text if failed */}
-                      {item.error ? (
-                        <p className="text-[11px] text-danger truncate mt-0.5">{item.error}</p>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Right: Status & Actions */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-8 sm:pl-0">
-                    {/* Status indicator */}
-                    <div className="flex items-center gap-2">
-                      {item.status === "downloading" ? (
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="size-3.5 animate-spin text-accent" />
-                          <span className="text-xs font-mono font-medium text-accent">
-                            {item.progress}%
-                          </span>
-                        </div>
-                      ) : item.status === "completed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-                          <CheckCircle2 className="size-3.5" />
-                          Done
-                        </span>
-                      ) : item.status === "failed" ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
-                          <XCircle className="size-3.5" />
-                          Failed
-                        </span>
-                      ) : item.status === "resolving" ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-subtle">
-                          <Loader2 className="size-3 animate-spin" />
-                          Checking...
-                        </span>
-                      ) : (
-                        <span className="text-xs text-subtle font-mono">Ready</span>
-                      )}
-                    </div>
-
-                    {/* Remove button */}
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.id)}
-                      className="text-subtle hover:text-danger p-1 rounded-md cursor-pointer transition-colors"
-                      title="Remove from queue"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </div>
+    <BulkView
+      inputText={inputText}
+      setInputText={setInputText}
+      showOptions={showOptions}
+      setShowOptions={setShowOptions}
+      globalPreset={globalPreset}
+      setGlobalPreset={setGlobalPreset}
+      mutate={mutate}
+      queueOptions={queueOptions}
+      setQueueOptions={setQueueOptions}
+      expandPlaylists={expandPlaylists}
+      setExpandPlaylists={setExpandPlaylists}
+      extracted={extracted}
+      handleLoadLinks={() => void handleLoadLinks()}
+      pasteSampleBatch={pasteSampleBatch}
+      items={items}
+      stats={stats}
+      isProcessing={isProcessing}
+      startQueue={() => void startQueue()}
+      pauseQueue={pauseQueue}
+      retryFailed={retryFailed}
+      clearQueue={clearQueue}
+      showExportMenu={showExportMenu}
+      setShowExportMenu={setShowExportMenu}
+      copyScript={() => void copyScript()}
+      copyUrlList={() => void copyUrlList()}
+      copyJson={() => void copyJson()}
+      onSelectSingleVideo={onSelectSingleVideo}
+      removeItem={removeItem}
+    />
   );
 }

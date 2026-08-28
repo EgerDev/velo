@@ -35,7 +35,7 @@ export const Route = createFileRoute("/api/download")({
           }
           try {
             const { streamSameHop } = await import("@/lib/bypass.server");
-            return await streamSameHop(id, itag);
+            return await streamSameHop(id, itag, request.signal);
           } catch {
             // Direct 403 and bypass both failed — no bytes served, so refund the
             // charge (mirrors /api/ytdlp and /api/bypass).
@@ -45,7 +45,7 @@ export const Route = createFileRoute("/api/download")({
         } catch (err) {
           try {
             const { streamSameHop } = await import("@/lib/bypass.server");
-            return await streamSameHop(id, itag);
+            return await streamSameHop(id, itag, request.signal);
           } catch {
             await downloadQuotaRefund(request);
             const message =

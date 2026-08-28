@@ -15,6 +15,7 @@ import {
 } from "@/lib/audio-profiles";
 import { isEncoderSupported, preloadEncoder, type EncodeProgress } from "@/lib/audio-encoder";
 import { beginBuilderSave, discardPendingSave, saveMediaBlob } from "@/lib/builder-save";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
 type AudioStudioProps = {
   videoId: string;
@@ -22,7 +23,6 @@ type AudioStudioProps = {
   author: string;
   duration: number | null;
   audioPreset: VideoPreset | null;
-  signedIn?: boolean;
 };
 
 type Phase =
@@ -36,7 +36,11 @@ type Phase =
  * loudness target, and ffmpeg.wasm does the work locally — the audio never
  * goes to a third-party converter.
  */
-export function AudioStudio({ videoId, title, author, duration, audioPreset, signedIn }: AudioStudioProps) {
+export function AudioStudio({ videoId, title, author, duration, audioPreset }: AudioStudioProps) {
+  // Derived here like SaveStage does — VideoPanel never carried the flag, so
+  // the converter fetched anonymously even with a vault jar loaded.
+  const { user } = useCurrentUserState();
+  const signedIn = Boolean(user);
   const [profileId, setProfileId] = useState<AudioProfileId>("mp3_320");
   const [loudness, setLoudness] = useState<number | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });

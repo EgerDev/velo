@@ -124,6 +124,12 @@ export function clientIp(request: Request): string {
     const cfIp = request.headers.get("cf-connecting-ip")?.trim();
     if (cfRay && cfIp) return cfIp;
   }
+  // On Vercel, x-vercel-forwarded-for / x-real-ip are platform-attested (the
+  // edge overwrites any client-supplied copies), so they are safe to read
+  // unconditionally. Prefer the vercel one and treat the nginx-convention
+  // x-real-ip as a fallback for other hosts.
+  const vercel = request.headers.get("x-vercel-forwarded-for")?.trim();
+  if (vercel) return vercel.split(",")[0].trim();
   const real = request.headers.get("x-real-ip")?.trim();
   if (real) return real;
   const forwarded = request.headers.get("x-forwarded-for");

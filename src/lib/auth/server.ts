@@ -209,9 +209,9 @@ export const auth = betterAuth({
         ...GROK_PROVIDERS.map((p) => p.providerId),
         GATE_PROVIDER_ID,
       ],
-      // X's synthetic email is never "verified", so don't gate linking on the
-      // local user's email-verified state.
-      requireLocalEmailVerified: false,
+      // Keep the default `requireLocalEmailVerified: true`: an unverified local
+      // row (a password sign-up for someone else's address) must never be the
+      // target of a trusted federated login, or that password owns the account.
     },
   },
 

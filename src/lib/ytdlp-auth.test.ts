@@ -131,6 +131,22 @@ test("socks proxy is passed to yt-dlp and cookies are not required", () => {
   assert.equal(argv[argv.indexOf("--remote-components") + 1], "ejs:github");
 });
 
+test("browser cookies never ride a SOCKS hop even when YTDLP_BROWSER is set", () => {
+  const previous = process.env.YTDLP_BROWSER;
+  process.env.YTDLP_BROWSER = "firefox";
+  try {
+    const base = { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "web_embedded" };
+    const proxied = ytdlpArgv({ ...base, proxy: "socks5h://127.0.0.1:1080" });
+    assert.ok(!proxied.includes("--cookies-from-browser"));
+    assert.ok(!proxied.includes("--cookies"));
+    // Direct (no proxy) still uses the host browser jar.
+    assert.ok(ytdlpArgv(base).includes("--cookies-from-browser"));
+  } finally {
+    if (previous === undefined) delete process.env.YTDLP_BROWSER;
+    else process.env.YTDLP_BROWSER = previous;
+  }
+});
+
 test("extractor-args stamp po_token and visitor_data; never use -u/-p", () => {
   const args = extractorArgs("mweb", "POTTOKEN", "visitorA");
   assert.match(args, /player_client=mweb/);

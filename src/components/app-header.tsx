@@ -55,6 +55,9 @@ function HeaderMenu({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // Claim the key so the global Esc shortcut (which fires next, on window)
+      // doesn't clear the page underneath the menu.
+      event.preventDefault();
       setOpen(false);
       triggerRef.current?.focus();
     };
@@ -73,6 +76,7 @@ function HeaderMenu({
         type="button"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
+        aria-label={label}
         onClick={() => setOpen((value) => !value)}
         className={cn(
           "inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors cursor-pointer",

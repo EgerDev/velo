@@ -1,4 +1,5 @@
 import type { Chapter } from "./chapters.ts";
+import { escapeVttText, formatVttTime } from "./transcript.ts";
 
 export type Sidecar = {
   content: string;
@@ -14,16 +15,6 @@ function safeStem(title: string): string {
       .replace(/\s+/g, "_")
       .slice(0, 80) || "video"
   );
-}
-
-function vttTimestamp(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  const ms = Math.round((s - Math.floor(s)) * 1000);
-  const pad = (n: number, z = 2) => String(n).padStart(z, "0");
-  return `${pad(h)}:${pad(m)}:${pad(sec)}.${pad(ms, 3)}`;
 }
 
 /** `<stem>.description.txt` — the plain description, editors read it as show notes. */
@@ -45,8 +36,10 @@ export function chaptersVttSidecar(title: string, chapters: Chapter[]): Sidecar 
   if (!chapters.length) return null;
   const lines = ["WEBVTT", ""];
   for (const chapter of chapters) {
-    lines.push(`${vttTimestamp(chapter.start)} --> ${vttTimestamp(chapter.end)}`);
-    lines.push(chapter.title);
+    // Total-ms arithmetic: rounding the fraction on its own can yield a
+    // 4-digit ms field (12.9996 -> "12.1000") that players reject.
+    lines.push(`${formatVttTime(chapter.start)} --> ${formatVttTime(chapter.end)}`);
+    lines.push(escapeVttText(chapter.title));
     lines.push("");
   }
   return {

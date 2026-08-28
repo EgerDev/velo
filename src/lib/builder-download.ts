@@ -9,6 +9,7 @@ import type { DownloadProgress } from "@/lib/download-client";
 import { createSpeedProbe, formatSpeed } from "@/lib/speed-probe";
 import { isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { linkAbort } from "@/lib/abort-link";
+import { nameForBlob } from "@/lib/media-name";
 
 function assertMedia(blob: Blob, type: string | null): Blob {
   const mime = type ?? blob.type;
@@ -185,6 +186,7 @@ export async function downloadViaBuilder(opts: {
     // Server already muxes 137+140 (or HLS 96) on the matching hop.
     // A second /api/builder call for audio would double quota and race two SOCKS downloads.
     const probe = createSpeedProbe();
+    let lastEmit = 0;
     const blob = await fetchBuilderBlob({
       videoId: opts.videoId,
       itag,
@@ -194,6 +196,12 @@ export async function downloadViaBuilder(opts: {
       onProgress: (label, percent) => opts.onProgress?.({ label, percent, steps }),
       onBytes: (loaded, total) => {
         const sample = probe.push(loaded, total);
+        // Every fetch chunk lands here — thousands per file — and each emit
+        // re-renders the whole page. ~10/s is plenty for a progress bar; the
+        // final chunk always goes through so completion is never held back.
+        const now = performance.now();
+        if (loaded !== total && now - lastEmit < 100) return;
+        lastEmit = now;
         const percent = total > 0 ? Math.min(96, 8 + Math.round((loaded / total) * 88)) : 24;
         opts.onProgress?.({
           label: sample.throttled
@@ -218,7 +226,7 @@ export async function downloadViaBuilder(opts: {
     };
     opts.onProgress?.({ label: "Saving file", percent: 100, steps });
     if (opts.signal?.aborted) throw new Error("aborted");
-    const name = opts.filename || `${fileBasename(opts.title || "video")}.mp4`;
+    const name = nameForBlob(opts.filename || `${fileBasename(opts.title || "video")}.mp4`, blob);
     await saveMediaBlob(blob, name, opts.pendingSave, { videoId: opts.videoId, itag }, opts.signal);
   } catch (err) {
     steps[0] = {

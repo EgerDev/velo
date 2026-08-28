@@ -57,6 +57,9 @@ const SERVER_STUBS: Record<string, string> = {
   "@/lib/ipv4-bind.server": "export {};",
   "@/lib/youtube.server":
     "export async function decipherRawFormat() { throw new Error('stubbed in bypass.test.ts'); }",
+  // bypass.ts only needs this for /api/unlock; its import graph drags in the
+  // auth client, which a unit test of readAll must not load.
+  "@/lib/guest-id": "export function downloadHeaders(headers) { return headers ?? {}; }",
 };
 
 registerHooks({
@@ -103,4 +106,36 @@ test("only googlevideo /videoplayback is treated as media", () => {
     isVideoplaybackUrl("https://www.youtube.com/redirect?q=https://r1.googlevideo.com/videoplayback?itag=18"),
     false,
   );
+});
+
+function bodyOf(parts: Uint8Array[], contentLength?: number): Response {
+  let i = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i >= parts.length) controller.close();
+      else controller.enqueue(parts[i++]!);
+    },
+  });
+  const headers: Record<string, string> = { "content-type": "video/mp4" };
+  if (contentLength != null) headers["content-length"] = String(contentLength);
+  return new Response(body, { headers });
+}
+
+test("readAll rejects a body that closes short of its content-length", async () => {
+  const { readAll } = await import("./bypass.ts");
+  // A relay that drops mid-range still closes cleanly; the old reader returned
+  // the short part and the next range was appended right after it.
+  const short = bodyOf([new Uint8Array(1000), new Uint8Array(500)], 2500);
+  await assert.rejects(readAll(short), /ended early — got 1500 of 2500 bytes/);
+  // A complete body is byte-identical without the contiguous copy.
+  const a = new Uint8Array(3).fill(1);
+  const b = new Uint8Array(2).fill(2);
+  const full = await readAll(bodyOf([a, b], 5));
+  assert.equal(full.size, 5);
+  assert.equal(full.type, "video/mp4");
+  assert.deepEqual(new Uint8Array(await full.arrayBuffer()), new Uint8Array([1, 1, 1, 2, 2]));
+  // No content-length (relay re-chunked) — nothing to compare against, so the
+  // caller's own range/size check has to catch it.
+  const unknown = await readAll(bodyOf([new Uint8Array(7)]));
+  assert.equal(unknown.size, 7);
 });

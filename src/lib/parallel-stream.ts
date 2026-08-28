@@ -126,6 +126,12 @@ export function orderedParallelStream(options: OrderedParallelOptions): Readable
         if (done) break;
         if (value?.byteLength) {
           received += value.byteLength;
+          // A hop that ignores `range=` answers with the whole object. Emitting
+          // it would splice the head of the file in after this slice, under a
+          // Content-Length that has already gone out.
+          if (received > expected) {
+            throw new Error(`Range ${index} delivered more than its ${expected}-byte slice.`);
+          }
           lane.chunks.push(value);
           lane.buffered += value.byteLength;
           if (waitingFor === index) wakeConsumer();
@@ -135,7 +141,7 @@ export function orderedParallelStream(options: OrderedParallelOptions): Readable
       // the transfer completes "successfully" having emitted fewer bytes than
       // the Content-Length already sent to the client — a truncated file the
       // caller has no way to detect. Better a hard error it can fall back from.
-      if (!abort.signal.aborted && received < expected) {
+      if (!abort.signal.aborted && received !== expected) {
         throw new Error(
           `Range ${index} ended ${expected - received} bytes short of its ${expected}-byte slice.`,
         );

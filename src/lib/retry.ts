@@ -14,10 +14,10 @@ const FATAL_CODES = new Set(["rate", "busy", "queue", "blocked", "bot", "cookies
 export function isRetryable(err: unknown): boolean {
   if (err instanceof DownloadError && FATAL_CODES.has(err.code)) return false;
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  // Word boundaries: truncation errors embed byte counts ("got 1403211 of …")
+  // that would otherwise read as a status code.
   if (
-    msg.includes("403") ||
-    msg.includes("429") ||
-    msg.includes("503") ||
+    /\b(403|429|503)\b/.test(msg) ||
     msg.includes("sign in") ||
     msg.includes("cookie") ||
     msg.includes("access denied") ||
@@ -39,8 +39,7 @@ export function isRetryable(err: unknown): boolean {
     msg.includes("nsig") ||
     msg.includes("timed out") ||
     msg.includes("timeout") ||
-    msg.includes("502") ||
-    msg.includes("522") ||
+    /\b(502|522)\b/.test(msg) ||
     msg.includes("failed to fetch") ||
     msg.includes("network") ||
     msg.includes("econnreset") ||

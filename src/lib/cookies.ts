@@ -206,11 +206,15 @@ function fromHeader(raw: string): ParsedCookies {
 }
 
 function fromCurl(raw: string): ParsedCookies {
+  // Chrome's "Copy as cURL (cmd)" escapes with a caret: `^"` around values,
+  // `^` before a line break, and `^` ahead of `%` and friends inside values.
+  // Strip it once so the quote-anchored matches below see a plain command.
+  const text = /\^["\r\n]/.test(raw) ? raw.replace(/\^([\s\S])/g, "$1") : raw;
   const cookieHeader =
-    raw.match(/-H\s+['"]cookie:\s*([^'"]+)['"]/i)?.[1] ||
-    raw.match(/--header\s+['"]cookie:\s*([^'"]+)['"]/i)?.[1] ||
-    raw.match(/-b\s+['"]([^'"]+)['"]/i)?.[1] ||
-    raw.match(/--cookie\s+['"]([^'"]+)['"]/i)?.[1];
+    text.match(/-H\s+['"]cookie:\s*([^'"]+)['"]/i)?.[1] ||
+    text.match(/--header\s+['"]cookie:\s*([^'"]+)['"]/i)?.[1] ||
+    text.match(/-b\s+['"]([^'"]+)['"]/i)?.[1] ||
+    text.match(/--cookie\s+['"]([^'"]+)['"]/i)?.[1];
   if (!cookieHeader) throw new Error("No Cookie header in that cURL command.");
   return fromHeader(cookieHeader);
 }
@@ -374,12 +378,15 @@ export function parseCookieImport(raw: string): ParsedCookies {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error("Paste a cookies.txt, HAR, cURL, Cookie-Editor JSON, or DevTools table first.");
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) return fromJson(trimmed);
-  if (/^\s*curl\s/i.test(trimmed) || /--cookie\s|-b\s/.test(trimmed)) return fromCurl(trimmed);
-  if (looksLikeHeader(trimmed)) return fromHeader(trimmed);
-  if (/^name\t/i.test(trimmed.split(/\r?\n/)[0] ?? "")) {
+  if (/^\s*curl\s/i.test(trimmed) || /(?:^|\s)(?:--cookie|-b)\s/.test(trimmed)) return fromCurl(trimmed);
+  // Tried before the header path: a headerless DevTools row starts with a
+  // cookie name, which looksLikeHeader would otherwise claim. A Netscape jar
+  // bails out on its TRUE/FALSE column and falls through unchanged.
+  if (trimmed.includes("\t")) {
     const table = fromDevToolsTable(trimmed);
     if (table) return table;
   }
+  if (looksLikeHeader(trimmed)) return fromHeader(trimmed);
   if (!trimmed.includes("\t") && !trimmed.includes("youtube.com")) {
     throw new Error("That doesn’t look like cookies.txt, HAR, cURL, Cookie-Editor JSON, or a Cookie header.");
   }
@@ -431,8 +438,8 @@ export function detectCookieFormat(raw: string): CookieFormatKind {
   if (!trimmed) return "unknown";
   if (trimmed.startsWith("{") && /"log"\s*:/.test(trimmed.slice(0, 800))) return "har";
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) return "json";
-  if (/^\s*curl\s/i.test(trimmed) || /--cookie\s|-b\s/.test(trimmed)) return "curl";
-  if (/^name\t/i.test(trimmed.split(/\r?\n/)[0] ?? "")) return "devtools";
+  if (/^\s*curl\s/i.test(trimmed) || /(?:^|\s)(?:--cookie|-b)\s/.test(trimmed)) return "curl";
+  if (trimmed.includes("\t") && fromDevToolsTable(trimmed)) return "devtools";
   if (looksLikeHeader(trimmed)) return "header";
   if (trimmed.includes("\t") && /(SID|SAPISID|LOGIN_INFO|#HttpOnly_)/.test(trimmed)) return "netscape";
   if (trimmed.includes("Netscape HTTP Cookie File")) return "netscape";

@@ -2,7 +2,7 @@ import "@/lib/ipv4-bind.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { isMediaHostTarget, isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
 
-/** Overall ceiling per upstream hop so a stalled relay cannot pin a connection. */
+/** Time-to-headers ceiling per upstream hop; once headers arrive the body is bounded only by client disconnect (request.signal). */
 const RELAY_HOP_TIMEOUT_MS = 20_000;
 
 /**
@@ -17,7 +17,15 @@ const RELAY_HOP_TIMEOUT_MS = 20_000;
  * normally uncompressed, so progress reporting still gets a length.
  */
 function relayHeaders(upstream: Response, relayHost: string): Record<string, string> {
-  const out: Record<string, string> = { "Cache-Control": "no-store", "X-Velo-Relay": relayHost };
+  // Bodies may come from third-party CORS proxies yet are served from the app
+  // origin: sandbox + nosniff keep a text/html answer inert if the URL is ever
+  // navigated to directly (fetch()/blob consumers ignore both).
+  const out: Record<string, string> = {
+    "Cache-Control": "no-store",
+    "X-Velo-Relay": relayHost,
+    "Content-Security-Policy": "sandbox",
+    "X-Content-Type-Options": "nosniff",
+  };
   const copy = (from: string, to: string) => {
     const value = upstream.headers.get(from);
     if (value) out[to] = value;
@@ -63,6 +71,11 @@ export const Route = createFileRoute("/api/relay")({
 
         for (const href of attempts) {
           if (request.signal.aborted) break;
+          // Header-only timer, as in bypass.server.ts hop(): cleared in `finally`
+          // once headers are in, so the cap never cuts a streaming body.
+          // `request.signal` stays on the fetch to cancel it on client disconnect.
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), RELAY_HOP_TIMEOUT_MS);
           try {
             const headers: Record<string, string> = {
               accept: "*/*",
@@ -71,10 +84,7 @@ export const Route = createFileRoute("/api/relay")({
               referer: "https://www.youtube.com/",
             };
             if (range) headers.range = range;
-            const signal = AbortSignal.any([
-              request.signal,
-              AbortSignal.timeout(RELAY_HOP_TIMEOUT_MS),
-            ]);
+            const signal = AbortSignal.any([request.signal, controller.signal]);
             const upstream = await fetch(href, { headers, redirect: "manual", signal });
             if (upstream.status >= 300 && upstream.status < 400) {
               const location = upstream.headers.get("location");
@@ -120,6 +130,8 @@ export const Route = createFileRoute("/api/relay")({
             });
           } catch (err) {
             errors.push(err instanceof Error ? err.message : "relay failed");
+          } finally {
+            clearTimeout(timer);
           }
         }
 

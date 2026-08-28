@@ -65,14 +65,14 @@ test("decrypting under a different key than the one that encrypted throws", () =
   assert.throws(() => decryptCookies(stored));
 });
 
-test("without VELO_VAULT_KEY both directions are a pass-through", () => {
+test("without VELO_VAULT_KEY plaintext passes through but an envelope refuses", () => {
   process.env.VELO_VAULT_KEY = "temp";
   const envelope = encryptCookies(JAR);
   delete process.env.VELO_VAULT_KEY;
   assert.equal(encryptCookies(JAR), JAR);
   assert.equal(decryptCookies(JAR), JAR);
-  // Even an envelope string comes back unchanged when no key is configured.
-  assert.equal(decryptCookies(envelope), envelope);
+  // An envelope can never be a jar without its key — a lost key must be loud.
+  assert.throws(() => decryptCookies(envelope), /VELO_VAULT_KEY/);
 });
 
 test("legacy plaintext rows (no envelope prefix) decrypt to themselves regardless of key", () => {

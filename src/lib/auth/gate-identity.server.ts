@@ -35,6 +35,9 @@ async function defaultJwksFetch(url: string): Promise<GateJwks | null> {
     const res = await fetch(url, {
       headers: { accept: "application/json" },
       redirect: "manual",
+      // A stalled gate must not pin /get-session; the catch below maps a
+      // timeout to null like any other fetch failure.
+      signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as GateJwks;

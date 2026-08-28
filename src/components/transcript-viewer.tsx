@@ -349,6 +349,7 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search transcript..."
+              aria-label="Search transcript"
               className="w-full rounded-lg bg-surface/80 border border-border/80 pl-8 pr-8 py-1.5 text-xs text-fg placeholder:text-subtle focus:border-accent focus:outline-none"
             />
             {searchQuery ? (

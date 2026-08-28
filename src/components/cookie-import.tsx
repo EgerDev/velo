@@ -88,10 +88,13 @@ export function CookieImport({ revealSignal = 0 }: { revealSignal?: number } = {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Keyed on the id, not the user object: a new object identity per render
+  // would re-run this, and each run clears the jar and reloads the vault.
+  const userId = user?.id;
   useEffect(() => {
     scrubCookiePersist();
     if (isPending) return;
-    if (!user) {
+    if (!userId) {
       clear();
       return;
     }
@@ -106,7 +109,7 @@ export function CookieImport({ revealSignal = 0 }: { revealSignal?: number } = {
     return () => {
       cancelled = true;
     };
-  }, [user, isPending, clear, setRaw]);
+  }, [userId, isPending, clear, setRaw]);
 
   const persistRef = useRef<(text: string, source: string) => Promise<void>>(async () => undefined);
 

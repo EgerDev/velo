@@ -22,11 +22,15 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable ||
           target.getAttribute("role") === "textbox");
 
       // 1. Esc: Clear / Escape (if typing, blur input first)
       if (e.key === "Escape") {
+        // A popover that just closed on this Esc (header menus, the ⌘K
+        // palette) already claimed it — don't also wipe the resolved video.
+        if (e.defaultPrevented) return;
         if (isInput) {
           target?.blur();
           return;
@@ -35,8 +39,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled = true)
         return;
       }
 
-      // 2. Cmd+K / Ctrl+K or '/' (when not typing) to focus search
-      if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") || (e.key === "/" && !isInput)) {
+      // 2. '/' (when not typing) focuses search; Cmd+K belongs to the command palette.
+      if (e.key === "/" && !isInput) {
         e.preventDefault();
         handlers.onFocusSearch?.();
         return;

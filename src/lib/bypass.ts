@@ -49,15 +49,22 @@ async function hopFetch(
 ): Promise<Response> {
   const controller = new AbortController();
   const parent = init.signal;
+  // Removed in the finally unless the response is handed off: the bulk queue
+  // shares one signal across every hop, so a listener left behind per failed
+  // fetch piles up for the life of the batch — but the caller still drains a
+  // handed-off body, and Pause must be able to reach it (`once` self-removes
+  // on an actual abort).
+  const onAbort = () => controller.abort();
   if (parent?.aborted) controller.abort();
   else if (parent && typeof AbortSignal.any !== "function") {
-    parent.addEventListener("abort", () => controller.abort(), { once: true });
+    parent.addEventListener("abort", onAbort, { once: true });
   }
   const signal =
     parent && typeof AbortSignal.any === "function"
       ? AbortSignal.any([controller.signal, parent])
       : controller.signal;
   const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? 18_000);
+  let handedOff = false;
   try {
     const { timeoutMs: _timeoutMs, ...rest } = init;
     const headers = new Headers(rest.headers);
@@ -75,13 +82,16 @@ async function hopFetch(
       const next = location.startsWith("http") ? location : new URL(location, relay.wrap(url)).toString();
       if (isImaUrl(next)) throw new Error(`${relay.id} redirected to an IMA ad`);
       if (isVideoplaybackUrl(next)) {
+        handedOff = true;
         return await fetch(relay.wrap(next), { redirect: "manual", ...rest, headers, signal });
       }
       throw new Error(`${relay.id} redirected off-origin`);
     }
+    handedOff = true;
     return response;
   } finally {
     clearTimeout(timer);
+    if (!handedOff) parent?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -121,31 +131,36 @@ async function serverUnlock(format: BypassFormat, videoId: string, pot: string |
   return unlockVariants(raw, { pot, stripAlr: true });
 }
 
-async function readAll(
+export async function readAll(
   response: Response,
   onBytes?: (loaded: number, total: number) => void,
 ): Promise<Blob> {
   if (!response.body) return response.blob();
   const total = Number(response.headers.get("content-length")) || 0;
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
   let loaded = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
-      onBytes?.(loaded, total);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loaded += value.byteLength;
+        onBytes?.(loaded, total);
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
-  const bytes = new Uint8Array(loaded);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
+  // A relay that drops mid-body still ends with `done`, so without this a short
+  // read was returned as a complete part and saved as a complete file.
+  if (total > 0 && loaded < total) {
+    throw new Error(`Download ended early — got ${loaded} of ${total} bytes.`);
   }
-  return new Blob([bytes], {
+  // Blob copies its parts itself; a contiguous intermediate Uint8Array would
+  // double peak memory for nothing.
+  return new Blob(chunks, {
     type: response.headers.get("content-type") || "application/octet-stream",
   });
 }
@@ -192,6 +207,12 @@ async function mediaThroughHop(
         throw new Error(`${relay.id} range ${start} ${part.status}`);
       }
       const blob = await readAll(part);
+      // Public relays re-chunk and may drop content-length, which leaves the
+      // guard in readAll inert — so hold the part to the range that was asked for.
+      const want = end - start + 1;
+      if (blob.size !== want) {
+        throw new Error(`${relay.id} range ${start} returned ${blob.size} of ${want} bytes`);
+      }
       loaded += blob.size;
       onBytes?.(loaded, size);
       parts.push(blob);
@@ -206,6 +227,9 @@ async function mediaThroughHop(
   }
   const blob = await readAll(full, onBytes);
   if (blob.size < 2048) throw new Error(`${relay.id} empty media`);
+  if (size > 0 && blob.size < size) {
+    throw new Error(`${relay.id} ended early — got ${blob.size} of ${size} bytes`);
+  }
   return blob;
 }
 
@@ -304,8 +328,13 @@ export async function fetchSameHopBlob(opts: {
   const { videoId, itag, pot, signal, onProgress } = opts;
   const errors: string[] = [];
   const pages = sameHopPages(videoId);
+  let lastPct = -1;
   const onBytes = (loaded: number, total: number) => {
     const pct = total > 0 ? Math.min(92, 30 + Math.round((loaded / total) * 60)) : 50;
+    // Every network chunk lands here and each emit re-renders the page; only
+    // report when the bar would actually move.
+    if (pct === lastPct) return;
+    lastPct = pct;
     onProgress?.("Velo unlock", pct);
   };
 

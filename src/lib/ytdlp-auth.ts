@@ -511,7 +511,9 @@ export function ytdlpArgv(opts: {
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
   const hasFileCookies = Boolean(opts.cookiePath && cookiesOk);
-  const browser = hasFileCookies ? [] : browserCookieArgs();
+  // No cookie source of any kind over a SOCKS hop (mirrors the cookiePath guard
+  // in attempt()): the host browser's account session must never ride a public proxy.
+  const browser = hasFileCookies || opts.proxy ? [] : browserCookieArgs();
   const hasCookies = hasFileCookies || browser.length > 0;
   if (hasFileCookies) args.push("--cookies", opts.cookiePath!);
   else args.push(...browser);
