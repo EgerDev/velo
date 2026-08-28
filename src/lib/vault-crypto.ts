@@ -1,4 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+} from "node:crypto";
 
 /**
  * At-rest encryption for the YouTube cookie vault.
@@ -32,6 +39,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 
 const ENVELOPE_PREFIX = "v1:gcm:";
 const IV_BYTES = 12;
+const PROXY_FINGERPRINT_INFO = "velo/proxy-credential-fingerprint/v1";
 
 let warnedMissingKey = false;
 
@@ -39,12 +47,79 @@ let warnedMissingKey = false;
 function resolveKey(): Buffer | null {
   const secret = process.env.VELO_VAULT_KEY?.trim();
   if (!secret) return null;
+  return keyFromSecret(secret);
+}
+
+function keyFromSecret(secret: string): Buffer {
   if (/^[0-9a-fA-F]{64}$/.test(secret)) return Buffer.from(secret, "hex");
   if (/^[A-Za-z0-9+/_-]+={0,2}$/.test(secret)) {
     const decoded = Buffer.from(secret, "base64");
     if (decoded.length === 32) return decoded;
   }
   return createHash("sha256").update(secret, "utf8").digest();
+}
+
+const proxyKeyGlobal = globalThis as typeof globalThis & { __veloProxyKey__?: Buffer };
+
+export class ProxyVaultKeyError extends Error {
+  readonly code = "stable_proxy_vault_key_required";
+
+  constructor() {
+    super("A stable proxy vault key is required in production.");
+    this.name = "ProxyVaultKeyError";
+  }
+}
+
+export class ProxySecretDecryptError extends Error {
+  readonly code = "credential_undecryptable";
+
+  constructor() {
+    super("The stored proxy credential could not be decrypted.");
+    this.name = "ProxySecretDecryptError";
+  }
+}
+
+function resolveProxyKey(): Buffer {
+  const secret = process.env.VELO_VAULT_KEY?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
+  if (secret) return keyFromSecret(secret);
+  if (process.env.NODE_ENV === "production") throw new ProxyVaultKeyError();
+  // The local database is process-scoped, so a process-scoped random key keeps
+  // preview credentials encrypted without introducing a workspace secret.
+  proxyKeyGlobal.__veloProxyKey__ ??= randomBytes(32);
+  return proxyKeyGlobal.__veloProxyKey__;
+}
+
+function resolvePreviousProxyKey(): Buffer | null {
+  const secret = process.env.VELO_VAULT_KEY_PREVIOUS?.trim();
+  return secret ? keyFromSecret(secret) : null;
+}
+
+function encryptWithKey(plaintext: string, key: Buffer): string {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${ENVELOPE_PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${ciphertext.toString("base64")}`;
+}
+
+function decryptWithKey(stored: string, key: Buffer): string {
+  const parts = stored.split(":");
+  const ivB64 = parts[2];
+  const tagB64 = parts[3];
+  const dataB64 = parts[4];
+  if (parts.length !== 5 || ivB64 === undefined || tagB64 === undefined || dataB64 === undefined) {
+    throw new Error("vault-crypto: malformed vault envelope");
+  }
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(dataB64, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    throw new Error("vault-crypto: could not decrypt vault envelope (wrong key or tampered data)");
+  }
 }
 
 /**
@@ -63,11 +138,7 @@ export function encryptCookies(plaintext: string): string {
     }
     return plaintext;
   }
-  const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${ENVELOPE_PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${ciphertext.toString("base64")}`;
+  return encryptWithKey(plaintext, key);
 }
 
 /**
@@ -84,21 +155,46 @@ export function decryptCookies(stored: string): string {
   if (!key) {
     throw new Error("vault-crypto: stored vault is encrypted but VELO_VAULT_KEY is not set");
   }
-  const parts = stored.split(":");
-  const ivB64 = parts[2];
-  const tagB64 = parts[3];
-  const dataB64 = parts[4];
-  if (parts.length !== 5 || ivB64 === undefined || tagB64 === undefined || dataB64 === undefined) {
-    throw new Error("vault-crypto: malformed vault envelope");
-  }
+  return decryptWithKey(stored, key);
+}
+
+/**
+ * Same envelope, non-cookie secrets (e.g. proxy credentials). The underlying
+ * crypto is a generic AES-256-GCM string envelope; these functions use a
+ * guaranteed proxy key so call sites can honestly promise encrypted storage.
+ */
+export function encryptSecret(plaintext: string): string {
+  return encryptWithKey(plaintext, resolveProxyKey());
+}
+
+export type DecryptedSecret = {
+  readonly plaintext: string;
+  readonly key: "current" | "previous";
+};
+
+export function decryptSecret(stored: string): DecryptedSecret {
+  if (!stored.startsWith(ENVELOPE_PREFIX)) throw new ProxySecretDecryptError();
   try {
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
-    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-    return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]).toString(
-      "utf8",
-    );
-  } catch {
-    // Deliberately generic: never echo key material or cookie data into errors.
-    throw new Error("vault-crypto: could not decrypt vault envelope (wrong key or tampered data)");
+    return { plaintext: decryptWithKey(stored, resolveProxyKey()), key: "current" };
+  } catch (error) {
+    if (error instanceof ProxyVaultKeyError) throw error;
+    const previous = resolvePreviousProxyKey();
+    if (previous === null) throw new ProxySecretDecryptError();
+    try {
+      return { plaintext: decryptWithKey(stored, previous), key: "previous" };
+    } catch {
+      throw new ProxySecretDecryptError();
+    }
   }
+}
+
+export function fingerprintSecret(plaintext: string): string {
+  const key = Buffer.from(
+    hkdfSync("sha256", resolveProxyKey(), Buffer.alloc(0), PROXY_FINGERPRINT_INFO, 32),
+  );
+  return createHmac("sha256", key).update(plaintext, "utf8").digest("hex");
+}
+
+export function assertProxyVaultReady(): void {
+  resolveProxyKey();
 }

@@ -63,13 +63,18 @@ function appendParam(url: string, key: string, value: string): string {
   return `${url}${joiner}${key}=${encodeURIComponent(value)}`;
 }
 
+/**
+ * One media range fetch. When the operator configured an http(s) proxy, the
+ * request rides it through undici's own fetch (Node's global fetch rejects a
+ * foreign undici dispatcher); otherwise it is the plain global fetch.
+ */
 async function openStream(url: string, range?: { start: number; end: number }, signal?: AbortSignal): Promise<Response> {
   const target = range ? appendParam(url, "range", `${range.start}-${range.end}`) : url;
-  const response = await fetch(target, {
-    method: "GET",
+  const { proxiedFetch } = await import("@/lib/user-proxy.server");
+  const response = await proxiedFetch(target, {
     headers: STREAM_HEADERS,
-    redirect: "follow",
     signal,
+    redirect: "follow",
   });
   return response;
 }

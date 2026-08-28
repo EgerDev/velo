@@ -9,6 +9,7 @@ import type { VideoFormat } from "@/lib/youtube";
 import { acquireYtdlpSlot } from "@/lib/download-pool.server";
 import { mapYtdlpExit, pythonBin } from "@/lib/ytdlp-auth";
 import { JSON_STDOUT_MAX } from "@/lib/ytdlp-proc.server";
+import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";
 
 const TMP_PREFIX = "velo-ytdl-";
 const FORMAT_TTL_MS = 10 * 60_000;
@@ -58,10 +59,33 @@ export async function fetchSubtitlesViaYtdlp(opts: {
     const subLang = sanitizeSubLang(opts.tlang || opts.lang);
     const clients = ["web_embedded", "tv_simply"];
 
-    for (let hop = 0; hop < 2; hop++) {
-      const socks = await takeSocks(1);
-      const proxy = socks[0];
-      if (!proxy) return null;
+    // The operator's proxy rides first; free-SOCKS hops follow on later
+    // iterations once the override is consumed.
+    const { userProxyLadder } = await import("@/lib/user-proxy.server");
+    const userRoutes = await userProxyLadder("ytdlp");
+    const runProxyLadder = async (
+      initial: { readonly url: string; readonly markDead: () => void; readonly markGood: () => void } | null,
+      includeFree = true,
+    ): Promise<string | null> => {
+      let proxyOverride = initial;
+      for (let hop = 0; hop < (initial === null ? (includeFree ? 1 : 0) : 1); hop++) {
+      let socks: string[] = [];
+      let proxy: string | undefined;
+      let markDead: () => void;
+      let markGood: () => void;
+      if (proxyOverride) {
+        proxy = proxyOverride.url;
+        markDead = proxyOverride.markDead;
+        markGood = proxyOverride.markGood;
+        proxyOverride = null;
+      } else {
+        socks = await takeSocks(1);
+        proxy = socks[0];
+        if (!proxy) return null;
+        const selectedProxy = proxy;
+        markDead = () => markSocksDead(selectedProxy);
+        markGood = () => markSocksGood(selectedProxy);
+      }
       try {
         for (const client of clients) {
           if (opts.signal?.aborted) return null;
@@ -107,7 +131,7 @@ export async function fetchSubtitlesViaYtdlp(opts: {
                 timedOut: result.timedOut,
               });
               if (fail.next === "next-socks") {
-                markSocksDead(proxy);
+                markDead();
                 break;
               }
               continue;
@@ -122,7 +146,7 @@ export async function fetchSubtitlesViaYtdlp(opts: {
               files.find((f) => f.toLowerCase().includes(subLang.toLowerCase())) ?? files[0];
             const vtt = await readFile(join(dir, matchingFile), "utf8");
             if (vtt.trim().length > 10) {
-              void markSocksGood(proxy);
+              markGood();
               return vtt;
             }
           } finally {
@@ -132,8 +156,18 @@ export async function fetchSubtitlesViaYtdlp(opts: {
       } finally {
         releaseSocks(socks);
       }
-    }
-    return null;
+      }
+      return null;
+    };
+    return attemptYtdlpMetadataLadder(
+      userRoutes,
+      (up, url) => runProxyLadder({
+        url, markDead: () => { void up.mark({ ok: false, exitIp: null }); },
+        markGood: () => { void up.mark({ ok: true, exitIp: null }); },
+      }, false),
+      () => runProxyLadder(null),
+      (result) => result !== null,
+    );
   } finally {
     release();
   }
@@ -162,10 +196,35 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
     } = await import("@/lib/ytdlp-auth");
     const { THROTTLE_FLAGS } = await import("@/lib/throttle");
     const clients = ["web_embedded", "tv_simply"];
-    for (let hop = 0; hop < 2; hop++) {
-      const socks = await takeSocks(1);
-      const proxy = socks[0];
-      if (!proxy) return [];
+
+    // Same first-hop rule as the download ladder: the operator's proxy before
+    // any free-SOCKS hop, so formats/captions do not fail on a blocked origin
+    // while downloads through the same proxy succeed.
+    const { userProxyLadder } = await import("@/lib/user-proxy.server");
+    const userRoutes = await userProxyLadder("ytdlp");
+    const runProxyLadder = async (
+      initial: { readonly url: string; readonly markDead: () => void; readonly markGood: () => void } | null,
+      includeFree = true,
+    ): Promise<VideoFormat[]> => {
+      let proxyOverride = initial;
+      for (let hop = 0; hop < (initial === null ? (includeFree ? 1 : 0) : 1); hop++) {
+      let socks: string[] = [];
+      let proxy: string | undefined;
+      let markDead: () => void;
+      let markGood: () => void;
+      if (proxyOverride) {
+        proxy = proxyOverride.url;
+        markDead = proxyOverride.markDead;
+        markGood = proxyOverride.markGood;
+        proxyOverride = null;
+      } else {
+        socks = await takeSocks(1);
+        proxy = socks[0];
+        if (!proxy) return [];
+        const selectedProxy = proxy;
+        markDead = () => markSocksDead(selectedProxy);
+        markGood = () => markSocksGood(selectedProxy);
+      }
       try {
         for (const client of clients) {
           try {
@@ -202,7 +261,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
                 timedOut: result.timedOut,
               });
               if (fail.next === "next-socks") {
-                markSocksDead(proxy);
+                markDead();
                 break;
               }
               continue;
@@ -217,7 +276,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
             const json = JSON.parse(result.stdout) as { formats?: YtDlpJsonFormat[] };
             const mapped = ytdlpJsonToFormats(json.formats ?? []);
             if (mapped.length) {
-              void markSocksGood(proxy);
+              markGood();
               formatCache.set(id, { value: mapped, expires: Date.now() + FORMAT_TTL_MS });
               return mapped;
             }
@@ -225,7 +284,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
             const message = err instanceof Error ? err.message : "";
             if (/abort/i.test(message)) return [];
             if (/timed out|proxy|Unable to connect/i.test(message)) {
-              markSocksDead(proxy);
+              markDead();
               break;
             }
           }
@@ -233,8 +292,18 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
       } finally {
         releaseSocks(socks);
       }
-    }
-    return [];
+      }
+      return [];
+    };
+    return (await attemptYtdlpMetadataLadder(
+      userRoutes,
+      (up, url) => runProxyLadder({
+        url, markDead: () => { void up.mark({ ok: false, exitIp: null }); },
+        markGood: () => { void up.mark({ ok: true, exitIp: null }); },
+      }, false),
+      () => runProxyLadder(null),
+      (result) => result.length > 0,
+    )) ?? [];
   } finally {
     release();
   }

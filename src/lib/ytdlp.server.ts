@@ -42,6 +42,8 @@ async function runClient(opts: {
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
+  /** Set for a user-configured proxy: it MAY carry the session (cookies). */
+  trustedProxy?: boolean;
   impersonate?: boolean;
   signal?: AbortSignal;
 }): Promise<string> {
@@ -134,18 +136,21 @@ async function muxOne(opts: {
       /* yt-dlp still runs without POT */
     }
 
-    const attempt = async (client: string, proxy?: string): Promise<MuxResult> => {
+    const attempt = async (client: string, proxy?: string, trustedProxy = false): Promise<MuxResult> => {
       const filename = await runClient({
         dir,
         id: opts.id,
         itag: opts.itag,
         client,
-        cookiePath: proxy ? undefined : cookiePath,
+        // A user-configured (trusted) proxy may carry the session — it is the
+        // operator's own hop. Pool-SOCKS hops keep the strict no-cookie rule.
+        cookiePath: proxy && !trustedProxy ? undefined : cookiePath,
         pot: gvsPot,
         playerPot,
         visitorData: session?.visitorData,
         dataSyncId: session?.dataSyncId,
         proxy,
+        trustedProxy,
         impersonate,
         signal: opts.signal,
       });
@@ -162,21 +167,44 @@ async function muxOne(opts: {
       };
     };
 
-    for (const client of clients) {
-      if (opts.signal?.aborted) throw new Error("aborted");
-      try {
-        return await attempt(client);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (/abort/i.test(message)) throw err;
-        errors.push(message);
-        // A "stop" verdict (private / members-only) is permanent and needs
-        // cookies — no other anonymous client or proxy hop can help. Abort the
-        // whole ladder now instead of burning the remaining clients and, below,
-        // three SOCKS hops (each a full re-download for the ffmpeg-missing case).
-        if ((err as { ytdlp?: YtdlpFailure }).ytdlp?.next === "stop") throw err;
-      }
-    }
+    // The operator's own proxy, before any free hop. It is a trusted hop: the
+    // session MAY ride it (that is the point on a datacenter origin IP), and a
+    // healthy-proxy "stop" verdict (private video) must not poison it — same
+    // rule as the pool loop below. Its own stage, outside `!loggedIn`, so a
+    // logged-in session also gets the proxy hop.
+    const [{ userProxyLadder }, { attemptSelectedRoutes }] = await Promise.all([
+      import("@/lib/user-proxy.server"), import("@/lib/proxy-selector.server"),
+    ]);
+    const userProxies = await userProxyLadder("ytdlp");
+    const savedRoutes = userProxies.map((route) => ({ kind: "proxy", id: route.id, protocol: route.protocol, trusted: true } as const));
+    const savedOutcome = await attemptSelectedRoutes<MuxResult>(savedRoutes, async (selected) => {
+      if (selected.kind !== "proxy") return { ok: false };
+      const userProxy = userProxies.find((route) => route.id === selected.id);
+      if (userProxy === undefined) return { ok: false };
+      const result = await userProxy.run(async (url): Promise<MuxResult | null> => {
+        for (const client of clients) {
+          if (opts.signal?.aborted) throw new Error("aborted");
+          try {
+            const completed = await attempt(client, url, true);
+            await userProxy.mark({ ok: true, exitIp: null });
+            return completed;
+          } catch (err) {
+            const fail = (err as { ytdlp?: YtdlpFailure }).ytdlp;
+            const message = err instanceof Error ? err.message : String(err);
+            if (/abort/i.test(message)) throw err;
+            errors.push(`${client}@proxy: ${message}`.slice(0, 180));
+            if (fail?.next === "stop") throw err;
+            if (!fail || fail.next === "next-socks") {
+              await userProxy.mark({ ok: false, exitIp: null });
+              break;
+            }
+          }
+        }
+        return null;
+      });
+      return result === null ? { ok: false } : { ok: true, value: result };
+    }, { allowDirectFallback: false });
+    if (savedOutcome.result !== null) return savedOutcome.result;
 
     if (!loggedIn) {
       await ensurePySocks().catch(() => undefined);
@@ -212,6 +240,18 @@ async function muxOne(opts: {
         } finally {
           releaseSocks(socks);
         }
+      }
+    }
+
+    // Direct is the final fallback, after every configured and free route.
+    for (const client of clients) {
+      if (opts.signal?.aborted) throw new Error("aborted");
+      try { return await attempt(client); }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/abort/i.test(message)) throw err;
+        errors.push(message);
+        if ((err as { ytdlp?: YtdlpFailure }).ytdlp?.next === "stop") throw err;
       }
     }
 

@@ -5,6 +5,7 @@ import {
   browserCookieArgs,
   extractorArgs,
   readCookieSession,
+  metadataSessionOptions,
   socksClientsForItag,
   ytdlpArgv,
   ytdlpClients,
@@ -52,6 +53,19 @@ test("account cookies unlock cookie-capable clients, not android/ios", () => {
   assert.ok(!(SESSION_CLIENTS as readonly string[]).includes("ios"));
   assert.equal(SESSION_CLIENTS[0], "web_embedded");
   assert.ok((SESSION_CLIENTS as readonly string[]).includes("tv_downgraded"));
+});
+
+test("metadata requests receive the imported YouTube session", () => {
+  // Given: a signed-in cookie export with a stable visitor identity.
+  const raw =
+    "SID=sidtoken; SAPISID=saptoken; VISITOR_INFO1_LIVE=visitorA; LOGIN_INFO=login";
+
+  // When: metadata client options are derived from the imported jar.
+  const options = metadataSessionOptions(raw);
+
+  // Then: Innertube receives both the authenticated cookie header and visitor identity.
+  assert.equal(options?.cookie, raw);
+  assert.equal(options?.visitorData, "visitorA");
 });
 
 test("anonymous downloads try visionos first (guest dash/mux); android_vr aliases to web_embedded", () => {

@@ -5,6 +5,7 @@ import {
   compareVersions,
   isLoopbackAddress,
   operatorDecision,
+  proxyManagementDecision,
   pipExternallyManaged,
   specVersion,
   toolSpec,
@@ -49,7 +50,12 @@ test("toolStatus: missing, unknown, current, behind, ahead", () => {
 
 test("operator gate: loopback-only in local dev, closed by default with auth, allowlist wins", () => {
   assert.equal(
-    operatorDecision({ authConfigured: false, email: null, allowlist: undefined, clientIp: "127.0.0.1" }).allowed,
+    operatorDecision({
+      authConfigured: false,
+      email: null,
+      allowlist: undefined,
+      clientIp: "127.0.0.1",
+    }).allowed,
     false,
     "loopback without VELO_ALLOW_TOOL_INSTALL must not install — preview proxies look local",
   );
@@ -72,7 +78,10 @@ test("operator gate: loopback-only in local dev, closed by default with auth, al
   });
   assert.equal(lan.allowed, false);
   assert.match(lan.allowed ? "" : lan.reason, /localhost/);
-  assert.equal(operatorDecision({ authConfigured: false, email: null, allowlist: undefined }).allowed, false);
+  assert.equal(
+    operatorDecision({ authConfigured: false, email: null, allowlist: undefined }).allowed,
+    false,
+  );
   const closed = operatorDecision({ authConfigured: true, email: "a@x.io", allowlist: undefined });
   assert.equal(closed.allowed, false);
   assert.match(closed.allowed ? "" : closed.reason, /VELO_ADMIN_EMAILS/);
@@ -80,9 +89,42 @@ test("operator gate: loopback-only in local dev, closed by default with auth, al
   assert.equal(signedOut.allowed, false);
   const wrong = operatorDecision({ authConfigured: true, email: "b@x.io", allowlist: "a@x.io" });
   assert.equal(wrong.allowed, false);
-  assert.deepEqual(operatorDecision({ authConfigured: true, email: " A@X.io ", allowlist: "a@x.io, c@y.io" }), {
-    allowed: true,
+  assert.deepEqual(
+    operatorDecision({ authConfigured: true, email: " A@X.io ", allowlist: "a@x.io, c@y.io" }),
+    {
+      allowed: true,
+    },
+  );
+});
+
+test("proxy management is available in the isolated local workspace without unlocking installs", () => {
+  assert.deepEqual(
+    proxyManagementDecision({
+      authConfigured: false,
+      databaseConfigured: false,
+      operator: { allowed: false, reason: "Installing is off." },
+    }),
+    { allowed: true },
+  );
+});
+
+test("proxy management stays closed for shared auth-off databases and follows the operator gate with auth", () => {
+  const shared = proxyManagementDecision({
+    authConfigured: false,
+    databaseConfigured: true,
+    operator: { allowed: false, reason: "Installing is off." },
   });
+  assert.equal(shared.allowed, false);
+  assert.match(shared.allowed ? "" : shared.reason, /sign-in/i);
+
+  assert.deepEqual(
+    proxyManagementDecision({
+      authConfigured: true,
+      databaseConfigured: true,
+      operator: { allowed: true },
+    }),
+    { allowed: true },
+  );
 });
 
 test("catalog: every id resolves and yt-dlp is the only live-reload tool", () => {
@@ -95,7 +137,10 @@ test("catalog: every id resolves and yt-dlp is the only live-reload tool", () =>
 });
 
 test("pip PEP 668 refusal is recognised", () => {
-  assert.equal(pipExternallyManaged("error: externally-managed-environment\n\n× This environment"), true);
+  assert.equal(
+    pipExternallyManaged("error: externally-managed-environment\n\n× This environment"),
+    true,
+  );
   assert.equal(pipExternallyManaged("ERROR: No matching distribution"), false);
 });
 
@@ -111,7 +156,14 @@ test("install argv is a fixed list — package name cannot inject flags", () => 
         "--save",
       ]);
     } else {
-      assert.deepEqual(pipUpgradeArgs(spec.pkg), ["-m", "pip", "install", "--upgrade", "--no-input", spec.pkg]);
+      assert.deepEqual(pipUpgradeArgs(spec.pkg), [
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--no-input",
+        spec.pkg,
+      ]);
     }
   }
   assert.throws(() => npmInstallArgs("--save-dev"), /Invalid install package/);
@@ -120,10 +172,26 @@ test("install argv is a fixed list — package name cannot inject flags", () => 
 });
 
 test("isLoopbackAddress recognises the host itself and nothing else", () => {
-  for (const ip of ["127.0.0.1", "127.1.2.3", "::1", "::ffff:127.0.0.1", "[::1]", "localhost", " ::1 "]) {
+  for (const ip of [
+    "127.0.0.1",
+    "127.1.2.3",
+    "::1",
+    "::ffff:127.0.0.1",
+    "[::1]",
+    "localhost",
+    " ::1 ",
+  ]) {
     assert.equal(isLoopbackAddress(ip), true, ip);
   }
-  for (const ip of ["192.168.1.20", "10.0.0.1", "::ffff:10.0.0.1", "1270.0.0.1", "", null, undefined]) {
+  for (const ip of [
+    "192.168.1.20",
+    "10.0.0.1",
+    "::ffff:10.0.0.1",
+    "1270.0.0.1",
+    "",
+    null,
+    undefined,
+  ]) {
     assert.equal(isLoopbackAddress(ip), false, String(ip));
   }
 });

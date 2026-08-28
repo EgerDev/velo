@@ -2,6 +2,8 @@ import { Innertube, Platform } from "youtubei.js";
 import "@/lib/ipv4-bind.server";
 import type { VideoFormat } from "@/lib/youtube";
 import { toFormat, uniqueFormats } from "@/lib/youtube-map.server";
+import { proxiedFetch } from "@/lib/user-proxy.server";
+import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
 Platform.shim.eval = (data) => new Function(data.output)();
 
@@ -30,14 +32,32 @@ const CLIENTS = [
   "WEB",
 ] as const;
 
+const SESSION_CLIENTS = ["WEB_EMBEDDED", "MWEB", "WEB_CREATOR", "WEB"] as const;
+
 export type InnertubeClient = Awaited<ReturnType<typeof Innertube.create>>;
 export type PlayableInfo = Awaited<ReturnType<InnertubeClient["getBasicInfo"]>>;
 
 let clientPromise: Promise<InnertubeClient> | null = null;
 let clientCreatedAt = 0;
 const CLIENT_TTL_MS = 4 * 60 * 60 * 1000;
+const authenticatedClients = new WeakSet<InnertubeClient>();
 
-export async function getClient(): Promise<InnertubeClient> {
+export async function getClient(
+  session?: MetadataSessionOptions,
+): Promise<InnertubeClient> {
+  if (session) {
+    const client = await Innertube.create({
+      lang: "en",
+      location: "US",
+      retrieve_player: true,
+      enable_session_cache: false,
+      fetch: proxiedFetch,
+      cookie: session.cookie,
+      visitor_data: session.visitorData,
+    });
+    authenticatedClients.add(client);
+    return client;
+  }
   if (!clientPromise || Date.now() - clientCreatedAt > CLIENT_TTL_MS) {
     clientCreatedAt = Date.now();
     clientPromise = Innertube.create({
@@ -45,6 +65,7 @@ export async function getClient(): Promise<InnertubeClient> {
       location: "US",
       retrieve_player: true,
       enable_session_cache: true,
+      fetch: proxiedFetch,
     }).catch((err) => {
       clientPromise = null;
       throw err;
@@ -89,11 +110,14 @@ const WEBPO_INNERTUBE = new Set([
 ]);
 
 export async function getPlayableInfo(yt: InnertubeClient, id: string): Promise<PlayableInfo> {
+  if (authenticatedClients.has(yt)) {
+    return getPlayableInfoUncached(yt, id, false);
+  }
   const hit = playableCache.get(id);
   if (hit && hit.expires > Date.now()) return hit.value;
   let shared = playableInflight.get(id);
   if (!shared) {
-    shared = getPlayableInfoUncached(yt, id).finally(() => {
+    shared = getPlayableInfoUncached(yt, id, true).finally(() => {
       if (playableInflight.get(id) === shared) playableInflight.delete(id);
     });
     playableInflight.set(id, shared);
@@ -101,7 +125,11 @@ export async function getPlayableInfo(yt: InnertubeClient, id: string): Promise<
   return shared;
 }
 
-async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise<PlayableInfo> {
+async function getPlayableInfoUncached(
+  yt: InnertubeClient,
+  id: string,
+  cacheResult: boolean,
+): Promise<PlayableInfo> {
   let lastError: Error | null = null;
   let fallback: PlayableInfo | null = null;
   let gvsPot: string | undefined;
@@ -112,7 +140,8 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
     /* BotGuard optional — Innertube still tries */
   }
 
-  for (const client of CLIENTS) {
+  const clients = authenticatedClients.has(yt) ? SESSION_CLIENTS : CLIENTS;
+  for (const client of clients) {
     try {
       const usePot = Boolean(gvsPot && WEBPO_INNERTUBE.has(client));
       const info = await yt.getBasicInfo(id, usePot ? { client, po_token: gvsPot } : { client });
@@ -122,8 +151,10 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
         info.streaming_data?.formats?.length || info.streaming_data?.adaptive_formats?.length,
       );
       if ((!status || status === "OK") && hasFormats) {
-        playableCache.set(id, { value: info, expires: Date.now() + PLAYABLE_TTL_MS });
-        evictPlayableCache();
+        if (cacheResult) {
+          playableCache.set(id, { value: info, expires: Date.now() + PLAYABLE_TTL_MS });
+          evictPlayableCache();
+        }
         return info;
       }
     } catch (err) {
@@ -135,8 +166,10 @@ async function getPlayableInfoUncached(yt: InnertubeClient, id: string): Promise
     // Every client failed the OK+formats check, so this answer is degraded.
     // Cache it briefly to absorb request bursts without re-throwing a stale
     // bot check for the full success TTL after YouTube recovers.
-    playableCache.set(id, { value: fallback, expires: Date.now() + PLAYABLE_FAILURE_TTL_MS });
-    evictPlayableCache();
+    if (cacheResult) {
+      playableCache.set(id, { value: fallback, expires: Date.now() + PLAYABLE_FAILURE_TTL_MS });
+      evictPlayableCache();
+    }
     return fallback;
   }
   throw lastError ?? new Error("Could not reach YouTube.");

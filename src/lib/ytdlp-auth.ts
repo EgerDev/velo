@@ -118,6 +118,22 @@ export type CookieSession = {
   loggedIn: boolean;
 };
 
+export type MetadataSessionOptions = {
+  readonly cookie: string;
+  readonly visitorData: string | undefined;
+};
+
+export function metadataSessionOptions(
+  raw: string | undefined,
+): MetadataSessionOptions | undefined {
+  const session = readCookieSession(raw);
+  if (!session) return undefined;
+  return {
+    cookie: session.header,
+    visitorData: session.visitorData ?? undefined,
+  };
+}
+
 export function readCookieSession(raw: string | undefined): CookieSession | null {
   if (!raw?.trim()) return null;
   const parsed = parseCookieImport(raw);
@@ -496,6 +512,8 @@ export function ytdlpArgv(opts: {
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
+  /** Set for a user-configured proxy: the operator's own hop MAY carry the session. */
+  trustedProxy?: boolean;
   impersonate?: boolean;
 }): string[] {
   const client = resolvePlayerClient(opts.client);
@@ -511,9 +529,12 @@ export function ytdlpArgv(opts: {
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
   const hasFileCookies = Boolean(opts.cookiePath && cookiesOk);
-  // No cookie source of any kind over a SOCKS hop (mirrors the cookiePath guard
-  // in attempt()): the host browser's account session must never ride a public proxy.
-  const browser = hasFileCookies || opts.proxy ? [] : browserCookieArgs();
+  // No cookie source of any kind over a pool-SOCKS hop (mirrors the cookiePath
+  // guard in attempt()): the host browser's account session must never ride a
+  // public proxy. A user-configured (trusted) proxy is the operator's own and
+  // MAY carry the session — that is the point of configuring one.
+  const browser =
+    hasFileCookies || (opts.proxy && !opts.trustedProxy) ? [] : browserCookieArgs();
   const hasCookies = hasFileCookies || browser.length > 0;
   if (hasFileCookies) args.push("--cookies", opts.cookiePath!);
   else args.push(...browser);

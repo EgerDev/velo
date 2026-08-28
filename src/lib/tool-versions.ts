@@ -62,7 +62,14 @@ function assertInstallPkg(pkg: string): string {
 }
 
 export function npmInstallArgs(pkg: string): string[] {
-  return ["install", `${assertInstallPkg(pkg)}@latest`, "--no-audit", "--no-fund", "--loglevel=error", "--save"];
+  return [
+    "install",
+    `${assertInstallPkg(pkg)}@latest`,
+    "--no-audit",
+    "--no-fund",
+    "--loglevel=error",
+    "--save",
+  ];
 }
 
 export function pipUpgradeArgs(pkg: string): string[] {
@@ -164,6 +171,28 @@ export function anyBehind(rows: readonly Pick<ToolRow, "status">[]): boolean {
  */
 export type OperatorDecision = { allowed: true } | { allowed: false; reason: string };
 
+/**
+ * Proxy setup is distinct from installing executable code. The isolated local
+ * workspace can safely manage its PGLite-backed routes without unlocking npm
+ * or pip writes. A shared auth-off database stays closed because its encrypted
+ * credentials would otherwise become world-writable; authenticated deployments
+ * continue to inherit the explicit operator allowlist.
+ */
+export function proxyManagementDecision(input: {
+  readonly authConfigured: boolean;
+  readonly databaseConfigured: boolean;
+  readonly operator: OperatorDecision;
+}): OperatorDecision {
+  if (!input.authConfigured && !input.databaseConfigured) return { allowed: true };
+  if (!input.authConfigured) {
+    return {
+      allowed: false,
+      reason: "Turn on sign-in before saving private proxy credentials to a shared database.",
+    };
+  }
+  return input.operator;
+}
+
 export function operatorDecision(input: {
   authConfigured: boolean;
   email: string | null | undefined;
@@ -195,7 +224,10 @@ export function operatorDecision(input: {
   const email = input.email?.trim().toLowerCase();
   if (!email) return { allowed: false, reason: "Sign in as an operator to install updates." };
   if (!allowlist.includes(email)) {
-    return { allowed: false, reason: "Only operators listed in VELO_ADMIN_EMAILS can install updates." };
+    return {
+      allowed: false,
+      reason: "Only operators listed in VELO_ADMIN_EMAILS can install updates.",
+    };
   }
   return { allowed: true };
 }
