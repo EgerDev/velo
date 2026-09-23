@@ -88,6 +88,23 @@ export type ResolvedVideo = {
   translationLanguages?: TranslationLanguage[];
 };
 
+/**
+ * Server-side Short guess from player metadata. Orientation decides whenever any
+ * format carries dimensions; the duration-only guess is a last resort, since it
+ * used to badge every landscape clip under 70s ("Me at the zoo", 320x240) as a
+ * Short and crop it to 9:16.
+ */
+export function detectShort(input: {
+  duration?: number | null;
+  formats: Pick<VideoFormat, "width" | "height">[];
+}): boolean {
+  const d = input.duration;
+  if (typeof d !== "number" || d <= 0 || d > 180) return false;
+  const sized = input.formats.filter((f) => f.width && f.height);
+  if (sized.length > 0) return sized.some((f) => (f.width ?? 0) < (f.height ?? 0));
+  return d <= 70;
+}
+
 export function isShortVideo(video: {
   duration?: number | null;
   formats?: VideoFormat[];

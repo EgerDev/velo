@@ -10,6 +10,7 @@ import { createSpeedProbe, formatSpeed } from "@/lib/speed-probe";
 import { isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { linkAbort } from "@/lib/abort-link";
 import { nameForBlob } from "@/lib/media-name";
+import { readBlob } from "@/lib/hybrid-net";
 
 function assertMedia(blob: Blob, type: string | null): Blob {
   const mime = type ?? blob.type;
@@ -18,43 +19,6 @@ function assertMedia(blob: Blob, type: string | null): Blob {
   }
   if (blob.size < 2048) throw new Error("Empty stream.");
   return blob;
-}
-
-async function readBlob(
-  response: Response,
-  onBytes?: (loaded: number, total: number) => void,
-): Promise<Blob> {
-  if (!response.body) return response.blob();
-  const total = Number(response.headers.get("content-length")) || 0;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let loaded = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        loaded += value.byteLength;
-        onBytes?.(loaded, total);
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  // A stream cut short still ends with `done`, so without this a truncated
-  // transfer was saved as a complete file: the container header parses, the
-  // size check passes, and the user is told it succeeded.
-  if (total > 0 && loaded < total) {
-    throw new Error(
-      `Download ended early — got ${loaded} of ${total} bytes. The connection dropped; try again.`,
-    );
-  }
-  // Blob copies its parts itself; a contiguous intermediate Uint8Array would
-  // double peak memory (~2x the file) for nothing on large/bulk saves.
-  return new Blob(chunks, {
-    type: response.headers.get("content-type") || "application/octet-stream",
-  });
 }
 
 async function fetchServerItag(opts: {

@@ -238,3 +238,15 @@ describe("importBatchJson", () => {
     assert.equal(result.items[0].preset, "720p");
   });
 });
+
+describe("extractYoutubeLinks on a huge one-line paste", () => {
+  it("stays linear — it re-runs on every keystroke in the bulk box", () => {
+    // `watch?…&v=` once scanned to end-of-line from every `watch?`: 4k of these
+    // took 313ms, 20k would block the tab for seconds. Linear, this is ~50ms.
+    const text = Array.from({ length: 20000 }, (_, i) => `https://www.youtube.com/watch?list=PL${i}abcdefghij&index=${i}`).join(",");
+    const started = performance.now();
+    const result = extractYoutubeLinks(text);
+    assert.ok(performance.now() - started < 1000, "extraction must not go quadratic");
+    assert.equal(result.playlistIds.length, 20000);
+  });
+});

@@ -74,6 +74,8 @@ export interface UserProxyRepository {
   setEnabled(id: ProxyId, enabled: boolean): Promise<void>;
   rememberVerdict(id: ProxyId, verdict: ProxyVerdictInput): Promise<void>;
   backfillLegacyFingerprints(): Promise<void>;
+  /** Drop the TTL'd `list()` snapshot — mutators already call this internally. */
+  invalidateListCache(): void;
   history(): Promise<readonly ProxyHistory[]>;
   clearHistory(): Promise<void>;
 }
@@ -113,6 +115,21 @@ function isProxyConfigurationError(error: unknown): boolean {
   return error instanceof ProxySecretDecryptError || error instanceof ProxyVaultKeyError;
 }
 
+/**
+ * `list()` output, keyed on the (process-shared) ProxyDatabase. Route rows only
+ * change through this module's mutators or the run store's verdict write, both
+ * of which invalidate — so a 30s snapshot is safe, and it removes the
+ * advisory-lock backfill transaction + full-table decrypt every proxiedFetch
+ * used to pay. Keyed on `database` so test fixtures (a fresh fake/PGlite per
+ * case) never share entries.
+ */
+const LIST_TTL_MS = 30_000;
+const listCache = new WeakMap<ProxyDatabase, { at: number; rows: readonly SafeProxyView[] }>();
+
+export function invalidateProxyListCache(database: ProxyDatabase): void {
+  listCache.delete(database);
+}
+
 export function createUserProxyRepository(database: ProxyDatabase): UserProxyRepository {
   const backfillLegacyFingerprints = async (): Promise<void> => {
     await database.transaction(async (transaction) => {
@@ -150,9 +167,11 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
   };
 
   const list = async (): Promise<readonly SafeProxyView[]> => {
+    const cached = listCache.get(database);
+    if (cached && Date.now() - cached.at < LIST_TTL_MS) return cached.rows;
     await backfillLegacyFingerprints();
     const result = await database.query("select * from velo_proxy order by priority,id");
-    return parseRows(result.rows).map((row) => {
+    const rows = parseRows(result.rows).map((row) => {
       try {
         const decrypted = decryptSecret(row.url_encrypted);
         const ref = row.credential_fingerprint ?? fingerprintSecret(decrypted.plaintext);
@@ -167,12 +186,14 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
         return { id: row.id, routeRef: ref, maskedLabel: `${row.protocol.toUpperCase()} ${ref.slice(0, 8)} ••••:0`, protocol: row.protocol, priority: row.priority, enabled: false, eligible: false, verdict: "misconfigured", stale: false, lastCheckedAt: null, evidence: [] } satisfies SafeProxyView;
       }
     });
+    listCache.set(database, { at: Date.now(), rows });
+    return rows;
   };
 
   return {
     add: async (input) => {
       const normalized = ProxyInputSchema.parse(input);
-      return database.transaction(async (transaction) => {
+      const result: AddProxyResult = await database.transaction(async (transaction) => {
         await lease(transaction);
         const fingerprint = fingerprintSecret(normalized);
         const duplicate = await transaction.query<{ id: string }>("select id from velo_proxy where credential_fingerprint=$1", [fingerprint]);
@@ -186,10 +207,14 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
         await insertEvent(transaction, { proxyId: id, ref: fingerprint, label: maskedLabel(protocol, fingerprint, normalized), type: "added" });
         return { kind: "added", id };
       });
+      listCache.delete(database);
+      return result;
     },
     list,
     withSecret: async (id, consume) => {
-      await backfillLegacyFingerprints();
+      // No fingerprint backfill here: a lease id only exists because a list()
+      // already ran it, and this query never consults fingerprints — skipping
+      // it keeps a proxied fetch to one row read.
       const result = await database.query<{ url_encrypted: string }>("select url_encrypted from velo_proxy where id=$1 and enabled and eligible", [id]);
       const stored = result.rows[0]?.url_encrypted;
       if (stored === undefined) return null;
@@ -197,7 +222,8 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
       try { plaintext = decryptSecret(stored).plaintext; } catch (error) { if (isProxyConfigurationError(error)) return null; throw error; }
       return consume(plaintext);
     },
-    delete: async (id) => database.transaction(async (transaction) => {
+    delete: async (id) => {
+      await database.transaction(async (transaction) => {
       await lease(transaction);
       const found = await transaction.query<{ credential_fingerprint: string | null; protocol: ProxyProtocol; url_encrypted: string }>("select credential_fingerprint,protocol,url_encrypted from velo_proxy where id=$1", [id]);
       const row = found.rows[0];
@@ -213,8 +239,11 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
       }
       await insertEvent(transaction, { proxyId: id, ref, label, type: "deleted" });
       await transaction.query("delete from velo_proxy where id=$1", [id]);
-    }),
-    reorder: async (ids) => database.transaction(async (transaction) => {
+      });
+      listCache.delete(database);
+    },
+    reorder: async (ids) => {
+      await database.transaction(async (transaction) => {
       await lease(transaction);
       const count = await transaction.query<{ count: number }>("select count(*)::int as count from velo_proxy");
       if (count.rows[0]?.count !== ids.length || new Set(ids).size !== ids.length) throw new ProxyReorderError("Reorder must contain every proxy exactly once.");
@@ -222,8 +251,11 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
       if (matched.rows[0]?.count !== ids.length) throw new ProxyReorderError("Reorder contains an unknown proxy.");
       await transaction.query("update velo_proxy set priority=priority+$1", [ids.length + 1]);
       for (const [index, id] of ids.entries()) await transaction.query("update velo_proxy set priority=$1 where id=$2", [index + 1, id]);
-    }),
-    setEnabled: async (id, enabled) => database.transaction(async (transaction) => {
+      });
+      listCache.delete(database);
+    },
+    setEnabled: async (id, enabled) => {
+      await database.transaction(async (transaction) => {
       await lease(transaction);
       const found = await transaction.query<{ credential_fingerprint: string; protocol: ProxyProtocol; url_encrypted: string }>("select credential_fingerprint,protocol,url_encrypted from velo_proxy where id=$1", [id]);
       const row = found.rows[0];
@@ -231,8 +263,11 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
       const decrypted = decryptSecret(row.url_encrypted);
       await transaction.query("update velo_proxy set enabled=$1 where id=$2", [enabled, id]);
       await insertEvent(transaction, { proxyId: id, ref: row.credential_fingerprint, label: maskedLabel(row.protocol, row.credential_fingerprint, decrypted.plaintext), type: enabled ? "enabled" : "disabled" });
-    }),
-    rememberVerdict: async (id, verdict) => database.transaction(async (transaction) => {
+      });
+      listCache.delete(database);
+    },
+    rememberVerdict: async (id, verdict) => {
+      await database.transaction(async (transaction) => {
       await lease(transaction);
       const next = verdict.ok ? "healthy" : "unreachable";
       await transaction.query("update velo_proxy set verdict=$1,last_checked_at=now(),hard_failures=case when $2 then 0 else hard_failures+1 end,full_passes=case when $2 then full_passes+1 else 0 end,eligible=case when $2 then eligible else hard_failures+1<2 end,last_error_code=case when $2 then null else 'connect_failed' end where id=$3", [next, verdict.ok, id]);
@@ -246,8 +281,14 @@ export function createUserProxyRepository(database: ProxyDatabase): UserProxyRep
           await insertEvent(transaction, { proxyId: id, ref: row.credential_fingerprint, label: maskedLabel(row.protocol, row.credential_fingerprint, decrypted.plaintext), type: "validated", verdict: next, code: "connect_failed" });
         }
       }
-    }),
-    backfillLegacyFingerprints,
+      });
+      listCache.delete(database);
+    },
+    backfillLegacyFingerprints: async () => {
+      await backfillLegacyFingerprints();
+      listCache.delete(database);
+    },
+    invalidateListCache: () => listCache.delete(database),
     history: async () => {
       const result = await database.query<{ id: string; proxy_id: string | null; route_ref: string; masked_label: string; event_type: ProxyHistory["eventType"]; verdict: string | null; error_code: string | null; created_at: Date }>("select id,proxy_id,route_ref,masked_label,event_type,verdict,error_code,created_at from velo_proxy_event order by created_at desc,id desc limit 200");
       return result.rows.map((row) => ({ id: row.id, proxyId: row.proxy_id, routeRef: row.route_ref, maskedLabel: row.masked_label, eventType: row.event_type, verdict: row.verdict, errorCode: row.error_code, protocol: row.masked_label.startsWith("SOCKS5 ") ? "socks5" : "http", createdAt: row.created_at.getTime() }));

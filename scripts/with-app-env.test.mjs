@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -59,7 +59,13 @@ test("an explicit process-env override wins over the file", () => {
   assert.equal(merged.PATH, "/usr/bin");
 });
 
-test("the template ships auth off", () => {
+// `.grok/` is gitignored platform state: present in the sandbox, absent in a
+// plain clone. Tests about the shipped file skip rather than fail without it.
+const NO_APP_ENV =
+  !existsSync(join(projectRoot(), ".grok", "app-env.json")) &&
+  "no .grok/app-env.json in this checkout";
+
+test("the template ships auth off", { skip: NO_APP_ENV }, () => {
   assert.deepEqual(readAppEnv(projectRoot()), { VITE_AUTH_ENABLED: "false" });
 });
 
@@ -73,7 +79,7 @@ test("vite loadEnv resolves the wrapped value", () => {
   assert.equal(merged.VITE_AUTH_ENABLED, "false");
 });
 
-test("the wrapped command runs with the app env applied", async () => {
+test("the wrapped command runs with the app env applied", { skip: NO_APP_ENV }, async () => {
   const { stdout } = await execFileAsync(process.execPath, [
     WRAPPER,
     process.execPath,
@@ -117,12 +123,14 @@ test("the CLI still runs when invoked through a symlinked path", async () => {
   // node realpaths import.meta.url but not process.argv[1], so a raw comparison
   // turns the wrapper into a no-op that exits 0 without starting anything.
   const link = join(mkdtempSync(join(tmpdir(), "app-env-link-")), "scripts");
-  symlinkSync(join(projectRoot(), "scripts"), link);
+  // "junction": a directory symlink needs admin on Windows; ignored elsewhere.
+  symlinkSync(join(projectRoot(), "scripts"), link, "junction");
   const { stdout } = await execFileAsync(process.execPath, [
     join(link, "with-app-env.mjs"),
     process.execPath,
     "-e",
     PRINT_FLAG,
   ]);
-  assert.equal(stdout, "false");
+  // Proof it ran at all; the value itself comes from the (optional) app-env file.
+  assert.equal(stdout, NO_APP_ENV ? "undefined" : "false");
 });

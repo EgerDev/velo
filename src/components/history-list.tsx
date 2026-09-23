@@ -128,6 +128,8 @@ export function HistoryList({ onOpen, onRedownload, downloading }: HistoryListPr
                   <img
                     src={item.thumbnail}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="size-full object-cover outline outline-1 -outline-offset-1 outline-fg/10"
                   />
                 </button>

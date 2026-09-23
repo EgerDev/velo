@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { VirtualRows } from "@/components/virtual-rows";
 import {
   AI_PROMPT_TEMPLATES,
   cuesToJson,
@@ -115,7 +116,6 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [activeCueId, setActiveCueId] = useState<number | null>(null);
 
-  const listRef = useRef<HTMLDivElement>(null);
   const nleMenuRef = useRef<HTMLDivElement>(null);
 
   // Close NLE menu when clicking outside
@@ -169,12 +169,20 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
     };
   }, [videoId, selectedTrack]);
 
-  // Filtered cues based on search query
+  // Deferred so typing stays responsive while a multi-thousand-cue list
+  // re-filters and re-renders.
+  const deferredQuery = useDeferredValue(searchQuery);
   const filteredCues = useMemo(() => {
-    if (!searchQuery.trim()) return cues;
-    const q = searchQuery.toLowerCase().trim();
+    if (!deferredQuery.trim()) return cues;
+    const q = deferredQuery.toLowerCase().trim();
     return cues.filter((cue) => cue.text.toLowerCase().includes(q));
-  }, [cues, searchQuery]);
+  }, [cues, deferredQuery]);
+
+  // One compiled pattern shared by every row — not one per cue per render.
+  const highlightRe = useMemo(() => {
+    const q = deferredQuery.trim();
+    return q ? new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi") : null;
+  }, [deferredQuery]);
 
   // Copy helper
   const handleCopy = async (type: "plain" | "timestamps" | "srt" | "vtt" | "json") => {
@@ -558,61 +566,63 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
             <p className="text-xs">No transcript cues match "{searchQuery}"</p>
           </div>
         ) : (
-          <div
-            ref={listRef}
-            className="max-h-[380px] overflow-y-auto p-3 sm:p-4 space-y-1.5 divide-y divide-border/20"
-          >
-            {filteredCues.map((cue) => {
-              const isActive = activeCueId === cue.id;
-              return (
-                // Both the pill and the text are real buttons, matching
-                // TranscriptStudio. As a click-only <div> with a bubbling-only
-                // pill, seeking was unreachable by keyboard entirely — and
-                // completely gone once timestamps were toggled off.
-                <div
-                  key={cue.id}
-                  className={cn(
-                    "group flex items-start gap-3 rounded-lg p-2 transition-all",
-                    isActive
-                      ? "bg-accent/15 border border-accent/40 shadow-sm"
-                      : "hover:bg-elevated/70 hover:border-border/50 border border-transparent",
-                  )}
-                >
-                  {/* Timestamp Pill */}
-                  {showTimestamps ? (
+            <VirtualRows
+              items={filteredCues}
+              className="max-h-[380px] overflow-y-auto p-3 sm:p-4"
+              getKey={(cue) => cue.id}
+              estimateSize={40}
+              gap={6}
+              renderRow={(cue, index) => {
+                const isActive = activeCueId === cue.id;
+                return (
+                  // Both the pill and the text are real buttons, matching
+                  // TranscriptStudio. As a click-only <div> with a bubbling-only
+                  // pill, seeking was unreachable by keyboard entirely — and
+                  // completely gone once timestamps were toggled off.
+                  <div
+                    className={cn(
+                      "group flex items-start gap-3 rounded-lg p-2 transition-all",
+                      index > 0 && !isActive && "border-t-border/20",
+                      isActive
+                        ? "bg-accent/15 border border-accent/40 shadow-sm"
+                        : "hover:bg-elevated/70 hover:border-border/50 border border-transparent",
+                    )}
+                  >
+                    {/* Timestamp Pill */}
+                    {showTimestamps ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCueClick(cue)}
+                        title={`Jump to ${cue.startFormatted}`}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-mono font-medium shrink-0 transition-colors cursor-pointer",
+                          isActive
+                            ? "bg-accent text-accent-fg"
+                            : "bg-elevated text-accent group-hover:bg-accent/20 group-hover:text-fg",
+                        )}
+                      >
+                        <Play className="size-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        {cue.startFormatted}
+                      </button>
+                    ) : null}
+
+                    {/* Cue Text */}
                     <button
                       type="button"
                       onClick={() => handleCueClick(cue)}
                       title={`Jump to ${cue.startFormatted}`}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-mono font-medium shrink-0 transition-colors cursor-pointer",
-                        isActive
-                          ? "bg-accent text-accent-fg"
-                          : "bg-elevated text-accent group-hover:bg-accent/20 group-hover:text-fg",
-                      )}
+                      className="text-xs text-fg leading-relaxed flex-1 select-text text-left cursor-pointer bg-transparent border-0 p-0 rounded-sm focus:outline-hidden focus:ring-1 focus:ring-accent/40"
                     >
-                      <Play className="size-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      {cue.startFormatted}
+                      {highlightRe ? (
+                        <HighlightText text={cue.text} pattern={highlightRe} />
+                      ) : (
+                        cue.text
+                      )}
                     </button>
-                  ) : null}
-
-                  {/* Cue Text */}
-                  <button
-                    type="button"
-                    onClick={() => handleCueClick(cue)}
-                    title={`Jump to ${cue.startFormatted}`}
-                    className="text-xs text-fg leading-relaxed flex-1 select-text text-left cursor-pointer bg-transparent border-0 p-0 rounded-sm focus:outline-hidden focus:ring-1 focus:ring-accent/40"
-                  >
-                    {searchQuery ? (
-                      <HighlightText text={cue.text} query={searchQuery} />
-                    ) : (
-                      cue.text
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                  </div>
+                );
+              }}
+            />
         )}
       </div>
 
@@ -641,13 +651,12 @@ export function TranscriptViewer({ videoId, videoTitle, captions, onSeek }: Tran
   );
 }
 
-function HighlightText({ text, query }: { text: string; query: string }) {
-  if (!query.trim()) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
+function HighlightText({ text, pattern }: { text: string; pattern: RegExp }) {
+  // split() keeps the single capture group in odd slots — no per-part compare.
   return (
     <>
-      {parts.map((part, i) =>
-        part.toLowerCase() === query.toLowerCase() ? (
+      {text.split(pattern).map((part, i) =>
+        i % 2 === 1 ? (
           <mark key={i} className="bg-warn/30 text-warn rounded px-0.5">
             {part}
           </mark>

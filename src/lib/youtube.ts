@@ -27,7 +27,7 @@ export type {
   SearchHit,
   PlaylistResult,
 } from "./youtube-types.ts";
-export { isShortVideo, captionsHref, kindLabel } from "./youtube-types.ts";
+export { isShortVideo, detectShort, captionsHref, kindLabel } from "./youtube-types.ts";
 export {
   H264_VS_AV1,
   HLS_EXPLAIN,

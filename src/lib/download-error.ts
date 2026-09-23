@@ -8,6 +8,7 @@ export type DownloadErrorCode =
   | "cookies"
   | "private"
   | "network"
+  | "reload"
   | "unknown";
 
 export class DownloadError extends Error {
@@ -72,6 +73,19 @@ export function classifyDownloadError(
   const bodyCode = opts.code?.toLowerCase();
 
   const as = (code: DownloadErrorCode) => new DownloadError(message, code, steps, retryAfterSec, status);
+
+  // A lazy chunk that failed to load (offline, or its hash is gone after a
+  // deploy) stays failed for the life of the page — no retry or fallback can
+  // succeed, and Chrome's wording ("Failed to fetch …") read as "network".
+  if (/dynamically imported module|importing a module script failed/.test(lower)) {
+    return new DownloadError(
+      "Part of Velo didn’t load — it may have just been updated. Reload the page, then Save again.",
+      "reload",
+      steps,
+      retryAfterSec,
+      status,
+    );
+  }
 
   if (bodyCode === "rate") return as("rate");
   if (bodyCode === "queue" || bodyCode === "busy") return as("queue");
@@ -200,6 +214,8 @@ export function downloadHint(code: DownloadErrorCode, guest = false, retryAfterS
       return "The extractor found metadata but no bytes. Retry, or pick a lower quality.";
     case "network":
       return "A CORS relay dropped. Wait a few seconds, then Save once.";
+    case "reload":
+      return "Reloading fetches the latest app files; your history is kept.";
     default:
       return "Retry the save once. If the preview is busy, wait for the queue — signing in will not help.";
   }
@@ -207,5 +223,5 @@ export function downloadHint(code: DownloadErrorCode, guest = false, retryAfterS
 
 export function shouldEscalateSave(err: unknown): boolean {
   const code = classifyDownloadError(err).code;
-  return code !== "rate" && code !== "queue";
+  return code !== "rate" && code !== "queue" && code !== "reload";
 }

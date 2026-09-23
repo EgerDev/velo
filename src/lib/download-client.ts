@@ -38,6 +38,25 @@ export type DownloadOutcome = {
   title: string;
 };
 
+/**
+ * The in-browser mux holds its whole output in one buffer (MP4 fast-start) and
+ * copies it into the saved Blob — about 2x the file in the tab at the peak. On
+ * a long 1080p file that crashes a phone, so refuse up front: ~15% of device
+ * RAM per file (navigator.deviceMemory; 4 GB assumed where the API is absent).
+ * ponytail: size cap, not a streaming muxer; stream (fragmented MP4) if this
+ * fallback ever carries large files routinely.
+ */
+function assertBrowserMuxFits(bytes: number | null | undefined) {
+  if (!bytes) return;
+  const deviceGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
+  const limit = Math.min(1.5 * 2 ** 30, deviceGb * 2 ** 30 * 0.15);
+  if (bytes > limit) {
+    throw new Error(
+      `This file (${Math.round(bytes / 2 ** 20)} MB) is too large to combine in the browser on this device. Try again in a moment, or pick a lower quality.`,
+    );
+  }
+}
+
 async function hybridMux(opts: {
   videoId: string;
   title: string;
@@ -49,6 +68,8 @@ async function hybridMux(opts: {
 }): Promise<void> {
   const { videoId, title, preset, onProgress } = opts;
   if (!preset.audioItag) throw new Error("No audio track.");
+  // Before downloading: don't spend the bandwidth on a file we can't combine.
+  assertBrowserMuxFits(preset.size);
   const { hybridFetchBlob } = await import("@/lib/hybrid-download");
   const { cookiesForDownload } = await import("@/lib/cookie-store");
   const cookies = cookiesForDownload(opts.signedIn);
@@ -93,6 +114,7 @@ async function hybridMux(opts: {
       }),
     ]);
     if (opts.signal?.aborted) throw new Error("aborted");
+    assertBrowserMuxFits(videoBlob.size + audioBlob.size); // when preset.size was unknown
     onProgress({ label: "Combining video + audio", percent: 84 });
     const { muxVideoAudio } = await import("@/lib/mux-client");
     const ext = preset.ext === "webm" ? "webm" : "mp4";

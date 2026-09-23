@@ -147,3 +147,26 @@ export function estimateClipSize(
   const ratio = Math.min(1, Math.max(0, clipDurationSec / totalDurationSec));
   return Math.round(fullSizeBytes * ratio);
 }
+
+/**
+ * Validate the trimmer's two text boxes. Empty means "from the start" / "to
+ * the end"; anything else must parse — an unparseable entry ("99:99", "abc")
+ * used to fall back silently to the whole video while the box still showed it.
+ */
+export function validateTimeInputs(
+  startText: string,
+  endText: string,
+  maxDuration?: number,
+): TimeRangeValidation {
+  const start = parseTimecode(startText);
+  const end = parseTimecode(endText);
+  const fallbackEnd = maxDuration && maxDuration > 0 ? maxDuration : 60;
+  const hint = "use seconds, M:SS or H:MM:SS (e.g. 90, 1:30, 1:02:30).";
+  if (startText.trim() && start === null) {
+    return { valid: false, start: 0, end: end ?? fallbackEnd, duration: 0, error: `Start isn’t a time — ${hint}` };
+  }
+  if (endText.trim() && end === null) {
+    return { valid: false, start: start ?? 0, end: fallbackEnd, duration: 0, error: `End isn’t a time — ${hint}` };
+  }
+  return validateTimeRange(start ?? 0, end ?? fallbackEnd, maxDuration);
+}

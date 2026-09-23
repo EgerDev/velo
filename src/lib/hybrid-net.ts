@@ -10,6 +10,7 @@ import { nameForBlob } from "@/lib/media-name";
 import { isAudioItag, isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { isImaUrl } from "@/lib/ima";
 import { linkAbort } from "@/lib/abort-link";
+import { readBodyToBlob } from "@/lib/read-body";
 
 export type HybridStep = {
   id: string;
@@ -59,39 +60,13 @@ export async function readBlob(
   response: Response,
   onBytes?: (loaded: number, total: number) => void,
 ): Promise<Blob> {
-  if (!response.body) return response.blob();
-  const total = Number(response.headers.get("content-length")) || 0;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let loaded = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        loaded += value.byteLength;
-        onBytes?.(loaded, total);
-      }
-    }
-  } finally {
-    // A rejected read (relay drop, mid-transfer abort) would otherwise leave the
-    // body locked and the socket held. `builder-download.ts` already does this.
-    reader.releaseLock();
-  }
-  // A stream cut short still ends with `done`, so without this a truncated
-  // transfer was saved as a complete file — the container header parses and the
-  // size check passes, and the user is told it succeeded.
+  const { blob, loaded, total } = await readBodyToBlob(response, onBytes);
   if (total > 0 && loaded < total) {
     throw new Error(
       `Download ended early — got ${loaded} of ${total} bytes. The connection dropped; try again.`,
     );
   }
-  // Blob copies its parts itself; a contiguous intermediate Uint8Array would
-  // double peak memory (~2x the file) for nothing. `builder-download.ts` already does this.
-  return new Blob(chunks, {
-    type: response.headers.get("content-type") || "application/octet-stream",
-  });
+  return blob;
 }
 
 export function assertMedia(blob: Blob, type: string | null): Blob {

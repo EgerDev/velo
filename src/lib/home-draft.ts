@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import type { PlaylistResult, SearchHit } from "@/lib/youtube";
 
 export const SAMPLES = [
@@ -21,6 +22,14 @@ export function readDraftUrl(): string {
     return "";
   }
 }
+
+/**
+ * The link box text. Kept out of the page root's state on purpose: as useState
+ * in Home, every keystroke re-rendered the whole page — header, tabs, cookie
+ * card and the 1.9k-line VideoPanel — ~20ms per key on a phone-class CPU.
+ * Only UrlForm subscribes; everything else reads getState() when it needs it.
+ */
+export const useDraftUrl = create<{ url: string }>(() => ({ url: "" }));
 
 export function writeDraftUrl(value: string) {
   try {

@@ -107,6 +107,12 @@ export async function runHomeDownload(opts: {
   opts.abortRef.current = abort;
   const pendingSave = opts.pending ?? beginBuilderSave(`${opts.target.title}.${opts.preset.ext}`);
   let wrote = false;
+  // Race legs that lost can still report after the save settles; letting them
+  // through replaced the final failure message (or a newer run's progress).
+  let settled = false;
+  const onProgress = (next: DownloadProgress) => {
+    if (!settled && opts.abortRef.current === abort) opts.setProgress(next);
+  };
   void persistStorage();
   opts.setDownloading(true);
   opts.setFallbackPrompt(null);
@@ -120,9 +126,10 @@ export async function runHomeDownload(opts: {
       signedIn: opts.signedIn,
       pendingSave,
       signal: abort.signal,
-      onProgress: opts.setProgress,
+      onProgress,
     });
     wrote = true;
+    settled = true;
     opts.record({
       id: opts.target.id,
       title: opts.target.title,
@@ -136,8 +143,12 @@ export async function runHomeDownload(opts: {
     });
     toast.success(`Saving ${saved.title}`);
   } catch (err) {
+    settled = true;
     if (isUserAbort(err, abort.signal)) return;
-    if (!opts.usedFallback && opts.preset.audioItag && shouldEscalateSave(err)) {
+    // Offline is not "YouTube restricted this quality": offering a lower one
+    // would blame YouTube and cost the user quality when a retry would do.
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    if (!opts.usedFallback && opts.preset.audioItag && shouldEscalateSave(err) && !offline) {
       const fallback = pickMuxedFallback(opts.target.presets, opts.preset);
       if (fallback && fallback.itag !== opts.preset.itag) {
         opts.setDownloading(false);
@@ -152,15 +163,16 @@ export async function runHomeDownload(opts: {
       }
     }
     const classified = classifyDownloadError(err);
+    const offlineMsg = "You’re offline — the save stopped. Reconnect, then Save again.";
     opts.setProgress((prev) => ({
-      label: classified.code === "queue" ? GUEST.busy : classified.message,
+      label: offline ? offlineMsg : classified.code === "queue" ? GUEST.busy : classified.message,
       percent: 100,
       failed: true,
       errorCode: classified.code,
-      hint: downloadHint(classified.code, !opts.signedIn, classified.retryAfterSec),
+      hint: offline ? undefined : downloadHint(classified.code, !opts.signedIn, classified.retryAfterSec),
       steps: prev?.steps,
     }));
-    toast.error(classified.message);
+    toast.error(offline ? offlineMsg : classified.message);
   } finally {
     if (!wrote) void discardPendingSave(pendingSave);
     if (opts.abortRef.current === abort) opts.setDownloading(false);

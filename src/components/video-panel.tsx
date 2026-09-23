@@ -79,8 +79,7 @@ import {
   estimateClipSize,
   formatTimecode,
   formatYtdlpSection,
-  parseTimecode,
-  validateTimeRange,
+  validateTimeInputs,
 } from "@/lib/time-trimmer";
 import { resolveThumbnailBundle } from "@/lib/thumbnail-assets";
 
@@ -460,10 +459,12 @@ export function VideoPanel({
   }
 
   const thumbnailBundle = useMemo(() => resolveThumbnailBundle(video.id), [video.id]);
+  // Sizes YouTube never rendered come back as its 120x90 placeholder, not a 404
+  // the <a> could see; the preview <img> spots that and the tile drops out.
+  // URLs carry the video id, so entries from a previous video never match.
+  const [missingThumbs, setMissingThumbs] = useState<ReadonlySet<string>>(new Set());
 
-  const parsedStart = parseTimecode(trimStart) ?? 0;
-  const parsedEnd = parseTimecode(trimEnd) ?? (video.duration || 60);
-  const trimValidation = validateTimeRange(parsedStart, parsedEnd, video.duration || undefined);
+  const trimValidation = validateTimeInputs(trimStart, trimEnd, video.duration || undefined);
   const clipSizeEstimate = estimateClipSize(selected?.size, video.duration || 60, trimValidation.duration);
 
   const formats = useMemo(() => sortFormats(video.formats), [video.formats]);
@@ -1652,7 +1653,7 @@ export function VideoPanel({
                                   className="h-7 px-2.5 text-[11px]"
                                   disabled={downloading}
                                   onClick={() => onDownloadFormat(format)}
-                                  aria-label={`Download ${format.qualityLabel} ${format.ext}`}
+                                  aria-label={`Download ${format.qualityLabel} ${format.ext}, itag ${format.itag}`}
                                 >
                                   <Download className="size-3 mr-1" />
                                   Save
@@ -1787,8 +1788,10 @@ export function VideoPanel({
                     variant="outline"
                     size="sm"
                     className="w-full text-xs"
+                    // An invalid range used to copy anyway (e.g. *00:10-00:05).
+                    disabled={!trimValidation.valid}
                     onClick={async () => {
-                      const section = formatYtdlpSection(parsedStart, parsedEnd);
+                      const section = formatYtdlpSection(trimValidation.start, trimValidation.end);
                       const cmd = `yt-dlp --download-sections "${section}" --force-keyframes-at-cuts "${video.url}"`;
                       try {
                         await navigator.clipboard.writeText(cmd);
@@ -1799,7 +1802,9 @@ export function VideoPanel({
                     }}
                   >
                     <Copy className="size-3 mr-1.5" />
-                    Copy Range yt-dlp Command ({formatYtdlpSection(parsedStart, parsedEnd)})
+                    {trimValidation.valid
+                      ? `Copy Range yt-dlp Command (${formatYtdlpSection(trimValidation.start, trimValidation.end)})`
+                      : "Fix the range to copy the command"}
                   </Button>
                 </div>
               </div>
@@ -1835,21 +1840,33 @@ export function VideoPanel({
                   Download uncompressed YouTube cover artwork and thumbnails directly:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {thumbnailBundle.items.map((item) => (
-                    <a
-                      key={item.label}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-elevated/40 hover:bg-elevated transition-colors text-xs text-fg group"
-                    >
-                      <div>
-                        <p className="font-medium text-fg">{item.label}</p>
-                        <p className="text-[11px] text-muted font-mono">{item.resolution} · .{item.ext}</p>
-                      </div>
-                      <ExternalLink className="size-3.5 text-subtle group-hover:text-fg transition-colors" />
-                    </a>
-                  ))}
+                  {thumbnailBundle.items.filter((item) => !missingThumbs.has(item.url)).map((item) => {
+                    const drop = () => setMissingThumbs((prev) => new Set(prev).add(item.url));
+                    return (
+                      <a
+                        key={item.label}
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-elevated/40 hover:bg-elevated transition-colors text-xs text-fg group"
+                      >
+                        <img
+                          src={item.url}
+                          alt=""
+                          className="mr-2.5 h-9 w-16 shrink-0 rounded object-cover"
+                          onLoad={(e) => {
+                            if (e.currentTarget.naturalWidth <= 120) drop();
+                          }}
+                          onError={drop}
+                        />
+                        <div className="mr-auto">
+                          <p className="font-medium text-fg">{item.label}</p>
+                          <p className="text-[11px] text-muted font-mono">{item.resolution} · .{item.ext}</p>
+                        </div>
+                        <ExternalLink className="size-3.5 text-subtle group-hover:text-fg transition-colors" />
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}

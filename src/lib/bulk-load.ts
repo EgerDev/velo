@@ -92,6 +92,10 @@ export async function loadBulkLinks(opts: {
     );
     settled.forEach((res, i) => {
       if (res.status === "fulfilled") {
+        // The server caps a playlist at 50 (resolveYoutubePlaylist); say so.
+        if (res.value.items.length >= 50 && res.value.total) {
+          toast.info(`Queued the first 50 of ${res.value.total} from "${res.value.title}".`);
+        }
         for (const item of res.value.items) {
           if (!newVideoIds.includes(item.id)) newVideoIds.push(item.id);
         }

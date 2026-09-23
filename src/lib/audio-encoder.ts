@@ -115,6 +115,9 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
 
   const run = async (): Promise<EncodedAudio> => {
     throwIfAborted(options.signal);
+    // Also when a panel preload is already in flight (loadFFmpeg only reports
+    // the load it starts); "encoding" replaces it once the core is up.
+    options.onProgress?.({ stage: "loading", percent: 0 });
     const ffmpeg = await loadFFmpeg(options.onProgress);
     throwIfAborted(options.signal);
 

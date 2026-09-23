@@ -160,7 +160,7 @@ const INITIAL_STEPS: HybridStep[] = [
   { id: "botguard", label: "BotGuard / PO token", status: "pending" },
   { id: "bypass", label: "Velo unlock (nsig + dual POT + same-hop + HLS)", status: "pending" },
   { id: "ytdlp", label: "yt-dlp web_embedded over SOCKS", status: "pending" },
-  { id: "relay", label: "CORS relays (cors.sh / allorigins / Velo)", status: "pending" },
+  { id: "relay", label: "CORS relays (corsfix / allorigins / Velo)", status: "pending" },
 ];
 
 export async function hybridFetchBlob(opts: {

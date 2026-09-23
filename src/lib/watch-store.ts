@@ -50,7 +50,10 @@ export const useWatchStore = create<WatchState>()(
     {
       name: WATCH_STORE_KEY,
       version: 1,
-      storage: createJSONStorage(() => (typeof localStorage !== "undefined" ? localStorage : noopStorage)),
+      // `window`, not `typeof localStorage`: Node >= 25 has a method-less global stub.
+      storage: createJSONStorage(() =>
+        typeof window !== "undefined" ? window.localStorage : noopStorage,
+      ),
       // Without a migrate, a version bump makes zustand DISCARD the persisted
       // payload — the user's whole watch list. Carry the channels across.
       migrate: (persisted) => {

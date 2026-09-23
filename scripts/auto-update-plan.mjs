@@ -248,3 +248,21 @@ export function describePlan(plan) {
   if (lines.length === 0) lines.push("everything is current");
   return lines;
 }
+
+/**
+ * Group in-range steps into families that have to move together.
+ *
+ * Bisecting package-by-package splits pairs that pin each other: react-dom
+ * drags react up through its peer range (so "react HELD" was false), and
+ * @tanstack/react-start pins @tanstack/react-router exactly (so updating the
+ * router alone was a silent no-op). A family is the npm scope, or react with
+ * react-dom. Order of first appearance is kept (Map.groupBy, Node >= 21).
+ * @template {{ name: string }} T
+ * @param {T[]} steps
+ * @returns {T[][]}
+ */
+export function lockstepGroups(steps) {
+  const family = (/** @type {string} */ name) =>
+    name.startsWith("@") ? name.split("/")[0] : name === "react-dom" ? "react" : name;
+  return [...Map.groupBy(steps, (step) => family(step.name)).values()];
+}

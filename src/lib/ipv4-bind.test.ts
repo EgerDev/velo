@@ -54,3 +54,48 @@ test("ULA playback ip is a mismatch; IPv4 is not", () => {
   assert.match(diag.hint ?? "", /matching hop/i);
   assert.equal(IPV6_TROUBLESHOOT.length, 3);
 });
+
+// Throwaway self-signed pair for 127.0.0.1 (valid to 2126); test-only.
+const TEST_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg8IcVLpRQwkUUNzzY
+fYmi3f8Lbnq2aYGHg3o8MfXLhKChRANCAASeZag+7Ek+pimxf/QENX5NRgvep+OP
+Ex6wPLN6YQ/GiIyW7JShdFiYe5R5a6thIuU5yHwBPbaC0fydpOLBR+PS
+-----END PRIVATE KEY-----`;
+const TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIBkDCCATagAwIBAgIUDHcRcquSuzxAmZy7qsIQ4YHQWIowCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJMTI3LjAuMC4xMCAXDTI2MDkyMjIyNTAzOVoYDzIxMjYwODI5
+MjI1MDM5WjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAASeZag+7Ek+pimxf/QENX5NRgvep+OPEx6wPLN6YQ/GiIyW7JShdFiY
+e5R5a6thIuU5yHwBPbaC0fydpOLBR+PSo2QwYjAdBgNVHQ4EFgQUpcM9zPxcvhk1
+HTvJ7bfkkVUpWaYwHwYDVR0jBBgwFoAUpcM9zPxcvhk1HTvJ7bfkkVUpWaYwDwYD
+VR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMAoGCCqGSM49BAMCA0gAMEUC
+IQD+gV34oOMXmlMBqdKIFAylubBppuIPSxhocsnln1sHAwIgCPKgr79CTkK6Q3OW
+Z0vZsMEeSCV7eHHOjgqs2pfEw1Q=
+-----END CERTIFICATE-----`;
+
+test("built-in fetch keeps response headers over TLS once the app dispatcher is installed", async () => {
+  // undici 8.11 made HTTP/2 the default; over h2 Node's bundled fetch got a
+  // response with no headers, so gzip stayed encoded and youtubei.js failed
+  // every lookup with "Failed to get player id". Needs TLS + h2 to reproduce.
+  const { createSecureServer } = await import("node:http2");
+  const { gzipSync } = await import("node:zlib");
+  pinIpv4();
+  const body = "var scriptUrl = 'https://www.youtube.com/s/player/abc123/www-widgetapi.js';";
+  const server = createSecureServer({ key: TEST_KEY, cert: TEST_CERT, allowHTTP1: true }, (_req, res) => {
+    res.writeHead(200, { "content-type": "text/javascript", "content-encoding": "gzip" });
+    res.end(gzipSync(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const prior = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  try {
+    const { port } = server.address() as { port: number };
+    const res = await fetch(`https://127.0.0.1:${port}/iframe_api`);
+    assert.equal(res.headers.get("content-encoding"), "gzip");
+    assert.equal(await res.text(), body);
+  } finally {
+    if (prior === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prior;
+    server.close();
+  }
+});

@@ -62,7 +62,9 @@ const memory = (() => {
 
 function historyStorage(): Storage {
   try {
-    if (typeof localStorage !== "undefined") return localStorage;
+    // Not `typeof localStorage`: Node >= 25 defines a method-less global stub
+    // (and warns when it is touched), so SSR would crash on getItem.
+    if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
   } catch {
     /* private mode / SSR */
   }

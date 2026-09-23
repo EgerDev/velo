@@ -77,8 +77,11 @@ export function extractYoutubeLinks(rawText: string): BulkExtractionResult {
   }
 
   // Also run global regex over raw string in case tokens were merged
+  // `watch?…&v=` scans only within one URL (the tokenizer's delimiters). A bare
+  // `.+` ran to the end of the line from every `watch?`: quadratic, so a long
+  // one-line paste of playlist-item links froze the tab on each keystroke.
   const genericVideoRe =
-    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))([\w-]{11})/gi;
+    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?[^\s,"';<>()[\]#]*&v=))([\w-]{11})/gi;
   let match: RegExpExecArray | null;
   while ((match = genericVideoRe.exec(rawText)) !== null) {
     const vid = match[1];

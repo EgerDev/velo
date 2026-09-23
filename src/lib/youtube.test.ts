@@ -15,6 +15,7 @@ import {
   parsePlaylistId,
   parseVideoId,
   isShortVideo,
+  detectShort,
   type VideoFormat,
 } from "./youtube.ts";
 
@@ -710,5 +711,17 @@ describe("buildPresets 1080p without H.264 1080p", () => {
     assert.equal(fullhd?.itag, 299);
     assert.equal(fullhd?.codec, "H.264");
     assert.equal(fullhd?.title, "Full HD");
+  });
+});
+
+describe("detectShort", () => {
+  it("lets orientation decide when dimensions are known", () => {
+    // "Me at the zoo": 19s, 320x240 — landscape, not a Short.
+    assert.equal(detectShort({ duration: 19, formats: [{ width: 320, height: 240 }] }), false);
+    assert.equal(detectShort({ duration: 45, formats: [{ width: 1080, height: 1920 }] }), true);
+    assert.equal(detectShort({ duration: 600, formats: [{ width: 1080, height: 1920 }] }), false);
+    // No dimensions at all: fall back to the duration guess.
+    assert.equal(detectShort({ duration: 30, formats: [{ width: null, height: null }] }), true);
+    assert.equal(detectShort({ duration: 120, formats: [] }), false);
   });
 });

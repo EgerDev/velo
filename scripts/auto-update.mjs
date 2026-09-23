@@ -20,7 +20,7 @@
  *   1. In-range updates land as ONE batch and verify once. These are versions
  *      the committed specs already allow, so batching is honest — and it is the
  *      difference between one verify cycle and eight. If the batch fails, it is
- *      bisected package-by-package so one bad release does not block the rest.
+ *      bisected by package family so one bad release does not block the rest.
  *   2. Range bumps (`--major`) go one at a time. Each rewrites a spec, so each
  *      needs its own verdict.
  *   3. yt-dlp last, and separately: it is a Python package, its failure mode is
@@ -41,7 +41,12 @@
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { buildUpdatePlan, describePlan, ytdlpNeedsUpdate } from "./auto-update-plan.mjs";
+import {
+  buildUpdatePlan,
+  describePlan,
+  lockstepGroups,
+  ytdlpNeedsUpdate,
+} from "./auto-update-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
 
 const ROOT = projectRoot();
@@ -124,7 +129,17 @@ function run(cmd, argv, opts = {}) {
   });
 }
 
-const npm = (argv, opts) => run("npm", [...argv, "--no-audit", "--no-fund"], opts);
+// `npm run` exports npm_execpath (npm-cli.js). Running it through node sidesteps
+// Windows, where `npm` is npm.cmd and spawn() without a shell cannot start it.
+const npmExec = process.env.npm_execpath;
+const npm = (argv, opts) =>
+  npmExec
+    ? run(process.execPath, [npmExec, ...argv, "--no-audit", "--no-fund"], opts)
+    : run("npm", [...argv, "--no-audit", "--no-fund"], opts);
+
+// Same interpreter the app uses (src/lib/ytdlp-auth.ts pythonBin), so the
+// updater upgrades the yt-dlp the server actually imports.
+const PYTHON = process.env.VELO_PYTHON?.trim() || process.env.PYTHON_BIN?.trim() || "python3";
 
 /** The bytes of package.json and package-lock.json, to restore verbatim on failure. */
 function snapshot() {
@@ -196,7 +211,9 @@ async function readOutdated() {
     throw new Error(`could not parse \`npm outdated --json\`: ${text.slice(0, 500)}`);
   }
   if (parsed && typeof parsed === "object" && parsed.error) {
-    throw new Error(`\`npm outdated\` reported an error: ${JSON.stringify(parsed.error).slice(0, 500)}`);
+    throw new Error(
+      `\`npm outdated\` reported an error: ${JSON.stringify(parsed.error).slice(0, 500)}`,
+    );
   }
   return parsed;
 }
@@ -243,7 +260,7 @@ function writeSpec(block, name, spec) {
 
 /** Installed yt-dlp version, or null when the module is not importable. */
 async function ytdlpInstalled() {
-  const result = await run("python3", ["-m", "yt_dlp", "--version"], { quiet: true });
+  const result = await run(PYTHON, ["-m", "yt_dlp", "--version"], { quiet: true });
   return result.ok ? result.output.trim().split("\n").pop()?.trim() || null : null;
 }
 
@@ -273,12 +290,13 @@ async function updateYtdlp() {
   const installed = await ytdlpInstalled();
   if (!installed) {
     return {
-      line: "yt-dlp: not importable via `python3 -m yt_dlp` — skipped (pip install yt-dlp)",
+      line: `yt-dlp: not importable via \`${PYTHON} -m yt_dlp\` — skipped (pip install yt-dlp)`,
       pending: false,
     };
   }
   const latest = await ytdlpLatest();
-  if (!latest) return { line: `yt-dlp: ${installed} (PyPI unreachable — left alone)`, pending: false };
+  if (!latest)
+    return { line: `yt-dlp: ${installed} (PyPI unreachable — left alone)`, pending: false };
   if (!ytdlpNeedsUpdate(installed, latest)) {
     return { line: `yt-dlp: ${installed} is current`, pending: false };
   }
@@ -288,11 +306,30 @@ async function updateYtdlp() {
     return { line: `yt-dlp: ${installed} -> ${latest} available`, pending: true };
   }
 
-  const install = await run(
-    "python3",
-    ["-m", "pip", "install", "--user", "--upgrade", `yt-dlp==${latest}`],
-    { quiet: true },
-  );
+  // The extras pull curl_cffi (--impersonate) and yt-dlp-ejs (the nsig/sig
+  // solver) in the ranges this yt-dlp declares; a bare `yt-dlp==X` leaves them
+  // stale, and an out-of-range curl_cffi silently disables impersonation.
+  // `--user` is refused inside a virtualenv (VELO_PYTHON may point at one).
+  const venv = await run(PYTHON, ["-c", "import sys;print(sys.prefix!=sys.base_prefix)"], {
+    quiet: true,
+  });
+  const pip = (version) => [
+    "-m",
+    "pip",
+    "install",
+    ...(venv.output.trim() === "True" ? [] : ["--user"]),
+    "--upgrade",
+    `yt-dlp[default,curl-cffi]==${version}`,
+  ];
+  // PEP 668 (Debian 12+, Ubuntu 23.04+): system pip refuses even --user without
+  // this flag; with --user it still only writes ~/.local. Retried, not always
+  // passed, because pip < 23.0.1 rejects the unknown option.
+  const pipInstall = async (version) => {
+    const first = await run(PYTHON, pip(version), { quiet: true });
+    if (first.ok || !/externally-managed-environment/.test(first.output)) return first;
+    return run(PYTHON, [...pip(version), "--break-system-packages"], { quiet: true });
+  };
+  const install = await pipInstall(latest);
   if (!install.ok) {
     return {
       line: `yt-dlp: ${installed} — pip install failed, left alone (${install.output.trim().split("\n").pop()})`,
@@ -304,11 +341,9 @@ async function updateYtdlp() {
   const after = await ytdlpInstalled();
   if (!after) {
     console.log("   yt-dlp no longer importable — reverting");
-    await run("python3", ["-m", "pip", "install", "--user", `yt-dlp==${installed}`], {
-      quiet: true,
-    });
+    await pipInstall(installed);
     return {
-      line: `yt-dlp: ${latest} broke \`python3 -m yt_dlp\` — reverted to ${installed}`,
+      line: `yt-dlp: ${latest} broke \`${PYTHON} -m yt_dlp\` — reverted to ${installed}`,
       pending: true,
     };
   }
@@ -349,28 +384,36 @@ async function main() {
 
   if (plan.inRange.length > 0) {
     const names = plan.inRange.map((s) => s.name);
+    /** @type {Map<string, string>} why a family was rolled back, by package */
+    const held = new Map();
     const batch = await attempt(
       `in-range batch: ${names.join(", ")}`,
       async () => (await npm(["update", ...names], { quiet: true })).ok,
     );
-    if (batch.kept) {
-      for (const step of plan.inRange)
-        report.push(`updated  ${step.name} ${step.from} -> ${step.to}`);
-    } else {
-      // One bad release must not hold back the rest, so find it by retrying
-      // each package on its own against the restored tree.
-      console.log("   batch failed — bisecting package by package");
-      for (const step of plan.inRange) {
+    if (!batch.kept) {
+      // One bad release must not hold back the rest, so retry against the
+      // restored tree family by family (see lockstepGroups for why not singly).
+      console.log("   batch failed — bisecting by package family");
+      for (const group of lockstepGroups(plan.inRange)) {
+        const groupNames = group.map((s) => s.name);
         const one = await attempt(
-          `${step.name} ${step.from} -> ${step.to}`,
-          async () => (await npm(["update", step.name], { quiet: true })).ok,
+          groupNames.join(", "),
+          async () => (await npm(["update", ...groupNames], { quiet: true })).ok,
         );
-        report.push(
-          one.kept
-            ? `updated  ${step.name} ${step.from} -> ${step.to}`
-            : `HELD     ${step.name} ${step.from} -> ${step.to} (${one.failed} failed)`,
-        );
+        if (!one.kept) for (const name of groupNames) held.set(name, `${one.failed} failed`);
       }
+    }
+    // Report what the lockfile says landed, not what was planned: a dependent's
+    // exact pin can turn an "update" into a no-op, and a peer range can move a
+    // package that was itself rolled back.
+    const lock = existsSync(LOCK_PATH) ? JSON.parse(readFileSync(LOCK_PATH, "utf8")) : {};
+    for (const step of plan.inRange) {
+      const now = lock.packages?.[`node_modules/${step.name}`]?.version ?? step.from;
+      report.push(
+        now !== step.from
+          ? `updated  ${step.name} ${step.from} -> ${now}${now === step.to ? "" : ` (wanted ${step.to})`}`
+          : `HELD     ${step.name} ${step.from} -> ${step.to} (${held.get(step.name) ?? "no-op: pinned by a dependent"})`,
+      );
     }
   }
 

@@ -314,3 +314,21 @@ test("Given the repository surface, When the operator lifecycle runs, Then only 
   assert.equal(output.includes("127.0.0."), false);
   assert.equal((await cold.history()).some(({ eventType }) => eventType === "deleted"), true);
 });
+
+test("Given a cached route list, When routes change through the repository or a raw write, Then the next list sees it once invalidated", async () => {
+  const { database, repository } = await fixture();
+  const first = await repository.add(FIRST);
+  const second = await repository.add(SECOND);
+  if (first.kind !== "added" || second.kind !== "added") return assert.fail("seed failed");
+  assert.equal((await repository.list()).length, 2); // warms the 30s snapshot
+  await repository.setEnabled(first.id, false);
+  assert.equal((await repository.list()).find((row) => row.id === first.id)?.enabled, false);
+  await repository.delete(second.id);
+  assert.deepEqual((await repository.list()).map(({ id }) => id), [first.id]);
+  // A write that bypasses the mutators (the run store's verdict) stays cached
+  // until invalidated — that is the contract proxy-run-service relies on.
+  await database.query("update velo_proxy set verdict='blocked' where id=$1", [first.id]);
+  assert.notEqual((await repository.list())[0]?.verdict, "blocked");
+  repository.invalidateListCache();
+  assert.equal((await repository.list())[0]?.verdict, "blocked");
+});

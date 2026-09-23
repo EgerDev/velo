@@ -4,6 +4,7 @@ import { isUserAbort } from "@/lib/download-error";
 import { beginBuilderSave, discardPendingSave } from "@/lib/builder-save";
 import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
 import type { BulkItem } from "@/lib/bulk-download";
+import { useHistoryStore } from "@/lib/history-store";
 
 export async function processBulkItem(opts: {
   item: BulkItem;
@@ -14,6 +15,7 @@ export async function processBulkItem(opts: {
   const { item, mutate } = opts;
   let pendingSave: ReturnType<typeof beginBuilderSave> | undefined;
   let wrote = false;
+  let lastPct = -1;
   try {
     let title = item.title;
     let targetPresetItag = item.selectedItag ?? 137;
@@ -49,7 +51,7 @@ export async function processBulkItem(opts: {
       streamType: targetAudioItag ? "dash-mux" : "direct",
       recommended: true,
     };
-    await downloadPresetFile({
+    const saved = await downloadPresetFile({
       videoId: item.id,
       title: title || item.id,
       preset: presetObj,
@@ -57,12 +59,31 @@ export async function processBulkItem(opts: {
       pendingSave,
       signal: opts.signal,
       onProgress: (prog: DownloadProgress) => {
+        // Progress events fire per network chunk; cloning the item array per
+        // tick is O(queue) × O(chunks). Whole percents are all the bar shows.
+        const pct = Math.max(10, Math.min(95, Math.round(prog.percent)));
+        if (pct === lastPct) return;
+        lastPct = pct;
         mutate((prev) =>
-          prev.map((i) => (i.id === item.id ? { ...i, progress: Math.max(10, Math.min(95, prog.percent)) } : i)),
+          prev.map((i) => (i.id === item.id ? { ...i, progress: pct } : i)),
         );
       },
     });
     wrote = true;
+    // Bulk saves belong in History too: the panel promises "saved files land
+    // here", and a 20-video batch used to leave it empty. Same shape as a
+    // single save (home-actions).
+    useHistoryStore.getState().record({
+      id: item.id,
+      title: title || item.id,
+      author: item.author ?? "",
+      thumbnail: item.thumbnail ?? `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+      duration: item.duration,
+      url: item.url,
+      lastItag: saved.itag,
+      lastPreset: saved.title,
+      lastExt: saved.ext,
+    });
     mutate((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, status: "completed", progress: 100, filename, error: null } : i)),
     );

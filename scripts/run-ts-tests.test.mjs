@@ -27,7 +27,8 @@ test("Given the npm test command, when its phases are inspected, then script tes
   const testCommand = packageJson.scripts.test;
 
   // Then
-  assert.equal(testCommand, "node --test 'scripts/**/*.test.mjs' && node scripts/run-ts-tests.mjs");
+  // Double quotes: cmd.exe keeps single quotes, so node got a literal pattern and ran nothing.
+  assert.equal(testCommand, 'node --test "scripts/**/*.test.mjs" && node scripts/run-ts-tests.mjs');
 });
 
 test("Given nested TypeScript tests, when discovery runs, then every path is returned in sorted order", async () => {

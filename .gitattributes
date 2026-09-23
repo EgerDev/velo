@@ -1,0 +1,3 @@
+# LF everywhere, whatever core.autocrlf says: the deploy target is Linux, and a
+# CRLF startup.sh (the revive entrypoint) dies with "set: Illegal option -".
+* text=auto eol=lf

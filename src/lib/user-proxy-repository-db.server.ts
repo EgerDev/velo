@@ -69,9 +69,20 @@ async function neonDatabase(databaseUrl: string): Promise<ProxyDatabase> {
   };
 }
 
-export async function getProxyDatabase(): Promise<ProxyDatabase> {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (databaseUrl) return neonDatabase(databaseUrl);
-  const { getPglite } = await import("@/lib/db");
-  return pgliteAdapter(await getPglite());
+// One ProxyDatabase per process: the route-list cache in
+// user-proxy-repository.server is keyed on this object's identity, and a fresh
+// adapter per call would never hit it.
+const dbGlobal = globalThis as typeof globalThis & { __veloProxyDb__?: Promise<ProxyDatabase> };
+
+export function getProxyDatabase(): Promise<ProxyDatabase> {
+  dbGlobal.__veloProxyDb__ ??= (async () => {
+    const databaseUrl = process.env.DATABASE_URL?.trim();
+    if (databaseUrl) return neonDatabase(databaseUrl);
+    const { getPglite } = await import("@/lib/db");
+    return pgliteAdapter(await getPglite());
+  })().catch((err) => {
+    dbGlobal.__veloProxyDb__ = undefined;
+    throw err;
+  });
+  return dbGlobal.__veloProxyDb__;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type ResolvedVideo } from "@/lib/youtube";
 import { AI_PROMPT_TEMPLATES, type TranscriptCue } from "@/lib/transcript";
@@ -45,12 +45,14 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
     return cues.filter((cue) => !deletedCueIds.has(cue.id));
   }, [cues, deletedCueIds]);
 
-  // Search filtered cues (showing all cues with deleted styling)
+  // Search filtered cues (showing all cues with deleted styling). Deferred so
+  // typing stays responsive while a long cue list re-renders.
+  const deferredQuery = useDeferredValue(searchQuery);
   const filteredCues = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     if (!q) return cues;
     return cues.filter((cue) => cue.text.toLowerCase().includes(q));
-  }, [cues, searchQuery]);
+  }, [cues, deferredQuery]);
 
   // Word statistics & estimated reading time
   const stats = useMemo(() => {
@@ -116,7 +118,9 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
 
   const reqIdRef = useRef(0);
 
-  function seekTo(time: number) {
+  // Stable identity (setters + DOM only): CueRows is memoized on these, which is
+  // what lets a search keystroke skip re-rendering thousands of rows.
+  const seekTo = useCallback((time: number) => {
     setPlayingTime(time);
     const iframe = document.getElementById("transcript-studio-iframe") as HTMLIFrameElement | null;
     if (iframe?.contentWindow) {
@@ -129,7 +133,7 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
         "*",
       );
     }
-  }
+  }, []);
 
   async function loadCaptionContent(target: ResolvedVideo, vssId: string, tlang: string) {
     const currentReq = ++reqIdRef.current;
@@ -186,14 +190,14 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
   const translationLanguages = video?.translationLanguages ?? [];
   const canTranslate = Boolean(selectedTrack?.translatable) && translationLanguages.length > 0;
 
-  function toggleDeleteCue(id: number) {
+  const toggleDeleteCue = useCallback((id: number) => {
     setDeletedCueIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   function restoreAllCues() {
     setDeletedCueIds(new Set());

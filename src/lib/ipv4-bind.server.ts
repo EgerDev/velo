@@ -41,10 +41,19 @@ export function pinIpv4(): typeof IPV4_BIND {
   try {
     const require = createRequire(import.meta.url);
     const undici = require("undici") as {
-      Agent: new (opts: { connect: { family: number; autoSelectFamily: boolean } }) => unknown;
+      Agent: new (opts: {
+        allowH2: boolean;
+        connect: { family: number; autoSelectFamily: boolean };
+      }) => unknown;
       setGlobalDispatcher: (dispatcher: unknown) => void;
     };
-    undici.setGlobalDispatcher(new undici.Agent({ connect: { family: 4, autoSelectFamily: false } }));
+    // allowH2: false — undici >= 8.11 negotiates HTTP/2 by default, and over h2
+    // its legacy wrapper hands Node's *bundled* fetch a response with no headers:
+    // gzip bodies stay encoded and youtubei.js fails every lookup with
+    // "Failed to get player id". This dispatcher serves that bundled fetch.
+    undici.setGlobalDispatcher(
+      new undici.Agent({ allowH2: false, connect: { family: 4, autoSelectFamily: false } }),
+    );
   } catch {
     /* undici not resolvable — dns/net pins still apply */
   }

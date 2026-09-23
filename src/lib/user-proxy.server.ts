@@ -28,7 +28,9 @@ async function repository() {
 }
 
 export function invalidateProxyCache(): void {
-  // Compatibility no-op: the database is authoritative.
+  // Fire-and-forget: a failed invalidation only means the snapshot lives out
+  // its TTL — it must never reject unhandled.
+  void repository().then((store) => store.invalidateListCache(), () => {});
 }
 
 export async function getUserProxies(): Promise<StoredProxy[]> {

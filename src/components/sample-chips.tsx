@@ -42,9 +42,12 @@ export function SampleChipRow({ samples, onPick, className }: SampleChipRowProps
             {id ? (
               <span className="relative shrink-0">
                 <img
-                  src={`https://i.ytimg.com/vi/${id}/mqdefault.jpg`}
+                  // 120x90 (~3 KB) is plenty for a 48x28 chip even at 2x DPR;
+                  // mqdefault (320x180, ~11 KB) was 4x the bytes on first paint.
+                  src={`https://i.ytimg.com/vi/${id}/default.jpg`}
                   alt=""
                   loading="lazy"
+                  decoding="async"
                   className="h-7 w-12 rounded-lg object-cover opacity-80 transition-opacity duration-[var(--motion-quick)] group-hover:opacity-100"
                 />
                 <span

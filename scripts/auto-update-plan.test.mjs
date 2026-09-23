@@ -10,6 +10,7 @@ import {
   describePlan,
   dependencyBlock,
   isPinnedSpec,
+  lockstepGroups,
   parseSpec,
   ytdlpNeedsUpdate,
 } from "./auto-update-plan.mjs";
@@ -215,4 +216,21 @@ test("every spec this repo actually ships is one the planner can handle", () => 
   const specs = { ...pkg.dependencies, ...pkg.devDependencies };
   const unmanageable = Object.entries(specs).filter(([, spec]) => parseSpec(spec) === null);
   assert.deepEqual(unmanageable, [], "add a case to parseSpec for these");
+});
+
+test("lockstep families bisect together: scope, and react with react-dom", () => {
+  const names = (groups) => groups.map((g) => g.map((s) => s.name));
+  assert.deepEqual(
+    names(
+      lockstepGroups([
+        { name: "@tanstack/react-router" },
+        { name: "react" },
+        { name: "zod" },
+        { name: "@tanstack/react-start" },
+        { name: "react-dom" },
+      ]),
+    ),
+    [["@tanstack/react-router", "@tanstack/react-start"], ["react", "react-dom"], ["zod"]],
+  );
+  assert.deepEqual(lockstepGroups([]), []);
 });

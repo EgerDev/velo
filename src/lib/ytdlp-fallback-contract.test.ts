@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-test("Given failed saved yt-dlp routes, When the download caller continues, Then free routes precede the ungated direct fallback", async () => {
+test("Given failed saved yt-dlp routes, When the download caller continues, Then a gated direct probe, then free routes, precede the ungated direct fallback", async () => {
   const source = await readFile(new URL("./ytdlp.server.ts", import.meta.url), "utf8");
   const saved = source.indexOf("const savedOutcome");
-  const free = source.indexOf("if (!loggedIn)", saved);
+  const probe = source.indexOf("directYtdlpOpen()", saved);
+  const free = source.indexOf("if (!loggedIn) {", probe);
   const direct = source.indexOf("Direct is the final fallback", free);
-  assert.ok(saved >= 0 && free > saved && direct > free);
+  assert.ok(saved >= 0 && probe > saved && free > probe && direct > free);
+  // A failed probe must close the window, or blocked hosts pay it every save.
+  assert.match(source, /markDirectYtdlpBlocked\(\)/);
+  // Formats and subtitles take the same direct-first hop before free SOCKS.
+  const meta = await readFile(new URL("./ytdlp-meta.server.ts", import.meta.url), "utf8");
+  assert.match(meta, /markDead: markDirectYtdlpBlocked/);
+  assert.equal(meta.match(/runHops\(null, tryHop\)/g)?.length, 2);
   assert.match(source, /allowDirectFallback: false/);
   assert.equal(source.includes("savedRoutes.length === 0"), false);
 });

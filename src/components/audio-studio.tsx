@@ -13,7 +13,7 @@ import {
   outputFilename,
   type AudioProfileId,
 } from "@/lib/audio-profiles";
-import { isEncoderSupported, preloadEncoder, type EncodeProgress } from "@/lib/audio-encoder";
+import { isEncoderSupported, preloadEncoder, releaseEncoder, type EncodeProgress } from "@/lib/audio-encoder";
 import { beginBuilderSave, discardPendingSave, saveMediaBlob } from "@/lib/builder-save";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 
@@ -28,7 +28,7 @@ type AudioStudioProps = {
 type Phase =
   | { kind: "idle" }
   | { kind: "fetching"; percent: number; label: string }
-  | { kind: "converting"; percent: number }
+  | { kind: "converting"; percent: number; loading?: boolean }
   | { kind: "done"; filename: string; size: number };
 
 /**
@@ -51,7 +51,12 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset }: A
   // conversion doesn't pay the whole load.
   useEffect(() => {
     if (supported) void preloadEncoder();
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      // This panel is the core's only user. WASM memory never shrinks, so a
+      // long conversion's heap would otherwise stay held for the whole tab.
+      releaseEncoder();
+    };
   }, [supported]);
 
   const profile = getAudioProfile(profileId);
@@ -139,7 +144,9 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset }: A
         signal: abort.signal,
         onProgress: (progress: EncodeProgress) => {
           if (abort.signal.aborted) return;
-          setPhase({ kind: "converting", percent: progress.percent });
+          // "loading" is the one-time ~30 MB engine download: on a slow link it
+          // used to sit at "Converting… 0%" looking frozen.
+          setPhase({ kind: "converting", percent: progress.percent, loading: progress.stage === "loading" });
         },
       });
       if (abort.signal.aborted) return;
@@ -278,7 +285,9 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset }: A
               {phase.kind === "fetching"
                 ? `${phase.label}… ${phase.percent}%`
                 : phase.kind === "converting"
-                  ? `Converting… ${phase.percent}%`
+                  ? phase.loading
+                    ? "Starting converter…"
+                    : `Converting… ${phase.percent}%`
                   : `Convert to ${profile.label}`}
             </Button>
           </div>

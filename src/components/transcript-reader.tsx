@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Check, ChevronDown, Clock, Copy, Download, Layers, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { AI_PROMPT_TEMPLATES } from "@/lib/transcript";
 import { formatDuration } from "@/lib/youtube";
 import { NLE_EXPORT_OPTIONS, type TranscriptViewProps } from "@/components/transcript-props";
+import { VirtualRows } from "@/components/virtual-rows";
 
 export function TranscriptReader(props: TranscriptViewProps) {
   const {
@@ -13,7 +15,7 @@ export function TranscriptReader(props: TranscriptViewProps) {
     handleTranslateChange, selectedTrack, searchQuery, setSearchQuery, copyFormattedTranscript,
     copiedFormat, downloadTranscriptFile, cues, deletedCueIds, toggleDeleteCue, restoreAllCues,
     seekTo, handleNleExport, copyAiPrompt, copiedPromptId, loadingTranscript, filteredCues,
-    activeCues, excludedCount, fps, setFps, showNleMenu, setShowNleMenu, onOpenInDownloader,
+    excludedCount, fps, setFps, showNleMenu, setShowNleMenu, onOpenInDownloader,
     translatedTo, readingMinutes, stats,
   } = props;
 
@@ -98,6 +100,7 @@ export function TranscriptReader(props: TranscriptViewProps) {
                 <button
                   type="button"
                   onClick={() => setShowNleMenu(!showNleMenu)}
+                  aria-expanded={showNleMenu}
                   className="flex items-center justify-between w-full text-left cursor-pointer"
                 >
                   <div className="flex items-center gap-2">
@@ -172,60 +175,31 @@ export function TranscriptReader(props: TranscriptViewProps) {
               <div className="panel overflow-hidden">
                 <div className="p-3 bg-surface border-b border-border flex items-center justify-between text-xs text-muted">
                   <span>
-                    Showing {filteredCues.length} of {activeCues.length} cues
+                    {/* Both counts include struck-out cues (they stay listed); the
+                        banner below says how many are excluded. Was "6 of 5". */}
+                    Showing {filteredCues.length} of {cues.length} cues
                     {searchQuery ? ` matching "${searchQuery}"` : ""}
                   </span>
                   <span>Hover to cut/remove segment</span>
                 </div>
 
-                <div className="max-h-[72vh] min-h-[320px] overflow-y-auto p-4 space-y-2.5 divide-y divide-border/40">
+                <div className="min-h-[320px]">
                   {loadingTranscript ? (
-                    <div className="py-12 flex flex-col items-center justify-center text-muted gap-2 text-xs">
+                    <div className="p-4 py-12 flex flex-col items-center justify-center text-muted gap-2 text-xs">
                       <Loader2 className="size-6 animate-spin text-accent" />
                       Loading and parsing subtitles…
                     </div>
                   ) : filteredCues.length === 0 ? (
-                    <div className="py-12 text-center text-muted text-xs">
+                    <div className="p-4 py-12 text-center text-muted text-xs">
                       No matching cues found.
                     </div>
                   ) : (
-                    filteredCues.map((cue) => {
-                      const isDeleted = deletedCueIds.has(cue.id);
-                      return (
-                        <div
-                          key={cue.id}
-                          className={cn(
-                            "pt-2 flex items-start justify-between gap-3 group rounded-lg p-2 transition-colors",
-                            isDeleted ? "opacity-35 line-through bg-danger/5" : "hover:bg-elevated/60",
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => seekTo(cue.start)}
-                            className="font-mono text-xs text-accent font-semibold hover:underline shrink-0 pt-0.5 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-accent rounded-sm"
-                            title={`Jump video to ${cue.startFormatted}`}
-                          >
-                            {cue.startFormatted}
-                          </button>
-                          <button
-                            type="button"
-                            dir="auto"
-                            className="text-xs text-fg text-start leading-relaxed flex-1 cursor-pointer hover:text-fg transition-colors bg-transparent border-0 p-0 focus:outline-hidden focus:ring-1 focus:ring-accent/40 rounded-sm"
-                            onClick={() => seekTo(cue.start)}
-                          >
-                            {cue.text}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleDeleteCue(cue.id)}
-                            className="text-subtle hover:text-danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer rounded-sm"
-                            title={isDeleted ? "Restore cue" : "Remove unwanted section"}
-                          >
-                            {isDeleted ? <RotateCcw className="size-3.5" /> : <Trash2 className="size-3.5" />}
-                          </button>
-                        </div>
-                      );
-                    })
+                    <CueRows
+                      cues={filteredCues}
+                      deletedCueIds={deletedCueIds}
+                      seekTo={seekTo}
+                      toggleDeleteCue={toggleDeleteCue}
+                    />
                   )}
                 </div>
               </div>
@@ -233,3 +207,67 @@ export function TranscriptReader(props: TranscriptViewProps) {
     </>
   );
 }
+
+/**
+ * One transcript row per cue — thousands for a long video. Memoized so a search
+ * keystroke (urgent render) skips all of them; only the deferred filter result
+ * re-renders the list, once. Needs stable seekTo/toggleDeleteCue from the owner.
+ */
+const CueRows = memo(function CueRows({
+  cues,
+  deletedCueIds,
+  seekTo,
+  toggleDeleteCue,
+}: {
+  cues: TranscriptViewProps["filteredCues"];
+  deletedCueIds: TranscriptViewProps["deletedCueIds"];
+  seekTo: TranscriptViewProps["seekTo"];
+  toggleDeleteCue: TranscriptViewProps["toggleDeleteCue"];
+}) {
+  return (
+    <VirtualRows
+      items={cues}
+      className="max-h-[72vh] overflow-y-auto p-4"
+      getKey={(cue) => cue.id}
+      estimateSize={44}
+      gap={10}
+      renderRow={(cue, index) => {
+        const isDeleted = deletedCueIds.has(cue.id);
+        return (
+          <div
+            className={cn(
+              "flex items-start justify-between gap-3 group rounded-lg p-2 transition-colors",
+              index > 0 && "border-t border-border/40 rounded-t-none",
+              isDeleted ? "opacity-35 line-through bg-danger/5" : "hover:bg-elevated/60",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => seekTo(cue.start)}
+              className="font-mono text-xs text-accent font-semibold hover:underline shrink-0 pt-0.5 cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-accent rounded-sm"
+              title={`Jump video to ${cue.startFormatted}`}
+            >
+              {cue.startFormatted}
+            </button>
+            <button
+              type="button"
+              dir="auto"
+              className="text-xs text-fg text-start leading-relaxed flex-1 cursor-pointer hover:text-fg transition-colors bg-transparent border-0 p-0 focus:outline-hidden focus:ring-1 focus:ring-accent/40 rounded-sm"
+              onClick={() => seekTo(cue.start)}
+            >
+              {cue.text}
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleDeleteCue(cue.id)}
+              className="text-subtle hover:text-danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-1 cursor-pointer rounded-sm"
+              title={isDeleted ? "Restore cue" : "Remove unwanted section"}
+            >
+              {isDeleted ? <RotateCcw className="size-3.5" /> : <Trash2 className="size-3.5" />}
+            </button>
+          </div>
+        );
+      }}
+    />
+  );
+});

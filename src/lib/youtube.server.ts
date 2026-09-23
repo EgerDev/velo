@@ -7,6 +7,7 @@ import type {
 } from "@/lib/youtube";
 import {
   buildPresets,
+  detectShort,
   parsePlaylistId,
   parseVideoId,
   youtubeWatchUrl,
@@ -84,12 +85,11 @@ export async function resolveYoutubeVideo(input: string): Promise<ResolvedVideo>
       ? basic.start_timestamp.toISOString()
       : null;
 
-  const isShort = Boolean(
-    (typeof basic.duration === "number" && basic.duration > 0 && basic.duration <= 180 && merged.some((f) => f.width && f.height && f.width < f.height)) ||
-    (typeof (basic as Record<string, unknown>).is_short === "boolean" && (basic as Record<string, unknown>).is_short) ||
-    (typeof (basic as Record<string, unknown>).is_shorts === "boolean" && (basic as Record<string, unknown>).is_shorts) ||
-    (typeof basic.duration === "number" && basic.duration > 0 && basic.duration <= 70 && !merged.some((f) => (f.height ?? 0) > 1080 && (f.width ?? 0) > (f.height ?? 0)))
-  );
+  const flags = basic as Record<string, unknown>;
+  const isShort =
+    flags.is_short === true ||
+    flags.is_shorts === true ||
+    detectShort({ duration: basic.duration, formats: merged });
 
   return {
     id: basic.id || id,

@@ -6,14 +6,14 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { HomeLayout } from "@/components/home-layout";
 import { HomeModes } from "@/components/home-modes";
 import { HomeSingle, type FallbackPrompt } from "@/components/home-single";
-import { parsePlaylistId, parseVideoId, pickBestPreset, type ResolvedVideo, type VideoPreset } from "@/lib/youtube";
+import { parseVideoId, pickBestPreset, type ResolvedVideo, type VideoPreset } from "@/lib/youtube";
 import { type DownloadProgress, type OfferedFile } from "@/lib/download-client";
 import { useAccountScope, useHistoryHydrated, useHistoryStore, type HistoryItem } from "@/lib/history-store";
 import { MODE_TABS } from "@/components/mode-tabs";
 import { anyBehind } from "@/lib/tool-versions";
 import { useToolsBadge } from "@/lib/use-tools-badge";
 import { useKeyboardShortcuts } from "@/lib/use-keyboard-shortcuts";
-import { mapExtensionPreset, readDraftUrl, writeDraftUrl, type ResultsView } from "@/lib/home-draft";
+import { mapExtensionPreset, readDraftUrl, useDraftUrl, writeDraftUrl, type ResultsView } from "@/lib/home-draft";
 import { lookupVideo, redownloadHistoryItem, runHomeDownload } from "@/lib/home-actions";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -22,7 +22,6 @@ function Home() {
   const { user, isPending } = useCurrentUserState();
   const signedIn = Boolean(user);
   useAccountScope(user?.id, isPending);
-  const [url, setUrl] = useState("");
   const [video, setVideo] = useState<ResolvedVideo | null>(null);
   const [results, setResults] = useState<ResultsView | null>(null);
   const [presetId, setPresetId] = useState<string | null>(null);
@@ -42,10 +41,9 @@ function Home() {
   const preferredLangRef = useRef<string | null>(null);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
-  const urlRef = useRef(url);
+  const urlRef = useRef("");
   const statusRef = useRef(status);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  urlRef.current = url;
   statusRef.current = status;
 
   useEffect(() => {
@@ -81,13 +79,13 @@ function Home() {
       }
     }
     const saved = readDraftUrl();
-    if (saved && !urlRef.current) setUrl(saved);
+    if (saved && !urlRef.current) updateUrl(saved);
     return () => abortRef.current?.abort();
   }, []);
 
   function updateUrl(next: string) {
     urlRef.current = next;
-    setUrl(next);
+    useDraftUrl.setState({ url: next });
     writeDraftUrl(next);
   }
 
@@ -128,13 +126,6 @@ function Home() {
       }
     },
   });
-
-  const submitKind = useMemo(() => {
-    if (parseVideoId(url)) return "fetch" as const;
-    if (parsePlaylistId(url)) return "playlist" as const;
-    if (url.trim()) return "search" as const;
-    return "idle" as const;
-  }, [url]);
 
   function applyVideo(result: ResolvedVideo, preferredItag?: number) {
     setVideo(result);
@@ -230,7 +221,7 @@ function Home() {
       {activeMode !== "single" ? (
         <HomeModes
           mode={activeMode}
-          url={url}
+          url={useDraftUrl.getState().url}
           preferredLang={preferredLangRef.current}
           batchIds={batchIds}
           signedIn={signedIn}
@@ -243,10 +234,8 @@ function Home() {
         />
       ) : (
         <HomeSingle
-          url={url}
           urlRef={urlRef}
           searchInputRef={searchInputRef}
-          submitKind={submitKind}
           status={status}
           error={error}
           isPending={isPending}

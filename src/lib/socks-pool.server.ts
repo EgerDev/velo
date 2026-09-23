@@ -153,7 +153,12 @@ async function refresh(): Promise<Sock[]> {
   const list = (await loadList()).filter((url) => (dead[url] ?? 0) < now);
   const live: Sock[] = [];
   const batch = 10;
-  for (let i = 0; i < list.length && live.length < 6; i += batch) {
+  // ponytail: probe at most ~45s of the free list. Six live proxies is the
+  // goal, not a guarantee — takeSocks already degrades to env/direct, and
+  // every takeSocks caller shares this sweep under `lock`, so the tail of a
+  // mostly-dead list isn't worth blocking on.
+  const deadline = now + 45_000;
+  for (let i = 0; i < list.length && live.length < 6 && Date.now() < deadline; i += batch) {
     const slice = list.slice(i, i + batch);
     const results = await Promise.all(slice.map(async (url) => ((await probe(url)) ? url : null)));
     for (const url of results) {

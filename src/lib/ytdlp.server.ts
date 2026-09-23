@@ -17,7 +17,14 @@ import {
   type YtdlpFailure,
 } from "@/lib/ytdlp-auth";
 import { markSocksDead, markSocksGood, releaseSocks, takeSocks } from "@/lib/socks-pool.server";
-import { ensurePython, requirePython, ensurePySocks, ensureImpersonate, TMP_PREFIX } from "@/lib/ytdlp-python.server";
+import {
+  requirePython,
+  ensurePySocks,
+  ensureImpersonate,
+  directYtdlpOpen,
+  markDirectYtdlpBlocked,
+  TMP_PREFIX,
+} from "@/lib/ytdlp-python.server";
 import {
   acquireYtdlpSlot,
   coalesceFile,
@@ -96,6 +103,18 @@ async function runClient(opts: {
 
 type MuxResult = FileHit & { client: string; auth: string; tmpDir: string };
 
+/**
+ * One budget for the whole ladder (saved routes × clients × retries, SOCKS
+ * hops, direct): a worst-case walk of failing routes could hold a download
+ * slot for tens of minutes. It stops *starting* attempts; one that is moving
+ * bytes runs to completion (a stalled one dies at its idle limit in `run`), so
+ * a long 4K save is never cut mid-transfer. The message contains "abort" so
+ * every ladder catch rethrows it untouched, yet it is not the bare "aborted"
+ * isUserAbort treats as a cancel.
+ */
+const LADDER_BUDGET_MS = 8 * 60_000;
+const BUDGET_MSG = "Save aborted: every route was tried for 8 minutes without a file.";
+
 async function muxOne(opts: {
   id: string;
   itag: number;
@@ -108,6 +127,11 @@ async function muxOne(opts: {
   await requirePython();
   const dir = await mkdtemp(join(tmpdir(), TMP_PREFIX));
   const errors: string[] = [];
+  const deadline = Date.now() + LADDER_BUDGET_MS;
+  const checkLadder = () => {
+    if (opts.signal?.aborted) throw new Error("aborted");
+    if (Date.now() >= deadline) throw new Error(BUDGET_MSG);
+  };
   try {
     const session = (() => {
       try {
@@ -123,7 +147,13 @@ async function muxOne(opts: {
     }
 
     const loggedIn = Boolean(session?.loggedIn);
-    const clients = ytdlpClients(loggedIn);
+    // Guests: clients proven to carry this itag first (socksClientsForItag), then
+    // the rest. GUEST_CLIENTS leads with visionos, which lacks muxed itag 18 — the
+    // "format not available" retry then widened to bv+ba and a "360p MP4" save
+    // came back as AV1/Opus MKV. Sessions keep the cookie-capable list.
+    const clients = loggedIn
+      ? ytdlpClients(true)
+      : [...new Set([...socksClientsForItag(opts.itag), ...ytdlpClients(false)])];
     const impersonate = await ensureImpersonate().catch(() => false);
     let gvsPot = opts.pot;
     let playerPot = opts.pot;
@@ -137,6 +167,7 @@ async function muxOne(opts: {
     }
 
     const attempt = async (client: string, proxy?: string, trustedProxy = false): Promise<MuxResult> => {
+      checkLadder();
       const filename = await runClient({
         dir,
         id: opts.id,
@@ -183,7 +214,7 @@ async function muxOne(opts: {
       if (userProxy === undefined) return { ok: false };
       const result = await userProxy.run(async (url): Promise<MuxResult | null> => {
         for (const client of clients) {
-          if (opts.signal?.aborted) throw new Error("aborted");
+          checkLadder();
           try {
             const completed = await attempt(client, url, true);
             await userProxy.mark({ ok: true, exitIp: null });
@@ -206,17 +237,32 @@ async function muxOne(opts: {
     }, { allowDirectFallback: false });
     if (savedOutcome.result !== null) return savedOutcome.result;
 
+    // The client already tried direct; the final direct loop skips it.
+    let probed: string | null = null;
+    if (!loggedIn && directYtdlpOpen() && clients[0]) {
+      probed = clients[0];
+      try {
+        return await attempt(probed);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/abort/i.test(message)) throw err;
+        errors.push(message);
+        if ((err as { ytdlp?: YtdlpFailure }).ytdlp?.next === "stop") throw err;
+        markDirectYtdlpBlocked();
+      }
+    }
+
     if (!loggedIn) {
       await ensurePySocks().catch(() => undefined);
       const hopClients = socksClientsForItag(opts.itag);
       for (let hop = 0; hop < 3; hop++) {
-        if (opts.signal?.aborted) throw new Error("aborted");
+        checkLadder();
         const socks = await takeSocks(1);
         const proxy = socks[0];
         if (!proxy) break;
         try {
           for (const client of hopClients) {
-            if (opts.signal?.aborted) throw new Error("aborted");
+            checkLadder();
             try {
               const result = await attempt(client, proxy);
               void markSocksGood(proxy);
@@ -245,7 +291,8 @@ async function muxOne(opts: {
 
     // Direct is the final fallback, after every configured and free route.
     for (const client of clients) {
-      if (opts.signal?.aborted) throw new Error("aborted");
+      checkLadder();
+      if (client === probed) continue;
       try { return await attempt(client); }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err);

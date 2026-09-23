@@ -141,10 +141,24 @@ async function getPlayableInfoUncached(
   }
 
   const clients = authenticatedClients.has(yt) ? SESSION_CLIENTS : CLIENTS;
-  for (const client of clients) {
-    try {
-      const usePot = Boolean(gvsPot && WEBPO_INNERTUBE.has(client));
-      const info = await yt.getBasicInfo(id, usePot ? { client, po_token: gvsPot } : { client });
+  // Probe a few clients per round: fully serial cost one RTT per client on a
+  // cold resolve, fully parallel would fire ~13 player calls at YouTube at
+  // once. Evaluation stays in CLIENTS order, so the earliest OK still wins.
+  const WINDOW = 3;
+  for (let i = 0; i < clients.length; i += WINDOW) {
+    const settled = await Promise.all(
+      clients.slice(i, i + WINDOW).map(async (client) => {
+        try {
+          const usePot = Boolean(gvsPot && WEBPO_INNERTUBE.has(client));
+          return await yt.getBasicInfo(id, usePot ? { client, po_token: gvsPot } : { client });
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error("Could not reach YouTube.");
+          return null;
+        }
+      }),
+    );
+    for (const info of settled) {
+      if (!info) continue;
       fallback = info;
       const status = info.playability_status?.status;
       const hasFormats = Boolean(
@@ -157,8 +171,6 @@ async function getPlayableInfoUncached(
         }
         return info;
       }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error("Could not reach YouTube.");
     }
   }
 

@@ -5,6 +5,20 @@ import { run, runCapture } from "@/lib/ytdlp-proc.server";
 import { pythonBin, classifyPythonProbe, type PythonProbe } from "@/lib/ytdlp-auth";
 
 export const TMP_PREFIX = "velo-ytdl-";
+
+/**
+ * Direct yt-dlp beats the free SOCKS pool by 2-40x where it works (measured:
+ * ~3s vs 6-17s per live hop, 110s+ walking dead ones), but a datacenter origin
+ * gets 403. So every ladder probes direct first and, once it fails, skips the
+ * probe for a while: a blocked host pays one fast failure per window.
+ * ponytail: one process-wide bit; key it by client/family if those diverge.
+ */
+const DIRECT_RETRY_MS = 15 * 60_000;
+let directBlockedUntil = 0;
+export const directYtdlpOpen = (): boolean => Date.now() >= directBlockedUntil;
+export function markDirectYtdlpBlocked(): void {
+  directBlockedUntil = Date.now() + DIRECT_RETRY_MS;
+}
 const TMP_MAX_AGE_MS = 30 * 60_000;
 
 export async function sweepStaleYtdlpDirs() {

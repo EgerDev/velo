@@ -7,11 +7,11 @@ import { SampleChipRow } from "@/components/sample-chips";
 import { SaveStage } from "@/components/save-stage";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VideoPanel } from "@/components/video-panel";
-import { SAMPLES } from "@/lib/home-draft";
+import { SAMPLES, useDraftUrl } from "@/lib/home-draft";
 import { formatAsPreset } from "@/lib/home-format";
 import type { ResultsView } from "@/lib/home-draft";
 import type { DownloadProgress, OfferedFile } from "@/lib/download-client";
-import type { ResolvedVideo, VideoFormat, VideoPreset } from "@/lib/youtube";
+import { parsePlaylistId, parseVideoId, type ResolvedVideo, type VideoFormat, type VideoPreset } from "@/lib/youtube";
 
 export type FallbackPrompt = {
   target: ResolvedVideo;
@@ -21,10 +21,8 @@ export type FallbackPrompt = {
 };
 
 export function HomeSingle(props: {
-  url: string;
   urlRef: RefObject<string>;
   searchInputRef: RefObject<HTMLInputElement | null>;
-  submitKind: "search" | "playlist" | "fetch" | "idle";
   status: "idle" | "loading" | "error";
   error: string | null;
   isPending: boolean;
@@ -44,64 +42,15 @@ export function HomeSingle(props: {
   onCloseOffer: () => void;
   onFallback: (prompt: FallbackPrompt | null) => void;
 }) {
-  const submitLabel =
-    props.submitKind === "search" ? "Search" : props.submitKind === "playlist" ? "Open playlist" : "Fetch";
-  const SubmitIcon = props.submitKind === "search" ? Search : props.submitKind === "playlist" ? Link2 : Gauge;
-
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const field = event.currentTarget.elements.namedItem("url");
-    const typed = field instanceof HTMLInputElement ? field.value : props.urlRef.current;
-    void props.onLookup(typed);
-  }
-
   return (
     <>
-      <form
-        className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-border shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
-        onSubmit={onSubmit}
-      >
-        <div className="relative flex flex-1 items-center min-w-0">
-          {props.submitKind === "fetch" || props.submitKind === "playlist" ? (
-            <Link2 className="size-4 text-accent shrink-0 ml-3 mr-1" />
-          ) : (
-            <Search className="size-4 text-subtle shrink-0 ml-3 mr-1 group-focus-within:text-fg transition-colors" />
-          )}
-          <input
-            ref={props.searchInputRef}
-            name="url"
-            value={props.url}
-            onChange={(event) => props.onUrl(event.target.value)}
-            placeholder="Paste a YouTube link or search..."
-            aria-label="YouTube link or search"
-            className="h-11 w-full bg-transparent px-2.5 text-sm sm:text-base text-fg placeholder:text-subtle/60 focus:outline-none font-sans"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {props.url ? (
-            <button
-              type="button"
-              aria-label="Clear input"
-              onClick={() => props.onUrl("")}
-              className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-elevated transition-colors mr-1.5 cursor-pointer"
-            >
-              <X className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-        <Button
-          type="submit"
-          className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
-          disabled={props.status === "loading"}
-        >
-          {props.status === "loading" ? (
-            <Loader2 className="size-3.5 animate-spin mr-1.5" />
-          ) : (
-            <SubmitIcon className="size-3.5 mr-1.5" />
-          )}
-          {props.status === "loading" ? "Working…" : submitLabel}
-        </Button>
-      </form>
+      <UrlForm
+        urlRef={props.urlRef}
+        searchInputRef={props.searchInputRef}
+        status={props.status}
+        onUrl={props.onUrl}
+        onLookup={props.onLookup}
+      />
 
       <SampleChipRow samples={SAMPLES} onPick={(sample) => void props.onLookup(sample.query)} />
 
@@ -246,5 +195,77 @@ export function HomeSingle(props: {
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * The link box on its own: the only subscriber to the draft text, so a
+ * keystroke re-renders this form and nothing above or beside it.
+ */
+function UrlForm(props: {
+  urlRef: RefObject<string>;
+  searchInputRef: RefObject<HTMLInputElement | null>;
+  status: "idle" | "loading" | "error";
+  onUrl: (value: string) => void;
+  onLookup: (raw?: string) => void;
+}) {
+  const url = useDraftUrl((s) => s.url);
+  const submitKind = parseVideoId(url) ? "fetch" : parsePlaylistId(url) ? "playlist" : url.trim() ? "search" : "idle";
+  const submitLabel = submitKind === "search" ? "Search" : submitKind === "playlist" ? "Open playlist" : "Fetch";
+  const SubmitIcon = submitKind === "search" ? Search : submitKind === "playlist" ? Link2 : Gauge;
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const field = event.currentTarget.elements.namedItem("url");
+    const typed = field instanceof HTMLInputElement ? field.value : props.urlRef.current;
+    void props.onLookup(typed);
+  }
+
+  return (
+    <form
+      className="group relative mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-2xl bg-surface/90 p-2 border border-border shadow-lg backdrop-blur-xl focus-within:border-accent/40 focus-within:ring-2 focus-within:ring-accent/20 transition-all duration-200"
+      onSubmit={onSubmit}
+    >
+      <div className="relative flex flex-1 items-center min-w-0">
+        {submitKind === "fetch" || submitKind === "playlist" ? (
+          <Link2 className="size-4 text-accent shrink-0 ml-3 mr-1" />
+        ) : (
+          <Search className="size-4 text-subtle shrink-0 ml-3 mr-1 group-focus-within:text-fg transition-colors" />
+        )}
+        <input
+          ref={props.searchInputRef}
+          name="url"
+          value={url}
+          onChange={(event) => props.onUrl(event.target.value)}
+          placeholder="Paste a YouTube link or search..."
+          aria-label="YouTube link or search"
+          className="h-11 w-full bg-transparent px-2.5 text-sm sm:text-base text-fg placeholder:text-subtle/60 focus:outline-none font-sans"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {url ? (
+          <button
+            type="button"
+            aria-label="Clear input"
+            onClick={() => props.onUrl("")}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-subtle hover:text-fg hover:bg-elevated transition-colors mr-1.5 cursor-pointer"
+          >
+            <X className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <Button
+        type="submit"
+        className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
+        disabled={props.status === "loading"}
+      >
+        {props.status === "loading" ? (
+          <Loader2 className="size-3.5 animate-spin mr-1.5" />
+        ) : (
+          <SubmitIcon className="size-3.5 mr-1.5" />
+        )}
+        {props.status === "loading" ? "Working…" : submitLabel}
+      </Button>
+    </form>
   );
 }

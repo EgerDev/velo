@@ -37,7 +37,7 @@ jobs:
 
       # The updater checks the installed yt-dlp against PyPI, so it has to be
       # present for the Python half of the run to mean anything.
-      - run: python3 -m pip install --user yt-dlp
+      - run: python3 -m pip install --user "yt-dlp[default,curl-cffi]"
 
       - run: npm ci
 

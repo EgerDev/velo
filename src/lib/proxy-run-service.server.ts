@@ -79,13 +79,18 @@ export function createDatabaseRunStore(database: import("./user-proxy-repository
   return {
     create: async (routes, requestedId) => { const id = requestedId ?? randomUUID(); await database.transaction(async (transaction) => { await transaction.query("delete from velo_proxy_validation_run where completed_at<now()-interval '30 days'"); await transaction.query("delete from velo_proxy_event where created_at<now()-interval '180 days'"); await transaction.query("insert into velo_proxy_validation_run (id,status,route_ids,total_count) values ($1,'running',$2,$3) on conflict (id) do nothing", [id, routes.map((route) => route.id), routes.length]); }); return id; },
     secret: (id, use) => repository.withSecret(id, use),
-    commit: async (record, runId) => database.transaction(async (transaction) => {
+    commit: async (record, runId) => {
+      await database.transaction(async (transaction) => {
       const id = randomUUID(); const verdict = record.classification.verdict ?? "unknown";
       await transaction.query("insert into velo_proxy_validation_result (id,run_id,proxy_id,route_ref,masked_label,verdict,error_code,completed_at) values ($1,$2,$3,$4,$5,$6,$7,now())", [id, runId, record.proxyId, record.routeRef, record.maskedLabel, verdict, record.errorCode]);
       for (const item of record.evidence) await transaction.query("insert into velo_proxy_validation_evidence (id,result_id,stage,outcome,code,http_status,duration_ms,bytes_read) values ($1,$2,$3,$4,$5,$6,$7,$8)", [randomUUID(), id, item.stage, item.outcome, item.code, item.httpStatus, item.durationMs, item.bytesRead]);
       await transaction.query("update velo_proxy set verdict=$1,last_checked_at=now(),last_evidence_at=now(),last_error_code=$2,hard_failures=case when $1 in ('blocked','unreachable','unsafe_tls') then hard_failures+1 when $1 in ('healthy','degraded') then 0 else hard_failures end,full_passes=case when $1='healthy' then full_passes+1 else 0 end,eligible=case when $1 in ('blocked','unreachable','unsafe_tls') then hard_failures+1<2 when $1='healthy' and full_passes+1>=2 then true else eligible end where id=$3", [verdict, record.errorCode, record.proxyId]);
       await transaction.query("update velo_proxy_validation_run set completed_count=completed_count+1,next_cursor=next_cursor+1,failed_count=failed_count+$1,lease_expires_at=case when lease_token is null then null else now()+interval '120 seconds' end where id=$2", [verdict === "healthy" ? 0 : 1, runId]);
-    }),
+      });
+      // The verdict write above bypasses repository methods, so the route-list
+      // snapshot wouldn't see it on its own.
+      repository.invalidateListCache();
+    },
     finish: async (runId, status) => { await database.query("update velo_proxy_validation_run set status=case when next_cursor<total_count and $1='completed' then 'partial' else $1 end,completed_at=case when next_cursor>=total_count then now() else null end,lease_token=null,lease_expires_at=null where id=$2", [status, runId]); },
     cancelled: async (runId) => {
       const result = await database.query<{ cancel_requested: boolean }>("select cancel_requested from velo_proxy_validation_run where id=$1", [runId]);

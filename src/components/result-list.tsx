@@ -28,6 +28,8 @@ export function ResultList({ title, subtitle, items, onPick }: ResultListProps) 
                   <img
                     src={item.thumbnail}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="size-full object-cover"
                   />
                   {item.duration != null ? (

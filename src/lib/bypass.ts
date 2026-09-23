@@ -26,6 +26,8 @@ import {
   unlockVariants,
 } from "@/lib/stream-unlock";
 import { isImaUrl } from "@/lib/ima";
+import { linkAbort } from "@/lib/abort-link";
+import { readBodyToBlob } from "@/lib/read-body";
 import { downloadHeaders } from "@/lib/guest-id";
 import { isAudioItag } from "@/lib/ytdlp-auth";
 
@@ -135,34 +137,11 @@ export async function readAll(
   response: Response,
   onBytes?: (loaded: number, total: number) => void,
 ): Promise<Blob> {
-  if (!response.body) return response.blob();
-  const total = Number(response.headers.get("content-length")) || 0;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let loaded = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        loaded += value.byteLength;
-        onBytes?.(loaded, total);
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  // A relay that drops mid-body still ends with `done`, so without this a short
-  // read was returned as a complete part and saved as a complete file.
+  const { blob, loaded, total } = await readBodyToBlob(response, onBytes);
   if (total > 0 && loaded < total) {
     throw new Error(`Download ended early — got ${loaded} of ${total} bytes.`);
   }
-  // Blob copies its parts itself; a contiguous intermediate Uint8Array would
-  // double peak memory for nothing.
-  return new Blob(chunks, {
-    type: response.headers.get("content-type") || "application/octet-stream",
-  });
+  return blob;
 }
 
 async function mediaThroughHop(
@@ -287,18 +266,41 @@ async function hlsThroughHop(
   const segments = media.segments.filter((seg) => !isImaUrl(seg));
   const total = segments.length;
   if (!total) throw new Error(`${relay.id} empty HLS`);
-  for (let i = 0; i < total; i++) {
-    if (signal?.aborted) throw new Error("aborted");
-    const seg = segments[i];
-    if (!seg) continue;
-    const res = await hopFetch(relay, hopUrl(seg), { signal, timeoutMs: 30_000, headers });
-    if (!res.ok || isBlockPage(res)) {
-      await res.body?.cancel().catch(() => undefined);
-      throw new Error(`${relay.id} HLS segment ${i}`);
+  // Serial fetching made the whole transfer cost sum-of-segment-RTTs. A few
+  // lanes cut that by ~4x; kept small because segments all ride one relay hop.
+  // One failed segment fails the file, so it also stops the sibling lanes and
+  // their in-flight fetches instead of letting them drain the whole playlist.
+  const fetched = new Array<Blob>(total);
+  const stop = new AbortController();
+  const detach = linkAbort(signal, stop);
+  let next = 0;
+  let done = 0;
+  const lane = async (): Promise<void> => {
+    for (let i = next++; i < total; i = next++) {
+      if (stop.signal.aborted) throw new Error("aborted");
+      const res = await hopFetch(relay, hopUrl(segments[i]!), { signal: stop.signal, timeoutMs: 30_000, headers });
+      if (!res.ok || isBlockPage(res)) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new Error(`${relay.id} HLS segment ${i}`);
+      }
+      fetched[i] = await readAll(res);
+      done += 1;
+      onProgress?.("HLS segments", Math.min(92, 20 + Math.round((done / total) * 70)));
     }
-    parts.push(await readAll(res));
-    onProgress?.("HLS segments", Math.min(92, 20 + Math.round(((i + 1) / total) * 70)));
+  };
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(4, total) }, () =>
+        lane().catch((err: unknown) => {
+          stop.abort();
+          throw err;
+        }),
+      ),
+    );
+  } finally {
+    detach();
   }
+  for (const blob of fetched) parts.push(blob);
   return new Blob(parts, { type: media.init ? "video/mp4" : "video/mp2t" });
 }
 

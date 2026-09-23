@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import "@/lib/ipv4-bind.server";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,83 +31,8 @@ import {
   type FileHit,
 } from "@/lib/download-pool.server";
 
-export function killTree(child: ChildProcess) {
-  const pid = child.pid;
-  if (pid) {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch {
-      /* setsid not ready / already reaped */
-    }
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      /* already dead */
-    }
-  }
-  try {
-    child.stdout?.destroy();
-    child.stderr?.destroy();
-  } catch {
-    /* ignore */
-  }
-  child.kill("SIGKILL");
-}
-
-export function run(
-  command: string,
-  args: string[],
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<{ code: number; signal: NodeJS.Signals | null; stderr: string; timedOut: boolean }> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error("aborted"));
-      return;
-    }
-    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
-    let stderr = "";
-    let timedOut = false;
-    let killed = false;
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      fn();
-    };
-    const onAbort = () => {
-      killed = true;
-      killTree(child);
-      finish(() => reject(new Error("aborted")));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killed = true;
-      killTree(child);
-    }, timeoutMs);
-    child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-      if (stderr.length > 48_000) stderr = stderr.slice(-48_000);
-    });
-    child.on("error", (err) => {
-      finish(() => reject(err));
-    });
-    child.on("close", (code, sig) => {
-      const forced = timedOut || killed;
-      finish(() =>
-        resolve({
-          code: forced ? 137 : (code ?? (sig === "SIGKILL" ? 137 : sig === "SIGTERM" ? 143 : 1)),
-          signal: forced ? "SIGKILL" : (sig ?? null),
-          stderr,
-          timedOut,
-        }),
-      );
-    });
-  });
-}
+export { killTree, run } from "@/lib/proc-run.server";
+import { killTree } from "@/lib/proc-run.server";
 
 /** Plenty for `--version`; a caption-heavy `-J` dump needs JSON_STDOUT_MAX. */
 const STDOUT_MAX_DEFAULT = 2_000_000;

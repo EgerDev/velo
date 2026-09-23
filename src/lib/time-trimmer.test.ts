@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  validateTimeInputs,
   parseTimecode,
   formatTimecode,
   validateTimeRange,
@@ -55,4 +56,17 @@ test("estimateClipSize: computes proportional file size", () => {
   const size = estimateClipSize(100_000_000, 1000, 100); // 10%
   assert.equal(size, 10_000_000);
   assert.equal(estimateClipSize(null, 1000, 100), null);
+});
+
+test("validateTimeInputs rejects unparseable text instead of silently using the whole video", () => {
+  assert.equal(validateTimeInputs("99:99", "00:15", 15).valid, false);
+  assert.match(validateTimeInputs("abc", "00:15", 15).error ?? "", /Start isn’t a time/);
+  assert.match(validateTimeInputs("00:03", "xyz", 15).error ?? "", /End isn’t a time/);
+});
+
+test("validateTimeInputs treats empty boxes as the video bounds and clamps the end", () => {
+  const pick = (v: { valid: boolean; start: number; end: number }) => ({ valid: v.valid, start: v.start, end: v.end });
+  assert.deepEqual(pick(validateTimeInputs("", "", 15)), { valid: true, start: 0, end: 15 });
+  assert.deepEqual(pick(validateTimeInputs("0:03", "9:00", 15)), { valid: true, start: 3, end: 15 });
+  assert.equal(validateTimeInputs("00:10", "00:05", 15).valid, false);
 });

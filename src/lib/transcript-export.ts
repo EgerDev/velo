@@ -73,7 +73,7 @@ export function downloadTranscriptFile(
 export function exportNleFile(formatId: NLEExportFormat, cues: TranscriptCue[], video: ResolvedVideo, fps: number) {
   if (!cues.length) return;
   const exported = exportNLETimeline(formatId, cues, { sequenceTitle: video.title, fps });
-  downloadBlob(exported.content, exported.mimeType, `${safeTitle(video.title)}-${exported.filename}`);
+  downloadBlob(exported.content, exported.mimeType, exported.filename);
   toast.success(`Exported ${exported.filename} for ${formatId}!`);
 }
 

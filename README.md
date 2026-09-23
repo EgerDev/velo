@@ -132,15 +132,24 @@ Velo is a modern web application built to inspect, stream, download, and extract
   the most reliable path, is unavailable. Install with:
 
   ```bash
-  python3 -m pip install -U yt-dlp
+  python3 -m pip install -U "yt-dlp[default,curl-cffi]"
   ```
 
-  If your interpreter is not on `PATH` as `python3` (a virtualenv, pyenv, or a
-  distro that only ships `python`), point Velo at it:
+  The extras bring the `--impersonate` backend and the EJS signature solver in
+  the versions this yt-dlp supports; yt-dlp also needs `ffmpeg` on `PATH` to
+  merge 1080p video with its audio.
+
+  On Debian 12+ / Ubuntu 23.04+ the system Python refuses that
+  ("externally-managed-environment", PEP 668). Use a virtualenv and point Velo
+  at it — this also works for pyenv, or a distro that only ships `python`:
 
   ```bash
-  export VELO_PYTHON=/path/to/venv/bin/python   # PYTHON_BIN also works
+  python3 -m venv ~/.velo-py
+  ~/.velo-py/bin/pip install -U "yt-dlp[default,curl-cffi]"
+  export VELO_PYTHON=~/.velo-py/bin/python   # PYTHON_BIN also works
   ```
+
+  `npm run update:deps` upgrades yt-dlp inside that same interpreter.
 
   Velo probes the runtime once per process and reports which piece is missing —
   the interpreter or the `yt_dlp` module — rather than failing per download.

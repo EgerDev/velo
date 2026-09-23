@@ -88,6 +88,7 @@ export function isVideoOnlyItag(itag: number): boolean {
   return VIDEO_ONLY.has(itag);
 }
 
+/** Stall limit for one attempt (see `run`): how long yt-dlp may go silent. */
 export function ytdlpRunTimeoutMs(opts: {
   itag: number;
   proxy?: string;

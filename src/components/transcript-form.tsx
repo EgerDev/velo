@@ -56,7 +56,7 @@ export function TranscriptForm(props: TranscriptViewProps) {
           <Button
             type="submit"
             disabled={loading}
-            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl flex-1 sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
+            className="h-10 min-w-24 px-4 text-xs font-semibold rounded-xl sm:flex-none bg-accent text-accent-fg hover:opacity-90 transition-all shadow-sm shrink-0"
           >
             {loading ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Sparkles className="size-3.5 mr-1.5" />}
             {loading ? "Working…" : "Get Transcript"}

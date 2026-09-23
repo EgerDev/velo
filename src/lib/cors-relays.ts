@@ -18,10 +18,6 @@ export const PUBLIC_RELAYS: RelaySpec[] = [
     wrap: (url) => `https://proxy.corsfix.com/?${url.replace(/#/g, "%23")}`,
   },
   {
-    id: "cors.sh",
-    wrap: (url) => `https://proxy.cors.sh/${url}`,
-  },
-  {
     id: "allorigins",
     wrap: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   },

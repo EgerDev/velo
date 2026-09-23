@@ -17,7 +17,7 @@ test("public CORS hops are HTML-only; googlevideo stays on the local hop", () =>
   assert.equal(isRelayTarget(media), true);
   assert.equal(isPublicHtmlTarget(media), false);
   assert.deepEqual(publicRelayUrls(media), []);
-  assert.ok(publicRelayUrls(page).some((item) => item.includes("proxy.cors.sh")));
+  assert.ok(publicRelayUrls(page).some((item) => item.includes("api.allorigins.win")));
   const all = allRelayUrls(media, true);
   assert.ok(all.every((item) => item.startsWith("/api/relay") || !/corsfix|cors\.sh|allorigins/.test(item)));
   assert.ok(all.some((item) => item.startsWith("/api/relay?url=")));
