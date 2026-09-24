@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import type { ViewMode } from "@/lib/view-mode";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { HomeLayout } from "@/components/home-layout";

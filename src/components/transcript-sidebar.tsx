@@ -1,5 +1,4 @@
-import { Check, Copy, Film, Languages, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, Copy, Languages, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AI_PROMPT_TEMPLATES } from "@/lib/transcript";
 import { formatDuration } from "@/lib/youtube";
@@ -7,13 +6,8 @@ import type { TranscriptViewProps } from "@/components/transcript-props";
 
 export function TranscriptSidebar(props: TranscriptViewProps) {
   const {
-    urlInput, setUrlInput, loadVideoTranscript, loading, samples, error, setError, video,
-    selectedLanguage, handleLanguageChange, translationLanguages, canTranslate, translateTo,
-    handleTranslateChange, selectedTrack, searchQuery, setSearchQuery, copyFormattedTranscript,
-    copiedFormat, downloadTranscriptFile, cues, deletedCueIds, toggleDeleteCue, restoreAllCues,
-    seekTo, handleNleExport, copyAiPrompt, copiedPromptId, loadingTranscript, filteredCues,
-    activeCues, excludedCount, fps, setFps, showNleMenu, setShowNleMenu, onOpenInDownloader,
-    translatedTo, readingMinutes, playingTime,
+    video, selectedLanguage, handleLanguageChange, translationLanguages, canTranslate,
+    translateTo, handleTranslateChange, selectedTrack, copyAiPrompt, copiedPromptId, playingTime,
   } = props;
   if (!video) return null;
 
