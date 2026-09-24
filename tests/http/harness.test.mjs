@@ -62,7 +62,8 @@ test("buildChildEnv drops the developer's shell, keeps OS basics, lets overrides
   });
 });
 
-test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL/VELO_*/TRUST_* never reach the server under test", async () => {
+// buildChildEnv's unit test above covers the full allowlist (VELO_*, TRUST_*, ...).
+test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL leave the server on 127.0.0.1:<ephemeral> with PGlite", async () => {
   const keys = ["NITRO_PORT", "NITRO_HOST", "DATABASE_URL", "VELO_ALLOW_TOOL_INSTALL", "TRUST_CLOUDFLARE"];
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   process.env.NITRO_PORT = "1";
