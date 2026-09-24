@@ -117,3 +117,19 @@ test("ci.yml exists and gates unit tests on Linux and Windows plus the verify jo
     assert.ok(ci.text.includes(step), step);
   }
 });
+
+test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with auto-update", () => {
+  for (const name of ["codeql.yml", "dependency-review.yml", "scorecard.yml"]) {
+    assert.ok(workflows.some((w) => w.name === name), `${name} is missing`);
+  }
+  const dependabot = readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
+  assert.match(dependabot, /package-ecosystem: npm/);
+  assert.match(dependabot, /package-ecosystem: github-actions/);
+  // auto-update.yml owns exactly the packages Dependabot ignores, so no package has two updaters.
+  const auto = workflows.find((w) => w.name === "auto-update.yml").text;
+  for (const pkg of auto.match(/--only=([\w.,@/-]+)/)[1].split(",")) {
+    assert.match(dependabot, new RegExp(`dependency-name: ${pkg.replace(/\./g, "\\.")}(\\s|$)`), pkg);
+  }
+  const owners = readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
+  assert.match(owners, /^\/\.github\/\s+@EgerDev$/m);
+});
