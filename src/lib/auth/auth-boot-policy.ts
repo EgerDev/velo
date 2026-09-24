@@ -5,6 +5,6 @@ export function assertAuthConfiguredForProduction(input: {
   authConfigured: boolean;
 }): void {
   if (input.nodeEnv === "production" && !input.authDisabled && !input.authConfigured) {
-    throw new Error("[auth] GROK_AUTH_CLIENT_ID/GROK_AUTH_CLIENT_SECRET are required in production (or set VITE_AUTH_ENABLED=false).");
+    throw new Error("[auth] GROK_AUTH_CLIENT_ID/GROK_AUTH_CLIENT_SECRET are required in production.");
   }
 }

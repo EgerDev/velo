@@ -14,6 +14,13 @@ test("production with auth enabled but unconfigured refuses to boot", () => {
     () => assertAuthConfiguredForProduction({ nodeEnv: "production", authDisabled: false, authConfigured: false }),
     /\[auth\] GROK_AUTH_CLIENT_ID/,
   );
+  assert.throws(
+    () => assertAuthConfiguredForProduction({ nodeEnv: "production", authDisabled: false, authConfigured: false }),
+    (err: Error) => {
+      assert.doesNotMatch(err.message, /VITE_AUTH_ENABLED/);
+      return true;
+    },
+  );
 });
 
 test("production boots when auth is explicitly disabled", () => {
