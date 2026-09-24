@@ -1,27 +1,24 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { containerKind, parseTsPacket, scanMpegTs, TS_PACKET, TS_SYNC } from "./mpeg-ts.ts";
 import { dashHlsSliceEnd, dashSegmentPlan, hlsContainer, sidxDurationSec } from "./iso-bmff.ts";
 import { parseHls } from "./stream-unlock.ts";
+import { dashCmafFixture, hlsTsFixture } from "./media-test-fixtures/index.ts";
 
 test("PAT/PMT: program 1 → PMT 4095 → AAC 257 + H.264 256", () => {
-  let data: Uint8Array;
-  try {
-    data = new Uint8Array(readFileSync("/tmp/hls-ts.bin"));
-  } catch {
-    data = Uint8Array.of(TS_SYNC, 0x40, 0x00, 0x10, ...Array(184).fill(0xff));
-  }
+  const data = hlsTsFixture();
+  assert.equal(data.length % TS_PACKET, 0);
   const first = parseTsPacket(data, 0);
   assert.ok(first);
   assert.equal(data[0], TS_SYNC);
-  if (data.length < TS_PACKET * 2) return;
   const scan = scanMpegTs(data);
+  assert.equal(scan.packets, data.length / TS_PACKET);
   assert.equal(scan.syncErrors, 0);
   assert.equal(scan.transportStreamId, 1);
   assert.equal(scan.programNumber, 1);
   assert.equal(scan.pmtPid, 4095);
-  assert.equal(scan.pcrPid, 8191);
+  // ffmpeg carries the PCR on the video PID (YouTube's own segments use 8191).
+  assert.equal(scan.pcrPid, 256);
   assert.deepEqual(
     scan.streams.map((s) => `${s.codec}:${s.pid}`).sort(),
     ["aac:257", "h264:256"],
@@ -47,13 +44,8 @@ test("PAT with a corrupt section_length=0 yields no bogus program (body floored 
   assert.equal(scan.pmtPid, null);
 });
 
-test("DASH sidx: 38 fragments, 213.04s, first HLS slice 0-1342317", () => {
-  let data: Uint8Array;
-  try {
-    data = new Uint8Array(readFileSync("/tmp/dash137.bin"));
-  } catch {
-    return;
-  }
+test("DASH sidx: 4 fragments, 0.8s, refs tile every moof+mdat pair", () => {
+  const data = dashCmafFixture();
   const { boxes, sidx } = dashSegmentPlan(data);
   assert.deepEqual(
     boxes.map((b) => b.type).slice(0, 4),
@@ -61,11 +53,20 @@ test("DASH sidx: 38 fragments, 213.04s, first HLS slice 0-1342317", () => {
   );
   assert.ok(sidx);
   assert.equal(sidx!.timescale, 12800);
-  assert.equal(sidx!.refs.length, 38);
-  assert.equal(sidx!.refs[0]?.size, 1341088);
-  assert.equal(dashHlsSliceEnd(sidx!), 1342317);
-  assert.equal(sidx!.refs.at(-1)?.end, 80911998);
-  assert.equal(Number(sidxDurationSec(sidx!).toFixed(2)), 213.04);
+  assert.equal(sidx!.refs.length, 4);
+  // Each reference spans exactly one moof+mdat pair, back to back.
+  const moofs = boxes.filter((b) => b.type === "moof");
+  assert.equal(moofs.length, 4);
+  sidx!.refs.forEach((ref, i) => {
+    const mdat = boxes[boxes.indexOf(moofs[i]!) + 1]!;
+    assert.equal(mdat.type, "mdat");
+    assert.equal(ref.start, moofs[i]!.offset);
+    assert.equal(ref.size, moofs[i]!.size + mdat.size);
+    assert.equal(ref.end, ref.start + ref.size - 1);
+  });
+  assert.equal(dashHlsSliceEnd(sidx!), sidx!.refs[0]!.end);
+  assert.equal(dashHlsSliceEnd(sidx!, 4), null);
+  assert.equal(Number(sidxDurationSec(sidx!).toFixed(2)), 0.8);
 });
 
 test("CMAF HLS is MAP + m4s; YouTube VOD HLS is TS concat", () => {

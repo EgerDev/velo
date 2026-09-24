@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { dashCmafFixture } from "./media-test-fixtures/index.ts";
 import {
   dashSegmentPlan,
   hlsContainer,
@@ -60,21 +60,20 @@ function syntheticDashHead(): Uint8Array {
 }
 
 test("itag 137 opens as ftypdash + sidx (dash.js SegmentBase)", () => {
-  let data: Uint8Array = syntheticDashHead();
-  try {
-    data = new Uint8Array(readFileSync("/tmp/dash137.bin"));
-  } catch {
-    /* synthetic layout still exercises the parser */
+  for (const [label, data, refs] of [
+    ["synthetic head", syntheticDashHead(), 1],
+    ["encoded fixture", dashCmafFixture(), 4],
+  ] as const) {
+    assert.equal(looksLikeFragment(data), "fmp4", label);
+    const { boxes, sidx } = dashSegmentPlan(data);
+    assert.equal(boxes[0]?.type, "ftyp", label);
+    assert.ok(boxes.some((box) => box.type === "sidx"), label);
+    assert.ok(sidx, label);
+    assert.equal(sidx!.refs.length, refs, label);
+    const first = sidx!.refs[0]!;
+    assert.ok(first.end >= first.start, label);
+    assert.ok(first.size > 0, label);
   }
-  assert.equal(looksLikeFragment(data), "fmp4");
-  const { boxes, sidx } = dashSegmentPlan(data);
-  assert.equal(boxes[0]?.type, "ftyp");
-  assert.ok(boxes.some((box) => box.type === "sidx"));
-  assert.ok(sidx);
-  assert.ok((sidx?.refs.length ?? 0) >= 1);
-  const first = sidx!.refs[0]!;
-  assert.ok(first.end >= first.start);
-  assert.ok(first.size > 0);
 });
 
 const audioBytes = (...parts: (string | number[])[]) =>

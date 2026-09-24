@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parseAvcC, splitAnnexB, splitAvccSample } from "./nal-h264.ts";
+import { parseAvcC, parseTrunDataOffset, splitAnnexB, splitAvccSample } from "./nal-h264.ts";
 import { extractPesPayloads, scanMpegTs } from "./mpeg-ts.ts";
+import { dashSegmentPlan } from "./iso-bmff.ts";
 import { parseHvcC, parseSliceHeader, parseSps, youtubeHevcNote } from "./h264-syntax.ts";
+import { dashCmafFixture, hlsTsFixture } from "./media-test-fixtures/index.ts";
 
 test("H.264 SPS is High 4.0 1920×1080; IDR slice is I frame_num 0", () => {
-  let dash: Uint8Array;
-  try {
-    dash = new Uint8Array(readFileSync("/tmp/dash137.bin"));
-  } catch {
-    return;
-  }
+  const dash = dashCmafFixture();
   const avcC = parseAvcC(dash);
   assert.ok(avcC?.sps[0]);
   const sps = parseSps(avcC!.sps[0]!);
@@ -21,7 +17,12 @@ test("H.264 SPS is High 4.0 1920×1080; IDR slice is I frame_num 0", () => {
   assert.equal(sps!.width, 1920);
   assert.equal(sps!.height, 1080);
   assert.equal(sps!.log2MaxFrameNum, 4);
-  const sample = dash.subarray(2902, 2902 + 631);
+  const moof = dashSegmentPlan(dash).boxes.find((box) => box.type === "moof");
+  assert.ok(moof);
+  const trun = parseTrunDataOffset(dash, moof!.offset);
+  assert.ok(trun?.sample0Size);
+  const start = moof!.offset + trun!.dataOffset;
+  const sample = dash.subarray(start, start + trun!.sample0Size!);
   const idr = splitAvccSample(sample).find((nal) => nal.type === 5);
   assert.ok(idr);
   const header = parseSliceHeader(
@@ -35,27 +36,25 @@ test("H.264 SPS is High 4.0 1920×1080; IDR slice is I frame_num 0", () => {
 });
 
 test("HLS GOP: IDR I, then P and B slices", () => {
-  let ts: Uint8Array;
-  try {
-    ts = new Uint8Array(readFileSync("/tmp/hls-ts.bin"));
-  } catch {
-    return;
-  }
-  const pid = scanMpegTs(ts).streams.find((s) => s.codec === "h264")?.pid ?? 256;
-  const nals = splitAnnexB(extractPesPayloads(ts, pid));
+  const ts = hlsTsFixture();
+  const pid = scanMpegTs(ts).streams.find((s) => s.codec === "h264")?.pid;
+  assert.equal(pid, 256);
+  const pes = extractPesPayloads(ts, pid!);
+  const nals = splitAnnexB(pes);
   const spsNal = nals.find((nal) => nal.type === 7);
-  const pes = extractPesPayloads(ts, pid);
-  const sps = spsNal ? parseSps(pes.subarray(spsNal.offset, spsNal.offset + spsNal.length)) : null;
+  assert.ok(spsNal);
+  const sps = parseSps(pes.subarray(spsNal!.offset, spsNal!.offset + spsNal!.length));
   assert.equal(sps?.width, 1920);
-  const coded = nals.filter((nal) => nal.type === 1 || nal.type === 5).slice(0, 8);
+  assert.equal(sps?.height, 1080);
+  const coded = nals.filter((nal) => nal.type === 1 || nal.type === 5);
   const slices = coded.map(
     (nal) =>
       parseSliceHeader(pes.subarray(nal.offset, nal.offset + nal.length), sps!.log2MaxFrameNum)
         ?.slice,
   );
-  assert.equal(slices[0], "I");
-  assert.ok(slices.includes("P"));
-  assert.ok(slices.includes("B"));
+  // Decode order of the fixture's 12 frames (-bf 2, b-adapt=0), cross-checked
+  // with `ffmpeg -bsf:v trace_headers` (slice_type 7 5 6 6 5 6 6 5 6 6 5 6).
+  assert.equal(slices.join(""), "IPBBPBBPBBPB");
 });
 
 test("HEVC Main/Main 10 parser; this title uses AV1 instead", () => {
