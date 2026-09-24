@@ -75,8 +75,6 @@ export default tseslint.config(
       // W2 deletes/rewrites these two Grok-gate auth files; remove both lines then.
       "src/lib/auth/gate-session.server.ts",
       "src/lib/auth/verify.server.ts",
-      // W1-T5 moves its one console.warn to `log` and deletes this line.
-      "src/lib/ytdlp-meta.server.ts",
     ],
     rules: { "no-console": "error" },
   },
