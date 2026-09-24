@@ -40,6 +40,7 @@ import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
+import { assertAuthConfiguredForProduction } from "./auth-boot-policy";
 
 // Temporary; W2 deletes the Grok broker entirely.
 const GROK_ISSUER_DEFAULT = "https://auth.grok.me";
@@ -82,16 +83,17 @@ const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET");
 export const authConfigured =
   !authDisabled && Boolean(grokClientId && grokClientSecret);
 
-if (process.env.NODE_ENV === "production" && !authDisabled && !authConfigured) {
-  throw new Error("[auth] GROK_AUTH_CLIENT_ID/GROK_AUTH_CLIENT_SECRET are required in production (or set VITE_AUTH_ENABLED=false).");
-}
+assertAuthConfiguredForProduction({
+  nodeEnv: process.env.NODE_ENV,
+  authDisabled,
+  authConfigured,
+});
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
 // a dynamic `*.grok-sandbox.com` host), so we hand Better Auth a dynamic baseURL:
 // it derives the origin per-request from the (proxied) host, validated against the
-// preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
-// the broker's preview client accepts.
+// preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL.
 const explicitBaseURL = env("BETTER_AUTH_URL");
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
