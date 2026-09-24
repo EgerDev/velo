@@ -1,5 +1,4 @@
 import type {
-  CaptionTrack,
   ResolvedVideo,
   SearchHit,
   PlaylistResult,

@@ -406,20 +406,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!activeTranscriptCues.length || !activeVideo) return;
       const type = btn.getAttribute("data-prompt");
       const transcriptText = activeTranscriptCues.map((c) => c.text).join(" ");
-      let promptTitle = "";
       let promptInstr = "";
 
       if (type === "summary") {
-        promptTitle = "EXECUTIVE SUMMARY";
         promptInstr = "Please provide an executive summary, key takeaways, and main themes of this video transcript:";
       } else if (type === "notes") {
-        promptTitle = "STUDY NOTES";
         promptInstr = "Please create structured study notes with bullet points, core concepts, and key definitions from this transcript:";
       } else if (type === "qa") {
-        promptTitle = "Q&A & FAQ";
         promptInstr = "Generate 5-10 insightful questions and answers based on this video transcript:";
       } else if (type === "chapters") {
-        promptTitle = "CHAPTER TIMESTAMPS";
         promptInstr = "Generate YouTube video chapter timestamps (00:00 - Intro, etc.) based on these timestamped sections:";
       }
 

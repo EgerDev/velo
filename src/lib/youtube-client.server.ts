@@ -1,7 +1,5 @@
 import { Innertube, Platform } from "youtubei.js";
 import "@/lib/ipv4-bind.server";
-import type { VideoFormat } from "@/lib/youtube";
-import { toFormat, uniqueFormats } from "@/lib/youtube-map.server";
 import { proxiedFetch } from "@/lib/user-proxy.server";
 import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
