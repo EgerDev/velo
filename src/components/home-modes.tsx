@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { rememberToolsCheck } from "@/components/mode-tabs";
+import { rememberToolsCheck } from "@/lib/use-tools-badge";
 import { anyBehind } from "@/lib/tool-versions";
 import type { ViewMode } from "@/lib/view-mode";
 import type { ToolCheck } from "@/lib/tool-updates";

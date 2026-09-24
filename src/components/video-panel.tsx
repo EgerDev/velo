@@ -105,7 +105,7 @@ export type PresetAvailability = {
   codecDetail: string;
 };
 
-export function getPresetAvailability(
+function getPresetAvailability(
   preset: VideoPreset,
   allFormats: VideoFormat[],
   bestPresetId?: string | null,
@@ -238,7 +238,7 @@ const FORMAT_GROUPS: { key: MediaKind; label: string }[] = [
   { key: "audio", label: "Audio only" },
 ];
 
-export function getResolutionBadge(preset: VideoPreset) {
+function getResolutionBadge(preset: VideoPreset) {
   const className = "bg-elevated font-mono text-subtle border border-border";
   if (preset.kind === "audio") {
     return { label: "Audio", className };

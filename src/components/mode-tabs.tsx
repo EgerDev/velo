@@ -13,18 +13,6 @@ export const MODE_TABS = [
 
 export type ModeTab = (typeof MODE_TABS)[number];
 
-export const TOOLS_CACHE_KEY = "velo-tools-checked";
-
-/** Six-hour cache behind the Tools tab's attention dot. */
-export function rememberToolsCheck(behind: boolean) {
-  try {
-    window.localStorage.setItem(TOOLS_CACHE_KEY, String(Date.now()));
-    window.localStorage.setItem(`${TOOLS_CACHE_KEY}-behind`, behind ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Centered segmented control with a gold pill that slides between tabs.
  * While traveling, the pill skews like the splice mark in the wordmark.

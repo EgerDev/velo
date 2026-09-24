@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
-import { rememberToolsCheck, TOOLS_CACHE_KEY } from "@/components/mode-tabs";
 import { checkToolUpdates } from "@/lib/tool-updates";
 import { anyBehind } from "@/lib/tool-versions";
+
+export const TOOLS_CACHE_KEY = "velo-tools-checked";
+
+/** Six-hour cache behind the Tools tab's attention dot. */
+export function rememberToolsCheck(behind: boolean) {
+  try {
+    window.localStorage.setItem(TOOLS_CACHE_KEY, String(Date.now()));
+    window.localStorage.setItem(`${TOOLS_CACHE_KEY}-behind`, behind ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 export function useToolsBadge(signedIn: boolean) {
   const [toolsBehind, setToolsBehind] = useState(false);
