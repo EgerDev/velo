@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { auth } from "@/lib/auth/server";
-import { rateLimited, type RateState } from "@/lib/sign-in-link-policy";
+import { rateLimited, type RateState } from "@/lib/rate-window";
 
 const signupAttempts: RateState = new Map();
 const SIGNUP_WINDOW_MS = 10 * 60 * 1000;

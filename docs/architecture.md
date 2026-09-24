@@ -81,7 +81,7 @@ inside the handler (`src/lib/tool-updates.ts:9-13`).
 | Route | File | Purpose |
 |---|---|---|
 | `/` | `src/routes/index.tsx` | The whole app. Tabs ("modes"): single, bulk, transcript, watch, tools (tools only when signed in, `index.tsx:35`). |
-| `/login` | `src/routes/login.tsx` | OAuth buttons (broker providers), email+password sign-up/sign-in, copy-paste "sign-in link" flow. |
+| `/login` | `src/routes/login.tsx` | OAuth buttons (broker providers), email+password sign-up/sign-in. (The copy-paste "sign-in link" flow was removed in W0-T4.) |
 | document shell | `src/routes/__root.tsx` | `<PreviewHostBridge/>`, `<AuthProvider>` (sonner toaster), manifest + `__grok` icon links. |
 | router | `src/router.tsx` | `getRouter()` with `AppErrorComponent` / `AppNotFound`. |
 
@@ -215,9 +215,7 @@ configured; `"dev-user"` when auth is disabled and no `DATABASE_URL`; throws whe
 | File | Function | Method | Auth / gate |
 |---|---|---|---|
 | `resolve-video.ts` | `resolveVideo`, `searchVideos`, `resolvePlaylist`, `resolveBulkVideos` (≤50 ids), `fetchTranscript`, `resolvePlayback`, `decipherCipher`, `mintPoToken` | POST | **none**; per-IP metadata backstop only (`assertMetadataBudget`) |
-| `sign-in-link.ts` | `signInLinkStatus` | GET | none |
-| | `requestSignInLink` | POST | policy `VELO_SIGNIN_LINK*` (+ in-memory 5/email, 10/IP per 15 min); **returns the login token to the caller** |
-| | `redeemSignInLink` | POST | policy; deletes all other sessions of the user, inserts a 7-day session row |
+| `sign-in-link.ts` | removed in W0-T4 (copy-paste sign-in link) | — | — |
 | `session-isolation.ts` | `isolateOwnSession` | POST | `authMiddleware` |
 | `vault.ts` | `loadVault`, `saveVault`, `clearVault`, `validateVaultSession` (probes youtube.com with the cookies) | GET/POST | `authMiddleware`, rows scoped by `user_id` |
 | `tool-updates.ts` | `checkToolUpdates` | GET | `authMiddleware`; returns `canUpdate` |
@@ -313,12 +311,12 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
 
 | Mode | Condition | Behaviour |
 |---|---|---|
-| **Disabled / dev user** | `VITE_AUTH_ENABLED=false` | no OAuth; `requireUserId` → `"dev-user"` without DB, throws with DB; client shows `DEV_USER` (`use-current-user.ts:21`). Sign-in-link flow auto-opens (`sign-in-link-policy.ts:66`). |
+| **Disabled / dev user** | `VITE_AUTH_ENABLED=false` | no OAuth; `requireUserId` → `"dev-user"` without DB, throws with DB; client shows `DEV_USER` (`use-current-user.ts:21`). (The sign-in-link flow that auto-opened here was removed in W0-T4.) |
 | **Better Auth + Grok broker** | any other value (including **unset** — the default) | `genericOAuth` providers `grok-google`/`grok-x` against `GROK_AUTH_ISSUER` (default `https://auth.grok.me`) using `GROK_AUTH_CLIENT_ID/SECRET` (no fallback: the committed preview client was removed in W0-T2; production throws at boot without them unless `VITE_AUTH_ENABLED=false`). Email+password is **enabled** (`src/lib/auth/email-password.ts:10`, no email verification). Cookies `__Host-grok-auth.*`, 5-min `session_data` cookie cache. Secret = `BETTER_AUTH_SECRET` or a random per-process value (`server.ts:62-65,190`). |
 | **Gate identity JWT** | `GROK_PROJECT_ID` set and auth not disabled | Better Auth plugin (`gate-session.server.ts`) on `/get-session`: verifies `x-grok-identity` (EdDSA, `iss` = `GROK_GATE_ORIGIN` or `https://gate.grok.me` / `gate.app-builder-testing.com` derived from Host, `aud=app:<GROK_PROJECT_ID>`, ≤10 min), JWKS from `<issuer>/__gate/identity-key` (5 min cache), then creates/swaps a session for provider `grok-gate`. |
 | **Bearer** | always registered | `bearer()` plugin: `Authorization: Bearer <session token>`; the client stores it in sessionStorage when framed (popup flow) and `authMiddleware` forwards it. Download routes read it from the request (`guest-limit.server.ts:335`). |
 | **Preview popup** | framed or `*.grok-sandbox.com` (`oauth-popup.ts`) | opens `/auth/popup`, which exists **only in `vite dev`**. |
-| **Sign-in link** | `VELO_SIGNIN_LINK=true`, or `VELO_SIGNIN_LINK_EMAILS`, or auth unconfigured | token handed back in the HTTP response, not emailed. |
+| **Sign-in link** | — | removed in W0-T4. |
 
 ### 4.6 In-process background work, queues and caches
 
@@ -445,7 +443,7 @@ history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplaye
 | `VELO_VAULT_KEY_PREVIOUS` | `vault-crypto.ts:93` | no | — (proxy credential key rotation) | yes |
 | `VELO_ADMIN_EMAILS` | `operator-gate.server.ts`, `tool-updates.ts` | no | nobody is operator | no |
 | `VELO_ALLOW_TOOL_INSTALL` | same | no | off (`"1"` = loopback installs with auth off) | no |
-| `VELO_SIGNIN_LINK` / `VELO_SIGNIN_LINK_EMAILS` | `sign-in-link.ts` | no | open only when auth unconfigured | no |
+| `VELO_SIGNIN_LINK` / `VELO_SIGNIN_LINK_EMAILS` | — | no | removed in W0-T4 (ignored) | no |
 | `VELO_PYTHON` / `PYTHON_BIN` | `ytdlp-auth.ts:900`, `scripts/auto-update.mjs` | no | `python3` | no |
 | `VELO_SOCKS_PROXY` / `ALL_PROXY` | `socks-pool.server.ts:100` | no | — | may carry credentials |
 | `YTDLP_BROWSER` | `ytdlp-auth.ts:484` | no | — (reads the *server host's* browser cookies) | n/a |
