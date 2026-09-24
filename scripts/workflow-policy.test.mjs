@@ -1,6 +1,11 @@
 // Policy checks over .github/workflows/*.yml (GH-03, GH-06, GH-10, SUP-08).
 // Text checks on purpose: these are rules about the YAML itself, and a plain
 // read keeps the test free of a YAML dependency.
+//
+// Limits of the text splitters (write workflows to fit them):
+// - job ids must be lowercase (`[a-z0-9_-]`), indented two spaces under `jobs:`;
+// - a trailing comment on a job-id line (`  update: # ...`) is not supported;
+// - steps are list items indented six spaces (`      - `).
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -18,6 +23,15 @@ function jobs(text) {
     .filter((chunk) => /^ {2}[a-z0-9_-]+:/.test(chunk))
     .map((chunk) => ({ id: chunk.match(/^ {2}([a-z0-9_-]+):/)[1], text: chunk }));
 }
+
+/** Split a job into its steps: each six-space-indented list item. */
+function steps(jobText) {
+  return jobText.split(/^(?= {6}- )/m).filter((chunk) => /^ {6}- /.test(chunk));
+}
+
+// A job holding a write scope, a secret, an App token or an OIDC token.
+const PRIVILEGED = /:\s*write\b|secrets\.|create-github-app-token|id-token/;
+const PACKAGE_CODE = /\b(npm|npx|node|pip)\s/;
 
 for (const { name, text } of workflows) {
   test(`${name}: every action is pinned to a full commit SHA with a version comment`, () => {
@@ -57,5 +71,40 @@ for (const { name, text } of workflows) {
     for (const [line] of text.matchAll(/^.*pip3? install.*$/gm)) {
       assert.match(line, /--require-hashes/, `${name}: ${line.trim()}`);
     }
+  });
+
+  test(`${name}: a privileged job runs no package code`, () => {
+    for (const job of jobs(text)) {
+      if (!PRIVILEGED.test(job.text)) continue;
+      assert.doesNotMatch(job.text, PACKAGE_CODE, `${name}/${job.id}`);
+    }
+  });
+
+  test(`${name}: a job that runs package code holds no secret and no App token`, () => {
+    for (const job of jobs(text)) {
+      if (!PACKAGE_CODE.test(job.text)) continue;
+      assert.doesNotMatch(job.text, /secrets\./, `${name}/${job.id}`);
+      assert.doesNotMatch(job.text, /create-github-app-token/, `${name}/${job.id}`);
+    }
+  });
+
+  test(`${name}: artifacts are downloaded under runner.temp, never into the checkout`, () => {
+    for (const job of jobs(text)) {
+      for (const step of steps(job.text)) {
+        if (!/uses:\s*actions\/download-artifact@/.test(step)) continue;
+        assert.match(step, /^\s*path:.*runner\.temp/m, `${name}/${job.id}`);
+      }
+    }
+  });
+
+  test(`${name}: a privileged job uses no cache`, () => {
+    for (const job of jobs(text)) {
+      if (!PRIVILEGED.test(job.text)) continue;
+      assert.doesNotMatch(job.text, /\bcache:|actions\/cache\b/, `${name}/${job.id}`);
+    }
+  });
+
+  test(`${name}: no git apply`, () => {
+    assert.doesNotMatch(text, /\bgit\s+apply\b/);
   });
 }

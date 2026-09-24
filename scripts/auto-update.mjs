@@ -35,7 +35,7 @@
  *   --major        also cross spec ceilings (rewrites package.json ranges)
  *   --pinned       also move exact-pinned specs (they are pinned on purpose)
  *   --only=a,b     restrict to these package names
- *   --skip-tests   verify with typecheck + lint only (faster, weaker)
+ *   --skip-tests   verify with typecheck + lint + build only
  *   --skip-ytdlp   leave the Python side alone
  */
 import { spawn } from "node:child_process";
