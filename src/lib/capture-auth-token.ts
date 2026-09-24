@@ -1,29 +1,3 @@
-/** Same key `src/lib/auth/client.ts` uses for the live-preview bearer. */
-const BEARER_KEY = "grok-auth.bearer-token";
-
-function storeBearer(token: string) {
-  try {
-    window.sessionStorage.setItem(BEARER_KEY, token);
-  } catch {
-    /* storage blocked */
-  }
-}
-
-/** Better Auth's bearer plugin returns the session on `set-auth-token`. */
-export function captureAuthToken(response: Response | undefined) {
-  if (!response || typeof window === "undefined") return;
-  const token =
-    response.headers.get("set-auth-token") || response.headers.get("Set-Auth-Token");
-  if (token) storeBearer(token);
-}
-
-export const emailAuthFetchOptions = {
-  onSuccess(ctx: { response: Response; data?: { token?: string } }) {
-    if (ctx.data?.token) storeBearer(ctx.data.token);
-    captureAuthToken(ctx.response);
-  },
-};
-
 export type AuthErrorInfo = {
   code: string;
   title: string;
