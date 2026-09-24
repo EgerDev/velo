@@ -23,6 +23,7 @@
     "update:deps": "node scripts/auto-update.mjs",
     "update:check": "node scripts/auto-update.mjs --check",
     "test": "node --test \"scripts/**/*.test.mjs\" && node scripts/run-ts-tests.mjs",
+    "test:http": "node --test \"tests/http/*.test.mjs\"",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write ."
   },

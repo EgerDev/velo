@@ -35,3 +35,7 @@ test("the server builds with Nitro's node-server preset; nothing targets Vercel 
 test("lint fails on any warning", () => {
   assert.equal(pkg.scripts.lint, "eslint . --max-warnings 0");
 });
+
+test("test:http runs the black-box suite against the built server", () => {
+  assert.equal(pkg.scripts["test:http"], 'node --test "tests/http/*.test.mjs"');
+});
