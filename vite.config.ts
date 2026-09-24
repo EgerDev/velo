@@ -51,32 +51,6 @@ function pgliteBootstrapPlugin(): Plugin {
   };
 }
 
-function pgliteAssetsPlugin(): Plugin {
-  return {
-    name: "app-builder:pglite-assets",
-    apply: "build",
-    async closeBundle() {
-      const pgliteDist = join(process.cwd(), "node_modules/@electric-sql/pglite/dist");
-      const targetDir = join(
-        process.cwd(),
-        ".vercel/output/functions/__server.func/_libs",
-      );
-      try {
-        const { copyFileSync, existsSync, readdirSync } = await import("node:fs");
-        if (existsSync(pgliteDist) && existsSync(targetDir)) {
-          for (const file of readdirSync(pgliteDist)) {
-            if (file.endsWith(".wasm") || file.endsWith(".data")) {
-              copyFileSync(join(pgliteDist, file), join(targetDir, file));
-            }
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    },
-  };
-}
-
 /**
  * Live-preview OAuth popup — handled HERE so the agent never has to create a
  * `/auth/popup` route (and cannot break it by scaffolding a React page that
@@ -175,13 +149,13 @@ function authPopupPlugin(): Plugin {
   };
 }
 
-// `0.0.0.0:8080` is the live-preview contract — don't change host/port.
-// The dev server starts once `src/router.tsx` and `src/routes/` exist — see
-// AGENTS.md § "First scaffold".
+// Dev binds loopback by default; VELO_DEV_HOST / VELO_DEV_PORT override it
+// (e.g. VELO_DEV_HOST=0.0.0.0 to reach it from another device). strictPort: a
+// busy port fails loudly instead of silently moving the origin auth expects.
 export default defineConfig(({ command, isPreview }) => ({
   server: {
-    host: "0.0.0.0",
-    port: 8080,
+    host: process.env.VELO_DEV_HOST?.trim() || "127.0.0.1",
+    port: Number(process.env.VELO_DEV_PORT) || 8080,
     strictPort: true,
   },
   preview: {
@@ -195,7 +169,6 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   plugins: [
     pgliteBootstrapPlugin(),
-    pgliteAssetsPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
@@ -207,7 +180,9 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            // `.output/server/index.mjs` (`npm start`). Listens on NITRO_PORT ?? PORT
+            // (default 3000) and NITRO_HOST || HOST (default: all interfaces).
+            preset: "node-server",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.

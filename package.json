@@ -5,12 +5,16 @@
     "src/lib/ipv4-bind.server.ts"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=24.15.0"
+  },
   "overrides": {
     "nf3": "0.3.17"
   },
   "scripts": {
-    "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",
+    "dev": "node scripts/with-app-env.mjs vite dev",
+    "build": "node scripts/with-app-env.mjs vite build",
+    "start": "node .output/server/index.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "preview": "node scripts/with-app-env.mjs vite preview",
