@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { redact } from "./log.server.ts";
+import { redact, type LogFields } from "./log.server.ts";
 
 const R = "[REDACTED]";
 
@@ -126,12 +126,12 @@ test("redact: headers.Cookie inside nested objects and arrays, any key casing", 
 test("redact: Error instances nested in objects and arrays", () => {
   const inner = new RangeError("deep");
   const out = redact({ ctx: { cause: inner }, errs: [new Error("one")] });
-  assert.deepEqual((out.ctx as LogFieldsLike).cause, {
+  assert.deepEqual((out.ctx as LogFields).cause, {
     name: "RangeError",
     message: "deep",
     stack: inner.stack,
   });
-  const first = (out.errs as LogFieldsLike[])[0]!;
+  const first = (out.errs as LogFields[])[0]!;
   assert.equal(first.name, "Error");
   assert.equal(first.message, "one");
   assert.ok(!(first instanceof Error), "an Error is reduced to a plain object");
@@ -152,8 +152,8 @@ test("redact: circular references through arrays and objects do not throw", () =
 
 test("redact: nesting past depth 6 becomes [Truncated]", () => {
   const out = redact({ l1: { l2: { l3: { l4: { l5: { l6: { l7: 1 } } } } } } });
-  const l5 = ((((out.l1 as LogFieldsLike).l2 as LogFieldsLike).l3 as LogFieldsLike).l4 as LogFieldsLike)
-    .l5 as LogFieldsLike;
+  const l5 = ((((out.l1 as LogFields).l2 as LogFields).l3 as LogFields).l4 as LogFields)
+    .l5 as LogFields;
   assert.equal(l5.l6, "[Truncated]");
 });
 
@@ -169,4 +169,82 @@ test("redact does not mutate nested input objects, arrays or cookie-jar entries"
   assert.ok(input.err instanceof Error);
 });
 
-type LogFieldsLike = Record<string, unknown>;
+// Fix round 1: leaks and hazards found in review.
+
+test("redact drops functions, so an own toJSON cannot emit unredacted data", () => {
+  const nested = JSON.stringify(redact({ o: { toJSON: () => ({ cookie: "a" }) } }));
+  assert.ok(!nested.includes('"a"'), nested);
+  const top = redact({ toJSON: () => "leak", keep: 1 });
+  assert.equal(top.toJSON, undefined);
+  assert.equal(JSON.stringify(top), '{"keep":1}');
+});
+
+test("log never throws into its caller: throwing getters and Proxies become logError", () => {
+  const { stdout } = runLog(`
+    log.info("getter", { bad: { get boom() { throw new Error("getter"); } } });
+    log.info("proxy", new Proxy({}, { ownKeys() { throw new Error("trap"); } }));
+    log.info("toJSON", { o: { toJSON: () => ({ cookie: "a" }) } });
+    log.info("after");
+  `);
+  assert.deepEqual(
+    stdout.map((l) => l.event),
+    ["getter", "proxy", "toJSON", "after"],
+  );
+  assert.equal(stdout[0]!.logError, "unserializable fields");
+  assert.equal(stdout[0]!.level, "info");
+  assert.equal(stdout[1]!.logError, "unserializable fields");
+  assert.ok(!JSON.stringify(stdout[2]).includes('"a"'));
+});
+
+test("fields named like Object.prototype members are kept; only ts/level/event are reserved", () => {
+  const { stdout } = runLog(`log.info("proto", { constructor: "c", toString: "t", event: "spoof" });`);
+  const line = stdout[0]!;
+  assert.equal(line.constructor, "c");
+  assert.equal(line.toString, "t");
+  assert.equal(line.event, "proto");
+});
+
+test("redact bounds output: binary, long arrays, long strings", () => {
+  const out = redact({
+    buf: Buffer.from("secret"),
+    u8: new Uint8Array(3),
+    list: Array.from({ length: 150 }, (_, i) => i),
+    exact: Array.from({ length: 100 }, (_, i) => i),
+    text: "x".repeat(3000),
+    short: "y".repeat(2048),
+  });
+  assert.equal(out.buf, "[6 bytes]");
+  assert.equal(out.u8, "[3 bytes]");
+  const list = out.list as unknown[];
+  assert.equal(list.length, 101);
+  assert.equal(list[99], 99);
+  assert.equal(list[100], "[+50 more]");
+  assert.equal((out.exact as unknown[]).length, 100);
+  assert.equal(out.text, `${"x".repeat(2048)}…[+952 chars]`);
+  assert.equal(out.short, "y".repeat(2048));
+});
+
+test("redact: {key, value} entries and [name, value] header tuples", () => {
+  const out = redact({
+    headers: [
+      ["Cookie", "SID=x"],
+      ["Accept", "*/*"],
+    ],
+    pairs: [
+      { key: "Authorization", value: "Bearer x" },
+      { key: "accept", value: "*/*" },
+    ],
+    triple: ["cookie", "a", "b"],
+  });
+  assert.deepEqual(out, {
+    headers: [
+      ["Cookie", R],
+      ["Accept", "*/*"],
+    ],
+    pairs: [
+      { key: "Authorization", value: R },
+      { key: "accept", value: "*/*" },
+    ],
+    triple: ["cookie", "a", "b"],
+  });
+});
