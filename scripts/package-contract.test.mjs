@@ -31,3 +31,7 @@ test("the server builds with Nitro's node-server preset; nothing targets Vercel 
   assert.match(vite, /preset: "node-server"/);
   assert.doesNotMatch(vite, /preset: "vercel"|\.vercel\/output|pgliteAssetsPlugin/);
 });
+
+test("lint fails on any warning", () => {
+  assert.equal(pkg.scripts.lint, "eslint . --max-warnings 0");
+});
