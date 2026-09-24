@@ -326,7 +326,7 @@ instance has its own copy.
 | Item | File | Notes |
 |---|---|---|
 | Download quota buckets (guest/user/ip/meta, token bucket + sliding window, ≤4 000 rows) | `guest-limit.server.ts` | identity: user id → `x-velo-guest`/cookie → IP; IP from `x-vercel-forwarded-for` → `x-real-ip` → last `x-forwarded-for` hop (Cloudflare headers only with `TRUST_CLOUDFLARE=1`) |
-| Sign-up and sign-in-link rate maps | `routes/api/auth/$.ts`, `sign-in-link.ts` | |
+| Sign-up rate map | `routes/api/auth/$.ts` (via `rate-window.ts`) | |
 | yt-dlp slot pool (4 concurrent, 32 queued, 45 s) | `download-pool.server.ts` | |
 | Mux file cache (4 files / 400 MB / 10 min) + coalescing by `id.itag` | `download-pool.server.ts` → `/tmp/velo-mux-cache` | anonymous downloads only |
 | yt-dlp tmp dirs `velo-ytdl-*` swept every 10 min | `ytdlp-python.server.ts` | |
