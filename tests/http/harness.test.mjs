@@ -22,13 +22,13 @@ test("buildChildEnv drops the developer's shell, keeps OS basics, lets overrides
     VELO_ALLOW_TOOL_INSTALL: "1",
     TRUST_CLOUDFLARE: "1",
     VELO_ADMIN_EMAILS: "dev@example.test",
-    GROK_AUTH_SECRET: "ambient",
+    GOOGLE_CLIENT_SECRET: "ambient",
     BETTER_AUTH_SECRET: "ambient",
     NODE_OPTIONS: "--inspect",
     NODE_TLS_REJECT_UNAUTHORIZED: "0",
     HTTPS_PROXY: "http://proxy.invalid",
     https_proxy: "http://proxy.invalid",
-    VITE_AUTH_ENABLED: "true",
+    LOG_LEVEL: "debug",
     DATABASE_URL: "postgres://dev@127.0.0.1:1/dev",
     NITRO_PORT: "1",
     NITRO_HOST: "0.0.0.0",
@@ -36,14 +36,14 @@ test("buildChildEnv drops the developer's shell, keeps OS basics, lets overrides
     HOST: "0.0.0.0",
     PORT: "8080",
   };
-  const overrides = { VITE_AUTH_ENABLED: "false", DATABASE_URL: "postgres://test", NODE_ENV: "test", PORT: "9", NITRO_PORT: "2" };
+  const overrides = { LOG_LEVEL: "warn", DATABASE_URL: "postgres://test", NODE_ENV: "test", PORT: "9", NITRO_PORT: "2" };
   assert.deepEqual(buildChildEnv(ambient, overrides), {
     Path: "C:/bin",
     SystemRoot: "C:/Windows",
     windir: "C:/Windows",
     HOME: "/home/dev",
     CI: "true",
-    VITE_AUTH_ENABLED: "false",
+    LOG_LEVEL: "warn",
     DATABASE_URL: "postgres://test",
     NODE_ENV: "production",
     HOST: "127.0.0.1",

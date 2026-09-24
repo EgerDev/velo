@@ -1,8 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { readSessionTokenFromHeaders, sessionTokenKey } from "@/lib/session-token";
-
-export { readSessionTokenFromHeaders, sessionTokenKey } from "@/lib/session-token";
+import { sessionTokenKey } from "@/lib/session-token";
 
 /**
  * Keep only this login. Other sessions for the same person are dropped so a
@@ -12,17 +10,10 @@ export { readSessionTokenFromHeaders, sessionTokenKey } from "@/lib/session-toke
 export const isolateOwnSession = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const { getCookie, getRequest } = await import("@tanstack/react-start/server");
+    const { getCookie } = await import("@tanstack/react-start/server");
     const { getSql } = await import("@/lib/db");
-    const request = getRequest();
-    const fromHeader = request ? readSessionTokenFromHeaders(request.headers) : "";
-    const fromCookie = sessionTokenKey(getCookie("__Host-grok-auth.session_token"));
-    // The RPC transport never sends an Authorization header and, in the live
-    // preview, no session cookie reaches the server either — the session rides
-    // the bearer that authMiddleware forwards in context. Without this the whole
-    // handler silently no-ops in exactly the tri-mode env it exists for.
-    const fromBearer = sessionTokenKey((context as { bearerToken?: string | null }).bearerToken);
-    const token = fromHeader || fromCookie || fromBearer;
+    const { SESSION_COOKIE_PREFIX } = await import("@/lib/auth/auth-config.server");
+    const token = sessionTokenKey(getCookie(`${SESSION_COOKIE_PREFIX}.session_token`));
     if (!token) return { ok: false as const };
     const sql = await getSql();
     const like = `${token}.%`;

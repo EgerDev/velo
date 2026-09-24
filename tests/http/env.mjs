@@ -12,8 +12,6 @@ export const PROD_ENV = Object.freeze({
   VELO_PUBLIC_ORIGIN: TEST_ORIGIN,
   GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
   GOOGLE_CLIENT_SECRET: "test-only-google-client-secret",
-  // Until Task 4 removes the platform broker, production boot needs its flag off.
-  VITE_AUTH_ENABLED: "false",
 });
 
 /** Well-formed, never reachable: port 1 on loopback refuses every connection. */

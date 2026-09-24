@@ -1,4 +1,5 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+import { log } from "./log.server.ts";
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
@@ -99,7 +100,7 @@ function createNeonSql(): Promise<Sql> {
     // unhandled EventEmitter error, which takes down the whole process for
     // what the pool would otherwise recover from on the next checkout.
     pool.on("error", (err) => {
-      console.error("[db] idle client error", err);
+      log.error("db.idle_client_error", { err });
     });
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
@@ -239,6 +240,6 @@ const globalBoot = globalThis as typeof globalThis & {
 if (typeof window === "undefined" && dbSource === "pglite") {
   globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
     globalBoot.__pgBootstrapPromise__ = undefined;
-    console.error("[db] PGLite bootstrap failed:", err);
+    log.error("db.pglite_bootstrap_failed", { err });
   });
 }
