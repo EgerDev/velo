@@ -1,41 +1,123 @@
-# Weekly dependency refresh.
+# Weekly refresh of the extraction libraries that track the YouTube player
+# (youtubei.js, bgutils-js, jsdom, undici, socks-proxy-agent). Everything else
+# is Dependabot's (.github/dependabot.yml); yt-dlp moves to Dependabot pip once
+# requirements.txt exists (W5).
 #
-# The libraries that reverse the YouTube player (youtubei.js, bgutils-js) and
-# the yt-dlp Python module go stale within weeks of a player change, and the
-# resulting extraction failures look like bugs in this repo. This keeps them
-# moving without anyone having to remember.
-#
-# `npm run update:deps` verifies every install with typecheck + test + lint and
-# rolls back anything that fails, so this job only ever opens a PR against a
-# green tree. Range bumps (`--major`) are deliberately NOT automated — those
-# rewrite specs and want a human.
+# Two jobs, so new third-party code never runs next to a write credential:
+#   update  - read-only token, no persisted git credentials, no lifecycle
+#             scripts. Installs the new versions, verifies them with
+#             typecheck + test + lint + build (rolling back anything that
+#             fails), and uploads a patch of package.json + package-lock.json.
+#   open-pr - runs no package code. Rejects a patch that touches any other
+#             path, then opens the PR with a GitHub App token so ci.yml runs
+#             on it. Skipped until the owner configures the App.
 name: auto-update
 
 on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
-          node-version: 22
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
           cache: npm
-
-      - uses: actions/setup-python@v5
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: update the extraction family (3-day release cooldown, no install scripts)
+        env:
+          npm_config_ignore_scripts: "true"
+        run: |
+          export NPM_CONFIG_BEFORE="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          npm run update:deps -- --skip-ytdlp --only=youtubei.js,bgutils-js,jsdom,undici,socks-proxy-agent
+      - id: diff
+        run: |
+          git diff --binary -- package.json package-lock.json > manifests.patch
+          if [ -s manifests.patch ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; else echo "changed=false" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          python-version: "3.12"
+          name: manifests-patch
+          path: manifests.patch
+          retention-days: 3
 
-      # The updater checks the installed yt-dlp against PyPI, so it has to be
-      # present for the Python half of the run to mean anything.
-      - run: python3 -m pip install --user "yt-dlp[default,curl-cffi]"
+  open-pr:
+    needs: update
+    if: needs.update.outputs.changed == 'true' && vars.DEPS_BOT_CLIENT_ID != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the App token below does the writing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: manifests-patch
+      - name: the patch may only touch package.json and package-lock.json
+        run: |
+          set -euo pipefail
+          files="$(git apply --numstat manifests.patch | awk '{print $3}' | sort -u)"
+          echo "$files"
+          if echo "$files" | grep -vxE 'package\.json|package-lock\.json'; then
+            echo "::error::patch touches files other than package.json/package-lock.json"
+            exit 1
+          fi
+          git apply manifests.patch
+          rm manifests.patch
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.DEPS_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.DEPS_BOT_PRIVATE_KEY }}
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: auto-update/dependencies
+          title: "chore(deps): weekly extraction-library update"
+          commit-message: "chore(deps): weekly extraction-library update"
+          add-paths: |
+            package.json
+            package-lock.json
+          delete-branch: true
+          body: |
+            Automated by `.github/workflows/auto-update.yml` (3-day release cooldown).
+            Each version was installed without lifecycle scripts in a read-only job and kept
+            only if typecheck + test + lint + build passed; `ci` re-verifies this PR.
 
-      - run: npm ci
-
-      - run: npm run update:deps
+  report-failure:
+    needs: [update, open-pr]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create -R "$GITHUB_REPOSITORY" \
+            --title "auto-update failed ($(date -u +%F))" \
+            --body "Scheduled run failed: $RUN_URL"

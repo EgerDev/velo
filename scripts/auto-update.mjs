@@ -10,7 +10,7 @@
  * look like bugs in this repo. So this exists to be run unattended.
  *
  * The contract that makes it safe to run unattended is that NOTHING lands
- * unverified. Every install is followed by `typecheck` + `test` + `lint`, and
+ * unverified. Every install is followed by `typecheck` + `test` + `lint` + `build`, and
  * anything that fails is rolled back to the exact bytes of `package.json` and
  * `package-lock.json` that were on disk before the attempt. A red tree is never
  * an outcome of running this.
@@ -45,6 +45,7 @@ import {
   buildUpdatePlan,
   describePlan,
   lockstepGroups,
+  verifySteps,
   ytdlpNeedsUpdate,
 } from "./auto-update-plan.mjs";
 import { projectRoot } from "./with-app-env.mjs";
@@ -170,16 +171,11 @@ async function restore(snap) {
 }
 
 /**
- * Typecheck, test and lint the tree as it stands.
+ * Typecheck, test, lint and build the tree as it stands.
  * @returns {Promise<{ ok: boolean, failed?: string, output?: string }>}
  */
 async function verify() {
-  const steps = [
-    ["typecheck", ["run", "typecheck"]],
-    ...(options.skipTests ? [] : [["test", ["run", "test"]]]),
-    ["lint", ["run", "lint"]],
-  ];
-  for (const [label, argv] of steps) {
+  for (const [label, argv] of verifySteps({ skipTests: options.skipTests })) {
     process.stdout.write(`   verifying: ${label}… `);
     const result = await npm(/** @type {string[]} */ (argv), { quiet: true });
     console.log(result.ok ? "ok" : "FAILED");
