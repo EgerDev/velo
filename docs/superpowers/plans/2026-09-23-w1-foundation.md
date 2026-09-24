@@ -852,7 +852,7 @@ The honest fix is a one-line disable with the reason. Because `reportUnusedDisab
 - [ ] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F '    return () => abortRef.current?.abort();' src/routes/index.tsx
-git grep -c -F '    void runDownload(video, selected);' src/routes/index.tsx
+git grep -c -F '  }, [video, selected, downloading]);' src/routes/index.tsx
 git grep -c -F '    void loadVideoTranscript(initialUrl);' src/components/transcript-studio.tsx
 ```
 Expected: `1` each. Otherwise STOP.
@@ -2893,7 +2893,6 @@ jobs:
 /extension/                         @EgerDev
 /extensions/                        @EgerDev
 /packages/extension/                @EgerDev
-/public/extensions/                 @EgerDev
 ```
 
 - [ ] **Step 8: Verify.** Run:

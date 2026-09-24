@@ -60,9 +60,9 @@ vite.config.ts            Vite 8 + TanStack Start + Nitro (vercel preset) + dev-
 server/middleware/        Nitro global middleware (grok-pwa.ts: PWA manifest, OG/"Created with Grok" head injection)
 scripts/                  build/migrate/test/update tooling + Grok template helpers
 migrations/               SQL schema (applied at build to DATABASE_URL, or at boot to PGLite)
-public/                   static assets incl. __grok/ PWA icons and the velo-session extension (zip + unpacked copy)
+public/                   static assets incl. __grok/ PWA icons (the velo-session extension zip + unpacked copy were removed in W0-T3)
 extension/                "Velo" Chrome MV3 extension (in-page buttons, queue, transcript popup) — not packaged/served
-extensions/velo-session/  "Velo YouTube Session" MV3 extension (cookie exporter) — source of public/extensions/*
+extensions/velo-session/  "Velo YouTube Session" MV3 extension (cookie exporter) — source only, no longer served; stays until W6
 src/routes/               TanStack file routes: /, /login, /api/*
 src/components/           React UI
 src/lib/                  everything else (client libs, *.server.ts server modules, tests *.test.ts)
@@ -209,8 +209,8 @@ framed previews, `src/lib/auth/popup.server.ts`), `/__app-env` (resolved `VITE_*
 
 `authMiddleware` (`src/lib/auth/middleware.ts`) = Fetch-Metadata same-site check
 (`isolation.server.ts`) + `requireUserId` (`verify.server.ts`): real session when auth is
-configured; `"dev-user"` when auth is disabled and no `DATABASE_URL`; throws when auth disabled but
-`DATABASE_URL` set.
+configured; `"dev-user"` when auth is disabled or (non-production) `GROK_AUTH_*` unset, and no
+`DATABASE_URL`; throws in that case when `DATABASE_URL` is set.
 
 | File | Function | Method | Auth / gate |
 |---|---|---|---|
@@ -311,8 +311,8 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
 
 | Mode | Condition | Behaviour |
 |---|---|---|
-| **Disabled / dev user** | `VITE_AUTH_ENABLED=false` | no OAuth; `requireUserId` → `"dev-user"` without DB, throws with DB; client shows `DEV_USER` (`use-current-user.ts:21`). (The sign-in-link flow that auto-opened here was removed in W0-T4.) |
-| **Better Auth + Grok broker** | any other value (including **unset** — the default) | `genericOAuth` providers `grok-google`/`grok-x` against `GROK_AUTH_ISSUER` (default `https://auth.grok.me`) using `GROK_AUTH_CLIENT_ID/SECRET` (no fallback: the committed preview client was removed in W0-T2; production throws at boot without them unless `VITE_AUTH_ENABLED=false`). Email+password is **enabled** (`src/lib/auth/email-password.ts:10`, no email verification). Cookies `__Host-grok-auth.*`, 5-min `session_data` cookie cache. Secret = `BETTER_AUTH_SECRET` or a random per-process value (`server.ts:62-65,190`). |
+| **Disabled / dev user** | `VITE_AUTH_ENABLED=false`, or (non-production) `GROK_AUTH_*` unset | no OAuth; `requireUserId` → `"dev-user"` without DB, throws with DB; client shows `DEV_USER` (`use-current-user.ts:21`). (The sign-in-link flow that auto-opened here was removed in W0-T4.) |
+| **Better Auth + Grok broker** | any other value (including **unset** — the default) | `genericOAuth` providers `grok-google`/`grok-x` against `GROK_AUTH_ISSUER` (default `https://auth.grok.me`) using `GROK_AUTH_CLIENT_ID/SECRET` (no fallback: the committed preview client was removed in W0-T2; without them and unless `VITE_AUTH_ENABLED=false`, production throws when `server.ts` is first loaded, i.e. on the first request, not at process start). Email+password is **enabled** (`src/lib/auth/email-password.ts:10`, no email verification). Cookies `__Host-grok-auth.*`, 5-min `session_data` cookie cache. Secret = `BETTER_AUTH_SECRET` or a random per-process value (`server.ts:62-65,190`). |
 | **Gate identity JWT** | `GROK_PROJECT_ID` set and auth not disabled | Better Auth plugin (`gate-session.server.ts`) on `/get-session`: verifies `x-grok-identity` (EdDSA, `iss` = `GROK_GATE_ORIGIN` or `https://gate.grok.me` / `gate.app-builder-testing.com` derived from Host, `aud=app:<GROK_PROJECT_ID>`, ≤10 min), JWKS from `<issuer>/__gate/identity-key` (5 min cache), then creates/swaps a session for provider `grok-gate`. |
 | **Bearer** | always registered | `bearer()` plugin: `Authorization: Bearer <session token>`; the client stores it in sessionStorage when framed (popup flow) and `authMiddleware` forwards it. Download routes read it from the request (`guest-limit.server.ts:335`). |
 | **Preview popup** | framed or `*.grok-sandbox.com` (`oauth-popup.ts`) | opens `/auth/popup`, which exists **only in `vite dev`**. |
@@ -399,9 +399,9 @@ storage`. Reads HttpOnly session cookies (`SID, HSID, SSID, APISID, SAPISID, SID
 __Secure-1/3PAPISID`), observes `Cookie` request headers on youtube/googlevideo via
 `webRequest.onBeforeSendHeaders` (HAR capture), and sends a Netscape jar to every open tab titled
 "Velo" on localhost/grok hosts via `tabs.sendMessage` → content script → `window.postMessage(…,
-location.origin)` → `cookie-import.tsx:170-177` (`source:"velo-extension"`). Shipped as
-`public/extensions/velo-session.zip` (download link in `session-guide.tsx:19`) and also as an
-unpacked copy under `public/extensions/velo-session/` (identical to the source modulo line endings).
+location.origin)` → `cookie-import.tsx:170-177` (`source:"velo-extension"`). No longer
+distributed: W0-T3 removed `public/extensions/` (the zip and the unpacked copy) and the download
+links in `session-guide.tsx`. The source under `extensions/velo-session/` remains until W6.
 
 ### 4.10 Multiplayer / P2P WebRTC module
 
@@ -424,8 +424,8 @@ history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplaye
   jsdom, @electric-sql/pglite`.
 - No `vercel.json`: no `maxDuration`, memory, region, headers or cron are configured.
 - Dev: `npm run dev` → `vite dev --host 0.0.0.0 --port 8080` (strict); preview on `127.0.0.1:8081`.
-- CI: only `.github/workflows/auto-update.yml` (weekly `npm run update:deps`, opens a PR). No
-  test/typecheck/build workflow.
+- CI: only `.github/workflows/auto-update.yml`: manual (`workflow_dispatch`) `npm run update:deps`,
+  `contents: read`, no PR step, until W1 rewrites it. No test/typecheck/build workflow.
 
 ## 6. Environment variables
 
@@ -436,7 +436,7 @@ history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplaye
 | `BETTER_AUTH_URL` | `auth/server.ts:94` | yes on any non-`*.grok-sandbox.com` host | dynamic base URL over `*.grok-sandbox.com` + loopback, fallback `http://localhost:8080` | no |
 | `VITE_AUTH_ENABLED` | `auth/server.ts`, `auth/client.ts`, `gate-identity.server.ts`, `check-auth-invariant.mjs` | no | unset = **auth on**; only `"false"` disables | no (inlined into client) |
 | `GROK_AUTH_ISSUER` | `auth/server.ts:80` | no | `https://auth.grok.me` | no |
-| `GROK_AUTH_CLIENT_ID` / `GROK_AUTH_CLIENT_SECRET` | `auth/server.ts:81-82` | yes for working OAuth | hard-coded preview client | secret: yes |
+| `GROK_AUTH_CLIENT_ID` / `GROK_AUTH_CLIENT_SECRET` | `auth/server.ts:81-82` | yes for working OAuth | none (the hard-coded preview client was removed in W0-T2) | secret: yes |
 | `GROK_PROJECT_ID` | `gate-identity.server.ts` | no | unset → gate identity off | no |
 | `GROK_GATE_ORIGIN` | `gate-identity.server.ts:124` | no | derived from Host (`gate.grok.me` …) | no |
 | `VELO_VAULT_KEY` | `vault-crypto.ts` | **should be** | unset → cookies stored plaintext (warn once) | yes |
