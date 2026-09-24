@@ -12,13 +12,10 @@
 name: auto-update
 
 on:
-  schedule:
-    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   update:
@@ -42,18 +39,3 @@ jobs:
       - run: npm ci
 
       - run: npm run update:deps
-
-      - uses: peter-evans/create-pull-request@v6
-        with:
-          branch: auto-update/dependencies
-          title: "chore(deps): weekly verified dependency update"
-          commit-message: "chore(deps): weekly verified dependency update"
-          body: |
-            Automated by `.github/workflows/auto-update.yml`.
-
-            Every package here was installed and then verified with
-            `typecheck` + `test` + `lint`; anything that failed was rolled
-            back and is absent from this diff. Out-of-range majors and
-            exact-pinned specs are not touched — run `npm run update:deps
-            --major` locally for those.
-          delete-branch: true
