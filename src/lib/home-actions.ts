@@ -9,7 +9,8 @@ import { classifyDownloadError, downloadHint, isUserAbort, shouldEscalateSave } 
 import { GUEST } from "@/lib/guest-copy";
 import type { ResultsView } from "@/lib/home-draft";
 import type { FallbackPrompt } from "@/components/home-single";
-import type { HistoryItem } from "@/lib/history-store";
+import { historyRowForSave, type HistoryItem } from "@/lib/history-store";
+import { emptyTransfer, noteStage, presentedTransfer, settleTransfer, type PresentedTransfer } from "@/lib/transfer-progress";
 
 export async function lookupVideo(opts: {
   raw: string | undefined;
@@ -130,21 +131,36 @@ export async function runHomeDownload(opts: {
     });
     wrote = true;
     settled = true;
-    opts.record({
+    const row = historyRowForSave({
       id: opts.target.id,
       title: opts.target.title,
       author: opts.target.author,
       thumbnail: opts.target.thumbnail,
       duration: opts.target.duration,
       url: opts.target.url,
-      lastItag: saved.itag,
-      lastPreset: saved.title,
-      lastExt: saved.ext,
+      itag: saved.itag,
+      preset: saved.title,
+      ext: saved.ext,
     });
+    if (row) opts.record(row);
     toast.success(`Saving ${saved.title}`);
   } catch (err) {
     settled = true;
-    if (isUserAbort(err, abort.signal)) return;
+    if (isUserAbort(err, abort.signal)) {
+      opts.setProgress((prev) => {
+        const aborted = haltedTransfer(prev?.percent, "aborted");
+        return {
+          label: "Cancelled",
+          percent: aborted.percent,
+          mode: aborted.mode,
+          aborted: true,
+          steps: prev?.steps,
+          loaded: prev?.loaded,
+          total: prev?.total,
+        };
+      });
+      return;
+    }
     // Offline is not "YouTube restricted this quality": offering a lower one
     // would blame YouTube and cost the user quality when a retry would do.
     const offline = typeof navigator !== "undefined" && navigator.onLine === false;
@@ -164,14 +180,20 @@ export async function runHomeDownload(opts: {
     }
     const classified = classifyDownloadError(err);
     const offlineMsg = "You’re offline — the save stopped. Reconnect, then Save again.";
-    opts.setProgress((prev) => ({
-      label: offline ? offlineMsg : classified.code === "queue" ? GUEST.busy : classified.message,
-      percent: 100,
-      failed: true,
-      errorCode: classified.code,
-      hint: offline ? undefined : downloadHint(classified.code, !opts.signedIn, classified.retryAfterSec),
-      steps: prev?.steps,
-    }));
+    opts.setProgress((prev) => {
+      const failed = haltedTransfer(prev?.percent, "failed");
+      return {
+        label: offline ? offlineMsg : classified.code === "queue" ? GUEST.busy : classified.message,
+        percent: failed.percent,
+        mode: failed.mode,
+        failed: true,
+        errorCode: classified.code,
+        hint: offline ? undefined : downloadHint(classified.code, !opts.signedIn, classified.retryAfterSec),
+        steps: prev?.steps,
+        loaded: prev?.loaded,
+        total: prev?.total,
+      };
+    });
     toast.error(offline ? offlineMsg : classified.message);
   } finally {
     if (!wrote) void discardPendingSave(pendingSave);
@@ -201,7 +223,11 @@ export async function redownloadHistoryItem(opts: {
     opts.setProgress({ label: plan.label, percent: 90 });
     try {
       await saveMediaBlob(cached.blob, cached.filename, pendingSave, { videoId: opts.item.id, itag: cached.itag }, abort.signal);
-      opts.setProgress({ label: "Saved from this browser", percent: 100 });
+      opts.setProgress({
+        label: "Saved from this browser",
+        percent: presentedTransfer(settleTransfer(emptyTransfer(), "complete")).percent,
+        mode: "complete",
+      });
       toast.success("Saved from Recent — skipped YouTube");
     } catch (err) {
       void discardPendingSave(pendingSave);
@@ -230,4 +256,13 @@ export async function redownloadHistoryItem(opts: {
     opts.setDownloading(false);
     toast.error(err instanceof Error ? err.message : "Couldn’t fetch that video again.");
   }
+}
+
+/** A cancel or failure keeps the last real percent and is never 100. */
+function haltedTransfer(percent: number | undefined, outcome: "failed" | "aborted"): PresentedTransfer {
+  const base =
+    percent == null || !Number.isFinite(percent) || percent >= 100
+      ? emptyTransfer()
+      : noteStage(emptyTransfer(), "save", percent);
+  return presentedTransfer(settleTransfer(base, outcome));
 }

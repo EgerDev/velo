@@ -48,6 +48,20 @@ test("an expired SID is reported as expired, not ready", () => {
   assert.match(status.detail, /Re-export/);
 });
 
+test("a SID with twenty minutes left names the minutes, not zero hours", () => {
+  const soon = secs(NOW) + 20 * 60;
+  const status = describeSessionStatus(
+    jar([
+      { name: "SID", expires: soon },
+      { name: "SAPISID", expires: soon },
+    ]),
+    NOW,
+  );
+  assert.equal(status.level, "expiring");
+  assert.equal(status.label, "Session ends in 20 minutes");
+  assert.match(status.detail, /20 minutes/);
+});
+
 test("a SID about to lapse warns while it still works", () => {
   // The whole point of reading expiry: warn before the download fails.
   const soon = secs(NOW) + 2 * 24 * 60 * 60;
@@ -65,12 +79,12 @@ test("a SID about to lapse warns while it still works", () => {
 test("account cookies missing entirely is called incomplete", () => {
   const future = secs(NOW) + 90 * 24 * 60 * 60;
   const status = describeSessionStatus(jar([{ name: "VISITOR_INFO1_LIVE", expires: future }]), NOW);
-  assert.equal(status.level, "unusable");
+  assert.equal(status.level, "incomplete");
   assert.match(status.detail, /signed out/);
 });
 
 test("unparseable text is unreadable rather than silently empty", () => {
   const status = describeSessionStatus("this is not a cookie export", NOW);
-  assert.equal(status.level, "unusable");
+  assert.equal(status.level, "unreadable");
   assert.equal(status.count, 0);
 });

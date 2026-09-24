@@ -138,7 +138,8 @@ export function formatDuration(seconds: number | null | undefined): string {
 }
 
 export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null || !Number.isFinite(bytes) || bytes <= 0) return "Size varies";
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "Size varies";
+  if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
   let n = bytes;
   let i = 0;

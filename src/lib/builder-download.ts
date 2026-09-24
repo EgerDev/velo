@@ -11,6 +11,14 @@ import { isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { linkAbort } from "@/lib/abort-link";
 import { nameForBlob } from "@/lib/media-name";
 import { readBlob } from "@/lib/hybrid-net";
+import {
+  applyPresentedHop,
+  emptyTransfer,
+  noteFileBytes,
+  presentedTransfer,
+  settleTransfer,
+  type PresentedTransfer,
+} from "@/lib/transfer-progress";
 
 function assertMedia(blob: Blob, type: string | null): Blob {
   const mime = type ?? blob.type;
@@ -93,7 +101,7 @@ export async function fetchBuilderBlob(opts: {
   pot?: string;
   signal?: AbortSignal;
   onBytes?: (loaded: number, total: number) => void;
-  onProgress?: (label: string, percent: number) => void;
+  onProgress?: (label: string, view: PresentedTransfer) => void;
 }): Promise<Blob> {
   const { fetchSameHopBlob } = await import("@/lib/bypass");
   const server = { run: (signal: AbortSignal) => fetchServerItag({ ...opts, signal }) };
@@ -110,7 +118,7 @@ export async function fetchBuilderBlob(opts: {
             itag: opts.itag,
             pot: opts.pot,
             signal,
-            onProgress: (label, percent) => opts.onProgress?.(label, percent),
+            onProgress: (label, view) => opts.onProgress?.(label, view),
           }).then((blob) => assertMedia(blob, blob.type)),
       },
     ],
@@ -136,7 +144,7 @@ export async function downloadViaBuilder(opts: {
     { id: "builder", label: "Matching hop — player and file share one IP", status: "running" },
   ];
   opts.onSteps?.(steps.slice());
-  opts.onProgress?.({ label: "Preparing the file on the server", percent: 8, steps });
+  opts.onProgress?.({ label: "Preparing the file on the server", percent: 8, mode: "preparing", steps });
 
   let pot = "";
   try {
@@ -151,13 +159,24 @@ export async function downloadViaBuilder(opts: {
     // A second /api/builder call for audio would double quota and race two SOCKS downloads.
     const probe = createSpeedProbe();
     let lastEmit = 0;
+    let transfer = emptyTransfer();
     const blob = await fetchBuilderBlob({
       videoId: opts.videoId,
       itag,
       cookies: opts.cookies,
       pot,
       signal: opts.signal,
-      onProgress: (label, percent) => opts.onProgress?.({ label, percent, steps }),
+      onProgress: (label, hopView) => {
+        transfer = applyPresentedHop(transfer, hopView);
+        const view = presentedTransfer(transfer);
+        opts.onProgress?.({
+          label,
+          percent: view.percent,
+          mode: view.mode,
+          steps,
+          ...(view.loaded != null && view.total != null ? { loaded: view.loaded, total: view.total } : {}),
+        });
+      },
       onBytes: (loaded, total) => {
         const sample = probe.push(loaded, total);
         // Every fetch chunk lands here — thousands per file — and each emit
@@ -166,17 +185,20 @@ export async function downloadViaBuilder(opts: {
         const now = performance.now();
         if (loaded !== total && now - lastEmit < 100) return;
         lastEmit = now;
-        const percent = total > 0 ? Math.min(96, 8 + Math.round((loaded / total) * 88)) : 24;
+        // Server bytes are their own leg. abandonFile runs only inside the
+        // same-hop attempt, so an HLS tick cannot clear this loaded/total.
+        transfer = noteFileBytes(transfer, "server", loaded, total);
+        const view = presentedTransfer(transfer);
         opts.onProgress?.({
           label: sample.throttled
             ? `Throttled · ${formatSpeed(sample.bytesPerSec)} — nsig crawl`
             : `Downloading · ${formatSpeed(sample.bytesPerSec)}`,
-          percent,
+          percent: view.percent,
+          mode: view.mode,
           steps,
           bytesPerSec: sample.bytesPerSec,
-          loaded: sample.loaded,
-          total: sample.total,
           throttled: sample.throttled,
+          ...(view.loaded != null && view.total != null ? { loaded: view.loaded, total: view.total } : {}),
         });
       },
     });
@@ -188,10 +210,11 @@ export async function downloadViaBuilder(opts: {
       status: "ok",
       detail: opts.preset?.audioItag ? "137+aac" : "saved",
     };
-    opts.onProgress?.({ label: "Saving file", percent: 100, steps });
     if (opts.signal?.aborted) throw new Error("aborted");
     const name = nameForBlob(opts.filename || `${fileBasename(opts.title || "video")}.mp4`, blob);
     await saveMediaBlob(blob, name, opts.pendingSave, { videoId: opts.videoId, itag }, opts.signal);
+    transfer = settleTransfer(transfer, "complete");
+    opts.onProgress?.({ label: "Saved", percent: presentedTransfer(transfer).percent, mode: "complete", steps });
   } catch (err) {
     steps[0] = {
       id: "builder",

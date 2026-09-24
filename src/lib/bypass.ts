@@ -10,6 +10,19 @@
  */
 import { PUBLIC_RELAYS, type RelaySpec } from "@/lib/cors-relays";
 import {
+  abandonFile,
+  emptyTransfer,
+  fileByteReport,
+  hlsSegmentReport,
+  noteFileBytes,
+  noteHlsSegments,
+  noteStage,
+  presentedTransfer,
+  type PresentedTransfer,
+} from "@/lib/transfer-progress";
+
+export { fileByteReport, hlsSegmentReport };
+import {
   appendParam,
   extractPlayerResponse,
   isVideoplaybackUrl,
@@ -224,7 +237,7 @@ async function hlsThroughHop(
   manifestUrl: string,
   videoId: string,
   signal?: AbortSignal,
-  onProgress?: (label: string, percent: number) => void,
+  onSegment?: (done: number, total: number) => void,
   preferHeight = 1080,
   pot: string | null = null,
 ): Promise<Blob> {
@@ -285,7 +298,8 @@ async function hlsThroughHop(
       }
       fetched[i] = await readAll(res);
       done += 1;
-      onProgress?.("HLS segments", Math.min(92, 20 + Math.round((done / total) * 70)));
+      // Segment indexes stay on the HLS channel. They are not file bytes.
+      onSegment?.(done, total);
     }
   };
   try {
@@ -325,25 +339,33 @@ export async function fetchSameHopBlob(opts: {
   itag: number;
   pot?: string | null;
   signal?: AbortSignal;
-  onProgress?: (label: string, percent: number) => void;
+  onProgress?: (label: string, view: PresentedTransfer) => void;
 }): Promise<Blob> {
   const { videoId, itag, pot, signal, onProgress } = opts;
   const errors: string[] = [];
   const pages = sameHopPages(videoId);
-  let lastPct = -1;
+  let hop = emptyTransfer();
+  let lastSig = "";
+  const emit = (label: string) => {
+    const view = presentedTransfer(hop);
+    const sig = `${view.mode}:${view.percent}:${view.loaded ?? ""}:${view.total ?? ""}`;
+    if (sig === lastSig) return;
+    lastSig = sig;
+    onProgress?.(label, view);
+  };
   const onBytes = (loaded: number, total: number) => {
-    const pct = total > 0 ? Math.min(92, 30 + Math.round((loaded / total) * 60)) : 50;
     // Every network chunk lands here and each emit re-renders the page; only
-    // report when the bar would actually move.
-    if (pct === lastPct) return;
-    lastPct = pct;
-    onProgress?.("Velo unlock", pct);
+    // report when the bar would actually move. These are file bytes on this
+    // attempt's own snapshot — not the parent's server leg.
+    hop = noteFileBytes(hop, "file", loaded, total);
+    emit("Velo unlock");
   };
 
   for (const relay of PUBLIC_RELAYS) {
     if (signal?.aborted) throw new Error("aborted");
     for (const page of pages) {
-      onProgress?.(`${relay.id} · ${new URL(page).hostname}`, 12);
+      hop = noteStage(hop, "hop", 12);
+      emit(`${relay.id} · ${new URL(page).hostname}`);
       try {
         const response = await hopFetch(relay, page, { signal, timeoutMs: 16_000 });
         if (!response.ok) {
@@ -364,8 +386,24 @@ export async function fetchSameHopBlob(opts: {
           if (signal?.aborted || /abort/i.test(why)) throw err;
           errors.push(why);
           if (player.hlsManifestUrl && !isImaUrl(player.hlsManifestUrl) && !isAudioItag(itag)) {
-            onProgress?.(`${relay.id} HLS fallback`, 18);
-            return await hlsThroughHop(relay, player.hlsManifestUrl, videoId, signal, onProgress, hlsPreferHeight(itag), pot ?? null);
+            // The progressive body is dead. Drop it here, before HLS counts,
+            // so those counts can own this attempt. The parent still has any
+            // server bytes — this snapshot is the same-hop attempt only.
+            hop = abandonFile(hop);
+            hop = noteStage(hop, "hop", 18);
+            emit(`${relay.id} HLS fallback`);
+            return await hlsThroughHop(
+              relay,
+              player.hlsManifestUrl,
+              videoId,
+              signal,
+              (done, total) => {
+                hop = noteHlsSegments(hop, done, total);
+                emit("HLS segments");
+              },
+              hlsPreferHeight(itag),
+              pot ?? null,
+            );
           }
         }
       } catch (err) {

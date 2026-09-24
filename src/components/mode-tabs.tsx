@@ -86,13 +86,13 @@ export function ModeTabs({
       aria-label="Downloader mode"
       ref={listRef}
       onKeyDown={onKeyDown}
-      className="relative mx-auto mt-7 flex w-fit max-w-full items-center gap-1 overflow-x-auto no-scrollbar rounded-2xl border border-border bg-elevated/70 p-1 shadow-xs"
+      className="relative mx-auto mt-7 flex w-full max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border border-border bg-elevated/70 p-1 shadow-xs sm:w-fit sm:flex-nowrap"
     >
       {pill ? (
         <span
           aria-hidden
           className={cn(
-            "absolute bottom-1 top-1 z-0 rounded-xl bg-accent shadow-sm transition-[left,width,transform] duration-[var(--motion-medium)] ease-[var(--ease-smooth-out)]",
+            "absolute bottom-1 top-1 z-0 hidden rounded-xl bg-accent shadow-sm transition-[left,width,transform] duration-[var(--motion-medium)] ease-[var(--ease-smooth-out)] sm:block",
             sliding && "-skew-x-6",
           )}
           style={{ left: pill.left, width: pill.width }}
@@ -114,6 +114,7 @@ export function ModeTabs({
             className={cn(
               "relative z-10 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-1.5 text-xs font-medium transition-colors duration-[var(--motion-medium)]",
               active ? "text-accent-fg" : "text-muted hover:text-fg",
+              active && "max-sm:bg-accent",
               active && !pill && "bg-accent",
             )}
           >
@@ -127,12 +128,12 @@ export function ModeTabs({
               ) : null}
             </span>
             {attention === mode ? <span className="sr-only">(update available)</span> : null}
-            <span className={cn(!active && "hidden sm:inline")}>{label}</span>
+            <span>{label}</span>
             {"chip" in tab && tab.chip ? (
               <span
                 className={cn(
                   "rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold transition-colors duration-[var(--motion-medium)]",
-                  active ? "bg-accent-fg/20 text-accent-fg" : "hidden bg-accent/15 text-accent sm:inline",
+                  active ? "bg-accent-fg/20 text-accent-fg" : "bg-accent/15 text-accent",
                 )}
               >
                 {tab.chip}

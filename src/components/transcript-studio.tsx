@@ -79,6 +79,13 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
     const currentReq = ++videoReqRef.current;
     setError(null);
     setLoading(true);
+    // The previous video's title, counts, and cues must not stay up while the
+    // next one resolves.
+    setVideo(null);
+    setCues([]);
+    setDeletedCueIds(new Set());
+    setPlayingTime(null);
+    setSearchQuery("");
     try {
       const resolved = await resolveVideo({ data: { url: cleanUrl } });
       if (currentReq !== videoReqRef.current) return;

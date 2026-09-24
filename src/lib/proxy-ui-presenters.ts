@@ -1,4 +1,10 @@
-import { compareProxyPriority, type ProxyVerdict, type SafeProxyView } from "./proxy-operations.ts";
+import {
+  compareProxyPriority,
+  isEvidenceStale,
+  type EpochMilliseconds,
+  type ProxyVerdict,
+  type SafeProxyView,
+} from "./proxy-operations.ts";
 
 export type ProxyPoolSummary = {
   readonly healthy: number;
@@ -68,9 +74,16 @@ export function validationRunControls(
 
 export function evidenceFreshness(
   route: Pick<SafeProxyView, "lastCheckedAt" | "stale">,
+  now = Date.now(),
 ): "No completed check" | "Evidence older than one hour" | "Evidence current" {
   if (route.lastCheckedAt === null) return "No completed check";
-  return route.stale ? "Evidence older than one hour" : "Evidence current";
+  const staleByClock = isEvidenceStale(route.lastCheckedAt, {
+    now: () => now as EpochMilliseconds,
+  });
+  // The stale flag and the one-hour clock are the same fact. Either one
+  // being stale must not be labeled current.
+  if (route.stale || staleByClock) return "Evidence older than one hour";
+  return "Evidence current";
 }
 
 export function displayRouteStatus(

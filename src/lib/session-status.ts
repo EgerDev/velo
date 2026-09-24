@@ -13,7 +13,7 @@ import { analyzeCookieFormat } from "./cookies.ts";
  * `expiring` exists because YouTube's SID carries a real expiry: warning while
  * it is still usable is the whole point of reading expiry at all.
  */
-export type SessionLevel = "none" | "unusable" | "expired" | "expiring" | "ready";
+export type SessionLevel = "none" | "unreadable" | "incomplete" | "expired" | "expiring" | "ready";
 
 export type SessionStatus = {
   level: SessionLevel;
@@ -47,7 +47,7 @@ export function describeSessionStatus(raw: string, now = Date.now()): SessionSta
   const report = analyzeCookieFormat(raw, now);
   if (report.count === 0) {
     return {
-      level: "unusable",
+      level: "unreadable",
       label: "Session unreadable",
       detail: report.issues[0] ?? "That cookie export could not be read.",
       count: 0,
@@ -68,7 +68,7 @@ export function describeSessionStatus(raw: string, now = Date.now()): SessionSta
 
   if (!report.hasSid && !report.hasSapisid) {
     return {
-      level: "unusable",
+      level: "incomplete",
       label: "Session incomplete",
       detail: "No SID or SAPISID — YouTube will treat this as signed out.",
       count: report.count,
@@ -76,9 +76,26 @@ export function describeSessionStatus(raw: string, now = Date.now()): SessionSta
   }
 
   const expiresAt = report.sidExpiresAt;
+  // A SID whose instant has already passed is expired, not "ends in 0 hours".
+  if (expiresAt != null && expiresAt * 1000 <= now) {
+    return {
+      level: "expired",
+      label: "Session expired",
+      detail: "SID expired. Re-export from a signed-in YouTube tab.",
+      count: report.count,
+    };
+  }
   if (expiresAt && expiresAt * 1000 - now < SESSION_EXPIRING_MS) {
-    const hoursLeft = Math.max(0, Math.round((expiresAt * 1000 - now) / (60 * 60 * 1000)));
-    const left = hoursLeft >= 24 ? plural(Math.round(hoursLeft / 24), "day", "days") : plural(hoursLeft, "hour", "hours");
+    const remainingMs = Math.max(0, expiresAt * 1000 - now);
+    const hoursRounded = Math.round(remainingMs / (60 * 60 * 1000));
+    // Under half an hour, rounding to hours says "0 hours" while the cookie
+    // is still inside the window. Say the minutes that are actually left.
+    const left =
+      hoursRounded >= 24
+        ? plural(Math.max(1, Math.round(hoursRounded / 24)), "day", "days")
+        : hoursRounded >= 1
+          ? plural(hoursRounded, "hour", "hours")
+          : plural(Math.max(1, Math.round(remainingMs / (60 * 1000))), "minute", "minutes");
     return {
       level: "expiring",
       label: `Session ends in ${left}`,

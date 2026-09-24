@@ -18,6 +18,15 @@ import {
   withTimeout,
 } from "@/lib/hybrid-net";
 import { ytdlpBlob } from "@/lib/hybrid-ytdlp";
+import {
+  applyPresentedHop,
+  emptyTransfer,
+  noteFileBytes,
+  noteStage,
+  presentedTransfer,
+  settleTransfer,
+  type PresentedTransfer,
+} from "@/lib/transfer-progress";
 
 export type { HybridStep } from "@/lib/hybrid-net";
 
@@ -170,23 +179,29 @@ export async function hybridFetchBlob(opts: {
   fallbackUrl?: string;
   cookies?: string;
   signal?: AbortSignal;
-  onProgress?: (label: string, percent: number) => void;
+  onProgress?: (label: string, view: PresentedTransfer) => void;
   onSteps?: StepHandler;
 }): Promise<Blob> {
   const { videoId, itag, fallbackUrl, cookies, signal, onProgress, onSteps } = opts;
   const steps = INITIAL_STEPS.map((step) => ({ ...step }));
   onSteps?.(steps.slice());
-  let lastPct = -1;
+  let lastSig = "";
+  let transfer = emptyTransfer();
+  const publish = (label: string) => {
+    const view = presentedTransfer(transfer);
+    const sig = `${view.mode}:${view.percent}:${view.loaded ?? ""}:${view.total ?? ""}`;
+    if (sig === lastSig) return;
+    lastSig = sig;
+    onProgress?.(label, view);
+  };
   const onBytes = (loaded: number, total: number) => {
-    const pct = total > 0 ? Math.min(92, 40 + Math.round((loaded / total) * 50)) : 60;
-    // Every network chunk lands here and each emit re-renders the page; only
-    // report when the bar would actually move.
-    if (pct === lastPct) return;
-    lastPct = pct;
-    onProgress?.("Downloading", pct);
+    // Relay bytes are their own leg. A same-hop HLS tick must not abandon them.
+    transfer = noteFileBytes(transfer, "file", loaded, total);
+    publish("Downloading");
   };
 
-  onProgress?.("Racing download paths", 5);
+  transfer = noteStage(transfer, "hop", 5);
+  publish("Racing download paths");
   const builderFirst =
     isBuilderPreview() || (typeof window !== "undefined" && isSandboxHost(window.location.hostname));
   patchStep(steps, "server", { status: "skip", detail: "Save already tried the builder hop" }, onSteps);
@@ -206,7 +221,8 @@ export async function hybridFetchBlob(opts: {
     );
   }
 
-  onProgress?.("Racing same-hop bypass, yt-dlp, relays", 18);
+  transfer = noteStage(transfer, "hop", 18);
+  publish("Racing same-hop bypass, yt-dlp, relays");
   const muxPlan = isAudioItag(itag) || Boolean(opts.audioItag);
   const silentVideo = isVideoOnlyItag(itag) && !muxPlan;
   const muxLeg = isVideoOnlyItag(itag) && Boolean(opts.audioItag);
@@ -221,7 +237,12 @@ export async function hybridFetchBlob(opts: {
           itag,
           pot,
           signal,
-          onProgress: (label, percent) => onProgress?.(label, percent),
+          onProgress: (label, view) => {
+            // The view is the same-hop attempt only. Server and relay bytes
+            // stay on their own legs; a segments view drops just the hop leg.
+            transfer = applyPresentedHop(transfer, view);
+            publish(label);
+          },
         });
       },
     });
@@ -274,13 +295,13 @@ export async function downloadViaHybrid(opts: {
   cookies?: string;
   signal?: AbortSignal;
   pendingSave?: PendingSave;
-  onProgress?: (label: string, percent: number) => void;
+  onProgress?: (label: string, view: PresentedTransfer) => void;
   onSteps?: StepHandler;
 }): Promise<void> {
   const blob = await hybridFetchBlob(opts);
   if (opts.signal?.aborted) throw new Error("aborted");
-  opts.onProgress?.("Saving file", 100);
   await saveBlob(blob, nameForBlob(opts.filename, blob), opts.pendingSave, { videoId: opts.videoId, itag: opts.itag }, opts.signal);
+  opts.onProgress?.("Saved", presentedTransfer(settleTransfer(emptyTransfer(), "complete")));
 }
 
 export { downloadViaHybrid as downloadViaBypass };

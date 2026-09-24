@@ -2,14 +2,7 @@ import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ToolRow } from "@/lib/tool-updates";
-
-const STATUS_LABEL: Record<ToolRow["status"], string> = {
-  current: "Up to date",
-  behind: "Update available",
-  ahead: "Ahead",
-  unknown: "Registry unreachable",
-  missing: "Not installed",
-};
+import { toolStatusLabel } from "@/lib/tool-versions";
 
 export function ToolStatusRow({
   row,
@@ -39,7 +32,7 @@ export function ToolStatusRow({
             )}
             title={row.note}
           >
-            {STATUS_LABEL[row.status]}
+            {toolStatusLabel(row.status)}
           </span>
         </div>
         <p className="mt-1 text-xs leading-relaxed text-muted">{row.role}</p>

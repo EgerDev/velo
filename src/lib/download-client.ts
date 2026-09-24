@@ -8,6 +8,14 @@ import {
   type PendingSave,
 } from "@/lib/builder-save";
 import { linkAbort } from "@/lib/abort-link";
+import {
+  emptyTransfer,
+  foldMuxView,
+  foldTransferProgress,
+  presentedTransfer,
+  settleTransfer,
+  type PresentedTransfer,
+} from "@/lib/transfer-progress";
 
 export type DownloadProgress = {
   label: string;
@@ -20,6 +28,9 @@ export type DownloadProgress = {
   loaded?: number;
   total?: number;
   throttled?: boolean;
+  aborted?: boolean;
+  /** How to read `percent`. Stage-only is indeterminate; segments are not bytes. */
+  mode?: "preparing" | "bytes" | "segments" | "complete" | "failed" | "aborted";
 };
 
 export type OfferedFile = {
@@ -75,16 +86,19 @@ async function hybridMux(opts: {
   const cookies = cookiesForDownload(opts.signedIn);
   const abort = new AbortController();
   const detach = linkAbort(opts.signal, abort);
-  onProgress({ label: "Hybrid: PO token + cookies + relays", percent: 8 });
+  // Don't seed the idle leg at 0. A video reading has to be able to stand
+  // alone so a later audio tick cannot average it backward.
+  let transfer = emptyTransfer();
+  onProgress({ label: "Hybrid: PO token + cookies + relays", ...presentedTransfer(transfer) });
   try {
-    // The two legs run concurrently, so their progress must fold into ONE
-    // monotonic number — mapping each to a sequential 0–42 / 42–82 window made
-    // the single reported percent thrash backwards on every interleaved event.
-    // Track each leg's fraction and emit the weighted sum (video 42, audio 40).
-    let videoFrac = 0;
-    let audioFrac = 0;
+    // Each child view is folded whole: bytes keep loaded/total, segments stay
+    // segments. Keeping only the percent turned 500/1000 + 100/100 into a
+    // stage average and the panel called that "no progress".
     let steps: HybridStep[] | undefined;
-    const combined = () => Math.round(videoFrac * 42 + audioFrac * 40);
+    const emit = (label: string, id: "video" | "audio", view: PresentedTransfer) => {
+      transfer = foldMuxView(transfer, id, view);
+      onProgress({ label, ...presentedTransfer(transfer), steps });
+    };
     const [videoBlob, audioBlob] = await Promise.all([
       hybridFetchBlob({
         videoId,
@@ -92,13 +106,10 @@ async function hybridMux(opts: {
         audioItag: preset.audioItag,
         cookies,
         signal: abort.signal,
-        onProgress: (label, percent) => {
-          videoFrac = percent / 100;
-          onProgress({ label: `Video · ${label}`, percent: combined(), steps });
-        },
+        onProgress: (label, view) => emit(`Video · ${label}`, "video", view),
         onSteps: (next) => {
           steps = next;
-          onProgress({ label: "Video · hybrid", percent: combined(), steps });
+          onProgress({ label: "Video · hybrid", ...presentedTransfer(transfer), steps });
         },
       }),
       hybridFetchBlob({
@@ -107,15 +118,12 @@ async function hybridMux(opts: {
         audioItag: preset.audioItag,
         cookies,
         signal: abort.signal,
-        onProgress: (label, percent) => {
-          audioFrac = percent / 100;
-          onProgress({ label: `Audio · ${label}`, percent: combined(), steps });
-        },
+        onProgress: (label, view) => emit(`Audio · ${label}`, "audio", view),
       }),
     ]);
     if (opts.signal?.aborted) throw new Error("aborted");
     assertBrowserMuxFits(videoBlob.size + audioBlob.size); // when preset.size was unknown
-    onProgress({ label: "Combining video + audio", percent: 84 });
+    onProgress({ label: "Combining video + audio", ...presentedTransfer(transfer) });
     const { muxVideoAudio } = await import("@/lib/mux-client");
     const ext = preset.ext === "webm" ? "webm" : "mp4";
     const merged = await muxVideoAudio(
@@ -123,19 +131,21 @@ async function hybridMux(opts: {
       audioBlob,
       ext,
       (progress) => {
+        transfer = foldTransferProgress(transfer, { id: "mux", percent: Math.round(progress * 100) });
         onProgress({
           label: "Combining video + audio",
-          percent: Math.min(99, 84 + Math.round(progress * 15)),
+          ...presentedTransfer(transfer),
         });
       },
       opts.signal,
     );
-    onProgress({ label: "Saving file", percent: 100 });
     if (opts.signal?.aborted) throw new Error("aborted");
     await saveMediaBlob(merged, `${fileBasename(title)}.${preset.ext}`, opts.pendingSave, {
       videoId,
       itag: preset.itag,
     }, opts.signal);
+    transfer = settleTransfer(transfer, "complete");
+    onProgress({ label: "Saved", ...presentedTransfer(transfer) });
   } catch (err) {
     abort.abort();
     throw err;
@@ -198,7 +208,7 @@ export async function downloadPresetFile(opts: {
             cookies,
             pendingSave: pending,
             signal: opts.signal,
-            onProgress: (label, percent) => onProgress({ label, percent }),
+            onProgress: (label, view) => onProgress({ label, ...view }),
           });
           return { mode: "merged", itag: preset.itag, ext: preset.ext, title: preset.title };
         }
@@ -221,9 +231,11 @@ export async function downloadPresetFile(opts: {
             hybridErr instanceof Error ? hybridErr.message : "Hybrid failed",
           ].join(" · "),
         );
+        const failed = presentedTransfer(settleTransfer(emptyTransfer(), "failed"));
         onProgress({
           label: error.message,
-          percent: 100,
+          percent: failed.percent,
+          mode: failed.mode,
           failed: true,
           errorCode: error.code,
           hint: downloadHint(error.code, !signedIn),
