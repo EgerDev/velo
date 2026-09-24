@@ -31,7 +31,6 @@ updates:
       - dependency-name: undici
       - dependency-name: socks-proxy-agent
       - dependency-name: nitro # exact-pinned beta; W4a owns the upgrade
-      - dependency-name: jose # exact-pinned on purpose
       - dependency-name: nf3 # pinned through package.json overrides
 
   - package-ecosystem: github-actions

@@ -31,7 +31,8 @@ function steps(jobText) {
 
 // A job holding a write scope, a secret, an App token or an OIDC token.
 const PRIVILEGED = /:\s*write\b|secrets\.|create-github-app-token|id-token/;
-const PACKAGE_CODE = /\b(npm|npx|node|pip)\s/;
+// A package manager or runtime invoked as a command.
+const PACKAGE_CODE = /\b(npm|npx|node|pip3?|yarn|pnpm|bun)\s|\bpython3?\s+-m\s+pip\b/;
 
 for (const { name, text } of workflows) {
   test(`${name}: every action is pinned to a full commit SHA with a version comment`, () => {
@@ -58,13 +59,6 @@ for (const { name, text } of workflows) {
       assert.match(job.text, /^ {4}timeout-minutes: \d+$/m, `${name}/${job.id}`);
     }
     assert.doesNotMatch(text, /-latest\b/);
-  });
-
-  test(`${name}: a job holding a write permission runs no package code`, () => {
-    for (const job of jobs(text)) {
-      if (!/:\s*write\b/.test(job.text)) continue;
-      assert.doesNotMatch(job.text, /\b(npm|npx|pip|pip3|node)\s/, `${name}/${job.id}`);
-    }
   });
 
   test(`${name}: no unpinned pip install`, () => {
@@ -125,7 +119,7 @@ test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with 
   const dependabot = readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
   assert.match(dependabot, /package-ecosystem: npm/);
   assert.match(dependabot, /package-ecosystem: github-actions/);
-  // auto-update.yml owns exactly the packages Dependabot ignores, so no package has two updaters.
+  // Every package auto-update.yml owns is ignored by Dependabot, so no package has two updaters.
   const auto = workflows.find((w) => w.name === "auto-update.yml").text;
   for (const pkg of auto.match(/--only=([\w.,@/-]+)/)[1].split(",")) {
     assert.match(dependabot, new RegExp(`dependency-name: ${pkg.replace(/\./g, "\\.")}(\\s|$)`), pkg);

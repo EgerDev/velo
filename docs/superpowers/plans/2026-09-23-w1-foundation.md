@@ -2702,7 +2702,7 @@ test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with 
   const dependabot = readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
   assert.match(dependabot, /package-ecosystem: npm/);
   assert.match(dependabot, /package-ecosystem: github-actions/);
-  // auto-update.yml owns exactly the packages Dependabot ignores, so no package has two updaters.
+  // Every package auto-update.yml owns is ignored by Dependabot, so no package has two updaters.
   const auto = workflows.find((w) => w.name === "auto-update.yml").text;
   for (const pkg of auto.match(/--only=([\w.,@/-]+)/)[1].split(",")) {
     assert.match(dependabot, new RegExp(`dependency-name: ${pkg.replace(/\./g, "\\.")}(\\s|$)`), pkg);
@@ -2749,7 +2749,6 @@ updates:
       - dependency-name: undici
       - dependency-name: socks-proxy-agent
       - dependency-name: nitro # exact-pinned beta; W4a owns the upgrade
-      - dependency-name: jose # exact-pinned on purpose
       - dependency-name: nf3 # pinned through package.json overrides
 
   - package-ecosystem: github-actions
@@ -2762,6 +2761,7 @@ updates:
       actions:
         patterns: ["*"]
 ```
+`jose` is deliberately not ignored: its exact pin plus CODEOWNERS review already controls every bump, and a JWT library must still receive Dependabot security PRs.
 
 - [ ] **Step 4: Create `.github/workflows/codeql.yml`:**
 ```yaml
@@ -2819,9 +2819,6 @@ jobs:
       contents: read
       pull-requests: write # summary comment on failure
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
