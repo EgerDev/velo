@@ -121,6 +121,7 @@ export function TranscriptStudio({ initialUrl = "", preferredLang = null, onOpen
     if (bootedRef.current || !initialUrl.trim()) return;
     bootedRef.current = true;
     void loadVideoTranscript(initialUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once per initialUrl (bootedRef guards); loadVideoTranscript is this render's closure
   }, [initialUrl]);
 
   const reqIdRef = useRef(0);

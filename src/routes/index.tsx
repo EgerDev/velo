@@ -79,7 +79,9 @@ function Home() {
     }
     const saved = readDraftUrl();
     if (saved && !urlRef.current) updateUrl(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- abortRef holds the AbortController in flight at unmount (not a DOM node); reading it late is the point
     return () => abortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads the URL once; lookup is this render's closure, so it is never stale here
   }, []);
 
   function updateUrl(next: string) {
@@ -101,6 +103,7 @@ function Home() {
     if (!autoDownloadRef.current || !video || !selected || downloading) return;
     autoDownloadRef.current = false;
     void runDownload(video, selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on these three only; runDownload is the closure of the render that changed them
   }, [video, selected, downloading]);
 
   useKeyboardShortcuts({
