@@ -53,7 +53,7 @@ GitHub settings the agents cannot change are prepared as exact `gh api` commands
 Copied from the roadmap; every task includes these.
 
 - **Node:** `>=24.15.0` (`engines` in package.json, `.nvmrc` = `24`).
-- **Untrusted JavaScript:** `new Function`, `eval` and `vm.runInThisContext` on remote code are forbidden, and a lint rule enforces it. Code fetched from YouTube/Google runs only through `runSandboxed` (C5, W4b).
+- **Untrusted JavaScript:** the server never executes JavaScript fetched from a third party (roadmap D7/C5). `new Function` and `eval` are banned by a lint rule from Task 3; W4b deletes the existing uses and extends the ban to `vm.*`.
 - **Credentials:** YouTube cookies are never persisted server-side, never logged, never returned in a response.
 - **Logging:** server code logs only through `log` from `src/lib/log.server.ts`, which redacts keys matching `/cookie|token|secret|authorization|password|sapisid|sid/i`. A lint rule bans `console.*` in `src/**/*.server.ts` and `src/routes/**` after W1 (exemption: Contract change request 2).
 - **Tests:**
@@ -63,7 +63,7 @@ Copied from the roadmap; every task includes these.
 - **Lint:** after W1-T3 every rule is `error`, and `npm run lint` must exit 0 with 0 warnings (`--max-warnings 0`).
 - **Commits:**
   - Conventional Commits, one commit per task, on `hardening/w1-foundation`;
-  - every commit message ends with `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`;
+  - every commit message ends with a `Co-Authored-By:` trailer naming the model that executed the task (`Claude Opus 5.5 (1M context)` or `Claude Sonnet 5`, `<noreply@anthropic.com>`);
   - PR descriptions end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - **Windows + Linux:** every npm script works on both (no `/tmp`, `/dev/null` or `python3` literals in Node code). The container is Linux-only, and macOS is untested.
 - **Copy rule:** user-facing text never promises what the code doesn't do, and security claims name the mechanism.
@@ -456,7 +456,7 @@ Expected: ESLint prints nothing (0 problems), typecheck is clean, and `npm test`
 git add src/lib/ytdlp-proc.server.ts src/lib/hybrid-net.ts src/lib/youtube-client.server.ts src/lib/youtube.server.ts extension/popup.js
 git commit -m "refactor(lint): drop dead imports in src/lib and the extension popup
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -681,7 +681,7 @@ Expected:
 git add src/components/bulk-downloader.tsx src/components/bulk-view.tsx src/components/transcript-form.tsx src/components/transcript-reader.tsx src/components/transcript-sidebar.tsx src/routes/index.tsx
 git commit -m "refactor(lint): drop dead imports and unused props in bulk and transcript components
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -709,7 +709,7 @@ git grep -c -F 'const [copiedIngestCode, setCopiedIngestCode] = useState(false);
 ```
 Expected:
 - the first two greps print nothing before their `---`;
-- the third lists only `src/components/mode-tabs.tsx`, `src/components/home-modes.tsx:3` and `src/lib/use-tools-badge.ts`;
+- the third lists only lines in `src/components/mode-tabs.tsx`, `src/components/home-modes.tsx` (`:3` import, `:50` call) and `src/lib/use-tools-badge.ts`;
 - the three counts print `1`.
 
 Anything else: STOP.
@@ -830,7 +830,7 @@ Expected: ESLint prints nothing, the grep prints nothing, typecheck is clean and
 git add src/components/video-panel.tsx src/components/mode-tabs.tsx src/components/home-modes.tsx src/lib/use-tools-badge.ts src/components/session-guide.tsx
 git commit -m "refactor(lint): keep component modules component-only; delete dead ingest bookmarklet
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -968,12 +968,11 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 /**
- * Remote code (YouTube player JS, the BotGuard interpreter) may only run through
- * `runSandboxed` (src/lib/sandbox/run-sandboxed.server.ts, W4b). These are the
- * in-process escape hatches it replaces.
+ * The server never executes remote JavaScript (roadmap D7/C5). These are the
+ * in-process escape hatches; W4b deletes the remaining uses.
  */
 const UNTRUSTED_EVAL_MESSAGE =
-  "Do not evaluate code in-process. Remote code runs only through runSandboxed (src/lib/sandbox/run-sandboxed.server.ts).";
+  "Do not evaluate code in-process. The server never executes remote JavaScript (roadmap C5, D7).";
 const noInProcessEval = [
   { selector: "NewExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
@@ -1058,7 +1057,7 @@ export default tseslint.config(
      with
      ```ts
        const { webPoSignalOutput, botguardResponse } = await withBgWindow(async () => {
-         // eslint-disable-next-line no-restricted-syntax -- W4b moves BotGuard into runSandboxed (C5) and deletes this line
+         // eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
          const vm = new Function(
      ```
   3. `src/lib/youtube-client.server.ts`: replace exactly
@@ -1067,7 +1066,7 @@ export default tseslint.config(
      ```
      with
      ```ts
-     // eslint-disable-next-line no-restricted-syntax -- W4b moves player JS into runSandboxed (C5) and deletes this line
+     // eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
      Platform.shim.eval = (data) => new Function(data.output)();
      ```
 
@@ -1096,7 +1095,7 @@ Expected: clean, 0 failures.
 git add eslint.config.mjs package.json src/lib/po-token.server.ts src/lib/youtube-client.server.ts scripts/package-contract.test.mjs
 git commit -m "ci(lint): make every rule an error, ban in-process eval and server console
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1752,7 +1751,7 @@ The tests assert **structure** (codec, sizes, slice pattern, fragment count, box
 
 - [ ] **Step 1: Verify anchors and tools.** Run:
 ```bash
-git grep -n -F '/tmp/' -- src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts
+git grep -n -F '"/tmp/' -- src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts
 git grep -c -F '["media.mkv", "video/x-matroska"],' src/lib/download-pool.server.test.ts
 ffmpeg -hide_banner -version | head -1
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -c libx264
@@ -1761,7 +1760,7 @@ Expected:
 - exactly 7 `/tmp/` lines: 2 in `h264-syntax`, 2 in `nal-h264`, 2 in `mpeg-ts` and 1 in `iso-bmff`. If the count differs, STOP;
 - then `1`;
 - then an `ffmpeg version 7.` line;
-- then `1`.
+- then `1` or more (some ffmpeg builds also list `libx264rgb`).
 
 Without ffmpeg/libx264: STOP and ask the orchestrator. The fixtures must come from this generator, never from a downloaded video.
 
@@ -2111,7 +2110,7 @@ Before replacing, confirm the current file contains nothing after that second te
    ```
 
 - [ ] **Step 3: Run and see them fail.** Run: `node --experimental-strip-types --test src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
-Expected: 6 failures, each `Error: ENOENT: no such file or directory, open '…media-test-fixtures\h264-high40-1080p-…'`.
+Expected: 7 failures (h264-syntax 2, nal-h264 2, mpeg-ts 2, iso-bmff 1), each `Error: ENOENT: no such file or directory, open '…media-test-fixtures\h264-high40-1080p-…'`.
 
 - [ ] **Step 4: Generate the fixtures.** Run from the worktree root, exactly as in the loader's header:
 ```bash
@@ -2673,7 +2672,7 @@ Expected:
 git add .github/workflows/ci.yml scripts/workflow-policy.test.mjs
 git commit -m "ci: add required CI workflow with pinned actions and Postgres-backed HTTP tests
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2883,7 +2882,6 @@ jobs:
 /scripts/migrate.mjs                @EgerDev
 /src/lib/auth/                      @EgerDev
 /src/lib/http/                      @EgerDev
-/src/lib/sandbox/                   @EgerDev
 /src/lib/log.server.ts              @EgerDev
 /src/lib/env.server.ts              @EgerDev
 /src/lib/guest-limit.server.ts      @EgerDev
@@ -2909,7 +2907,7 @@ Expected: all policy tests pass, `yaml ok`, `all pinned`, and lint and tests are
 git add .github scripts/workflow-policy.test.mjs
 git commit -m "ci: add Dependabot, CodeQL, dependency review, Scorecard and CODEOWNERS
 
-Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3071,8 +3069,8 @@ gh ssh-key add ~/.ssh/id_ed25519.pub --type signing --title "velo signing"
     - make `api-guards`/`harness` pass `DATABASE_URL: process.env.VELO_TEST_DATABASE_URL` (CI already provides it);
   - delete `check:auth`, `scripts/check-auth-invariant.mjs` and its test (TEST-10), the gate-identity code and tests (TEST-12), the connector tests (TEST-13), and `scripts/with-app-env.mjs` (`dev`/`build` become `vite dev`/`vite build`; INST-04);
   - delete `startup.sh`, which starts `npm run dev` expecting `0.0.0.0`;
-  - C1's dev default `VELO_PUBLIC_ORIGIN` must follow `VELO_DEV_PORT` (`http://localhost:${VELO_DEV_PORT ?? 8080}`), or dev on another port fails Better Auth origin checks.
-- **W4b:** delete both `eslint-disable-next-line no-restricted-syntax -- W4b …` lines together with the `new Function` code (`po-token.server.ts`, `youtube-client.server.ts`). `reportUnusedDisableDirectives` fails lint if one survives. The sandbox child may use `vm.createContext` and `new vm.Script` (not banned), but never `new Function`/`eval`.
+  - **Contract change request for W2 (compatible; the default stays 8080):** C1's dev default for `VELO_PUBLIC_ORIGIN` should follow `VELO_DEV_PORT` (`http://localhost:${VELO_DEV_PORT ?? 8080}`), or dev on another port fails Better Auth origin checks. W2 must amend C1 in the roadmap first, in its own reviewed commit.
+- **W4b:** delete both `eslint-disable-next-line no-restricted-syntax -- W4b …` lines together with the `new Function` code (`po-token.server.ts`, `youtube-client.server.ts`). `reportUnusedDisableDirectives` fails lint if one survives. W4b then extends the ban to `vm.*` (roadmap Global Constraint); no module may execute remote JavaScript.
 - **W4a:**
   - failing-first HTTP tests on the harness for `/%` → 400 (today the built server throws `URIError: URI malformed` and never answers), cross-site POST → 403, CSP/security headers, and `apiError` bodies;
   - TEST-16 (`killTree` on win32), TEST-18 (relay port), INST-10 (abort logging);
