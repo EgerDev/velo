@@ -150,7 +150,7 @@ The five inputs most likely to bite, each pinned by a test in the owning task:
   - `npm run dev` binds `VELO_DEV_HOST` (default `127.0.0.1`) : `VELO_DEV_PORT` (default `8080`) with `strictPort`.
 - Behaviour change, stated on purpose: the production build **no longer carries PGLite's `.wasm/.data`** (the deleted `pgliteAssetsPlugin` copied them into `.vercel/output` only). A production server without `DATABASE_URL` reports `/api/health` 503 `database unreachable` and logs a PGLite `ENOENT`. That is the fail-closed direction. C1 makes `DATABASE_URL` required in production (W2).
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F '"dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",' package.json
 git grep -c -F '"build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",' package.json
@@ -160,7 +160,7 @@ git grep -c -F 'host: "0.0.0.0",' vite.config.ts
 ```
 Expected: each prints `1`. If any prints nothing, STOP and report.
 
-- [ ] **Step 2: Write the failing contract test.** Create `scripts/package-contract.test.mjs`:
+- [x] **Step 2: Write the failing contract test.** Create `scripts/package-contract.test.mjs`:
 ```js
 // Contract checks for package.json scripts/engines and the server build preset
 // (roadmap C7, D1). The real proof is `npm run build` + `npm start`; these stop
@@ -197,10 +197,10 @@ test("the server builds with Nitro's node-server preset; nothing targets Vercel 
 });
 ```
 
-- [ ] **Step 3: Run it and see it fail.** Run: `node --test scripts/package-contract.test.mjs`
+- [x] **Step 3: Run it and see it fail.** Run: `node --test scripts/package-contract.test.mjs`
 Expected: `ℹ fail 4`. The first failure reads `Expected values to be strictly equal: undefined !== '>=24.15.0'`.
 
-- [ ] **Step 4: Implement `package.json`, `.nvmrc`, `.gitignore`.**
+- [x] **Step 4: Implement `package.json`, `.nvmrc`, `.gitignore`.**
   1. In `package.json` replace exactly
      `  "type": "module",`
      with
@@ -219,7 +219,7 @@ Expected: `ℹ fail 4`. The first failure reads `Expected values to be strictly 
   4. Create `.nvmrc` containing the single line `24` followed by a newline.
   5. In `.gitignore`, replace exactly `.vercel/\n.tanstack/` (the two consecutive lines under `# Build outputs`) with `.vercel/\n.output/\n.tanstack/`.
 
-- [ ] **Step 5: Implement `vite.config.ts`.**
+- [x] **Step 5: Implement `vite.config.ts`.**
   1. Delete this whole block, including the blank line after it:
      ```ts
      function pgliteAssetsPlugin(): Plugin {
@@ -287,10 +287,10 @@ Expected: `ℹ fail 4`. The first failure reads `Expected values to be strictly 
      ```
   Leave `pgliteBootstrapPlugin`, `authPopupPlugin`, `appEnvPlugin`, `grokPwaPlugin` and `serverDir: "./server"` untouched; W2 deletes the Grok ones. `readdirSync`/`join` stay imported because `hasGlobbedMigrations` uses them.
 
-- [ ] **Step 6: Run the contract test.** Run: `node --test scripts/package-contract.test.mjs`
+- [x] **Step 6: Run the contract test.** Run: `node --test scripts/package-contract.test.mjs`
 Expected: `ℹ pass 4`, `ℹ fail 0`.
 
-- [ ] **Step 7: Build and smoke the production server.** Run:
+- [x] **Step 7: Build and smoke the production server.** Run:
 ```bash
 npm run build
 node -p "require('./.output/nitro.json').preset"
@@ -315,16 +315,16 @@ Expected:
 
 If `health` is `undefined`, the server did not start: re-run with `stdio: "inherit"` to see why, fix, and repeat.
 
-- [ ] **Step 8: Verify dev binds loopback on the override port.** PowerShell (Windows):
+- [x] **Step 8: Verify dev binds loopback on the override port.** PowerShell (Windows):
 ```powershell
 $env:VELO_DEV_PORT = "8097"; $p = Start-Process cmd.exe -ArgumentList "/c","npm run dev" -PassThru -WindowStyle Hidden; Start-Sleep -Seconds 15; Get-NetTCPConnection -State Listen -LocalPort 8097 | Select-Object LocalAddress,LocalPort; taskkill /pid $p.Id /T /F | Out-Null; Remove-Item Env:VELO_DEV_PORT
 ```
 Expected: exactly one row, `127.0.0.1  8097`, and no `0.0.0.0` or `::` row. On Linux, the equivalent: `VELO_DEV_PORT=8097 npm run dev & sleep 15; ss -ltn | grep 8097; kill %1` shows only `127.0.0.1:8097`.
 
-- [ ] **Step 9: Full gate.** Run: `npm run typecheck && npm test`
+- [x] **Step 9: Full gate.** Run: `npm run typecheck && npm test`
 Expected: typecheck clean and `npm test` 0 failures. The `scripts` part now has 4 more tests.
 
-- [ ] **Step 10: Commit.**
+- [x] **Step 10: Commit.**
 ```bash
 git add package.json .nvmrc .gitignore vite.config.ts scripts/package-contract.test.mjs
 git commit -m "build: pin Node 24, node-server preset, loopback dev server, build without migrations
@@ -341,7 +341,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:** Modify `src/lib/ytdlp-proc.server.ts`, `src/lib/hybrid-net.ts`, `src/lib/youtube-client.server.ts`, `src/lib/youtube.server.ts`, `extension/popup.js`. Only the exact edits below: every removed name is an import or variable ESLint reports as unused. A removal of a whole `import` line is safe because each of those modules is still imported elsewhere, and `package.json` `sideEffects` lists only `ipv4-bind.server.ts`, whose bare import stays.
 
-- [ ] **Step 1: Verify anchors and the starting count.** Run:
+- [x] **Step 1: Verify anchors and the starting count.** Run:
 ```bash
 git grep -c -F 'import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";' src/lib/ytdlp-proc.server.ts
 git grep -c -F 'import { classifyDownloadError, errorFromResponse } from "@/lib/download-error";' src/lib/hybrid-net.ts
@@ -351,7 +351,7 @@ npx eslint src/lib/ytdlp-proc.server.ts src/lib/hybrid-net.ts src/lib/youtube-cl
 ```
 Expected: `1` four times, then `✖ 52 problems (0 errors, 52 warnings)`. Any other result: STOP.
 
-- [ ] **Step 2: `src/lib/ytdlp-proc.server.ts`.** Replace exactly:
+- [x] **Step 2: `src/lib/ytdlp-proc.server.ts`.** Replace exactly:
 ```ts
 import "@/lib/ipv4-bind.server";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -390,7 +390,7 @@ with:
 import "@/lib/ipv4-bind.server";
 ```
 
-- [ ] **Step 3: `src/lib/hybrid-net.ts`.**
+- [x] **Step 3: `src/lib/hybrid-net.ts`.**
   1. Replace exactly
      ```ts
      import { classifyDownloadError, errorFromResponse } from "@/lib/download-error";
@@ -409,13 +409,13 @@ import "@/lib/ipv4-bind.server";
      import { isAudioItag, isVideoOnlyItag } from "@/lib/ytdlp-auth";
      ```
 
-- [ ] **Step 4: `src/lib/youtube-client.server.ts`.** Delete exactly these two lines:
+- [x] **Step 4: `src/lib/youtube-client.server.ts`.** Delete exactly these two lines:
 ```ts
 import type { VideoFormat } from "@/lib/youtube";
 import { toFormat, uniqueFormats } from "@/lib/youtube-map.server";
 ```
 
-- [ ] **Step 5: `src/lib/youtube.server.ts`.** Replace exactly
+- [x] **Step 5: `src/lib/youtube.server.ts`.** Replace exactly
 ```ts
 import type {
   CaptionTrack,
@@ -427,7 +427,7 @@ import type {
   ResolvedVideo,
 ```
 
-- [ ] **Step 6: `extension/popup.js`.** Delete exactly these five lines (the variable is assigned and never read; each `promptInstr = …` line next to them stays):
+- [x] **Step 6: `extension/popup.js`.** Delete exactly these five lines (the variable is assigned and never read; each `promptInstr = …` line next to them stays):
 ```js
       let promptTitle = "";
 ```
@@ -444,14 +444,14 @@ import type {
         promptTitle = "CHAPTER TIMESTAMPS";
 ```
 
-- [ ] **Step 7: Verify.** Run:
+- [x] **Step 7: Verify.** Run:
 ```bash
 npx eslint src/lib/ytdlp-proc.server.ts src/lib/hybrid-net.ts src/lib/youtube-client.server.ts src/lib/youtube.server.ts extension/popup.js
 npm run typecheck && npm test
 ```
 Expected: ESLint prints nothing (0 problems), typecheck is clean, and `npm test` has 0 failures.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 ```bash
 git add src/lib/ytdlp-proc.server.ts src/lib/hybrid-net.ts src/lib/youtube-client.server.ts src/lib/youtube.server.ts extension/popup.js
 git commit -m "refactor(lint): drop dead imports in src/lib and the extension popup
@@ -468,7 +468,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 **Files:** Modify `src/components/bulk-downloader.tsx`, `bulk-view.tsx`, `transcript-form.tsx`, `transcript-reader.tsx`, `transcript-sidebar.tsx`, `src/routes/index.tsx` (the `toast` import only). The transcript components destructure props they never use. Removing a name from the destructuring leaves the `TranscriptViewProps` type and every caller unchanged.
 
-- [ ] **Step 1: Verify anchors and the starting count.** Run:
+- [x] **Step 1: Verify anchors and the starting count.** Run:
 ```bash
 git grep -c -F '  importBatchJson,' src/components/bulk-downloader.tsx
 git grep -c -F 'import { resolveBulkVideos, resolvePlaylist, resolveVideo } from "@/lib/resolve-video";' src/components/bulk-downloader.tsx
@@ -479,7 +479,7 @@ npx eslint src/components/bulk-downloader.tsx src/components/bulk-view.tsx src/c
 ```
 Expected: `1` five times, then `✖ 127 problems (0 errors, 127 warnings)`: 124 of them are this task's, plus 3 exhaustive-deps in `index.tsx` for Task 2D. Otherwise STOP.
 
-- [ ] **Step 2: `src/components/bulk-downloader.tsx`.**
+- [x] **Step 2: `src/components/bulk-downloader.tsx`.**
   1. Replace exactly
      ```tsx
      import {
@@ -536,7 +536,7 @@ Expected: `1` five times, then `✖ 127 problems (0 errors, 127 warnings)`: 124 
      import { BulkView } from "@/components/bulk-view";
      ```
 
-- [ ] **Step 3: `src/components/bulk-view.tsx`.**
+- [x] **Step 3: `src/components/bulk-view.tsx`.**
   1. Replace exactly
      ```tsx
      import {
@@ -567,7 +567,7 @@ Expected: `1` five times, then `✖ 127 problems (0 errors, 127 warnings)`: 124 
      ```
   3. Delete exactly the line `import { cn } from "@/lib/utils";`.
 
-- [ ] **Step 4: `src/components/transcript-form.tsx`.** Replace exactly
+- [x] **Step 4: `src/components/transcript-form.tsx`.** Replace exactly
 ```tsx
   const {
     urlInput, setUrlInput, loadVideoTranscript, loading, samples, error, setError, video,
@@ -587,7 +587,7 @@ with
   } = props;
 ```
 
-- [ ] **Step 5: `src/components/transcript-reader.tsx`.**
+- [x] **Step 5: `src/components/transcript-reader.tsx`.**
   1. Replace exactly
      ```tsx
      import { toast } from "sonner";
@@ -624,7 +624,7 @@ with
        } = props;
      ```
 
-- [ ] **Step 6: `src/components/transcript-sidebar.tsx`.**
+- [x] **Step 6: `src/components/transcript-sidebar.tsx`.**
   1. Replace exactly
      ```tsx
      import { Check, Copy, Film, Languages, Sparkles } from "lucide-react";
@@ -656,7 +656,7 @@ with
        } = props;
      ```
 
-- [ ] **Step 7: `src/routes/index.tsx`.** Replace exactly
+- [x] **Step 7: `src/routes/index.tsx`.** Replace exactly
 ```tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -666,7 +666,7 @@ with
 import { useEffect, useMemo, useRef, useState } from "react";
 ```
 
-- [ ] **Step 8: Verify.** Run:
+- [x] **Step 8: Verify.** Run:
 ```bash
 npx eslint src/components/bulk-downloader.tsx src/components/bulk-view.tsx src/components/transcript-form.tsx src/components/transcript-reader.tsx src/components/transcript-sidebar.tsx src/routes/index.tsx
 npm run typecheck && npm test
@@ -676,7 +676,7 @@ Expected:
 - typecheck is clean, which proves no removed name was still referenced;
 - `npm test` has 0 failures.
 
-- [ ] **Step 9: Commit.**
+- [x] **Step 9: Commit.**
 ```bash
 git add src/components/bulk-downloader.tsx src/components/bulk-view.tsx src/components/transcript-form.tsx src/components/transcript-reader.tsx src/components/transcript-sidebar.tsx src/routes/index.tsx
 git commit -m "refactor(lint): drop dead imports and unused props in bulk and transcript components
@@ -698,7 +698,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - `rememberToolsCheck`/`TOOLS_CACHE_KEY` move to `src/lib/use-tools-badge.ts`, their other user.
 - `session-guide.tsx`'s "Open in Velo" ingest bookmarklet (`INGEST_BOOKMARKLET_CODE`, `getIngestBookmarkletCode`, `copiedIngestCode`, `ingestCode`, `copyIngestBookmarklet`) is never rendered, and nothing else references it (`git grep` in Step 1), so it is deleted.
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -n "getPresetAvailability\|getResolutionBadge" -- src | grep -v "src/components/video-panel.tsx" ; echo "---"
 git grep -n "INGEST_BOOKMARKLET_CODE\|getIngestBookmarkletCode\|copyIngestBookmarklet" -- src extension extensions scripts | grep -v "src/components/session-guide.tsx"; echo "---"
@@ -714,9 +714,9 @@ Expected:
 
 Anything else: STOP.
 
-- [ ] **Step 2: `src/components/video-panel.tsx`.** Replace exactly `export function getPresetAvailability(` with `function getPresetAvailability(`, and `export function getResolutionBadge(preset: VideoPreset) {` with `function getResolutionBadge(preset: VideoPreset) {`. The `export type PresetAvailability` stays, because type exports are allowed.
+- [x] **Step 2: `src/components/video-panel.tsx`.** Replace exactly `export function getPresetAvailability(` with `function getPresetAvailability(`, and `export function getResolutionBadge(preset: VideoPreset) {` with `function getResolutionBadge(preset: VideoPreset) {`. The `export type PresetAvailability` stays, because type exports are allowed.
 
-- [ ] **Step 3: Move the tools-cache helpers.**
+- [x] **Step 3: Move the tools-cache helpers.**
   1. In `src/components/mode-tabs.tsx` delete exactly this block, including the blank line after it:
      ```tsx
      export const TOOLS_CACHE_KEY = "velo-tools-checked";
@@ -759,7 +759,7 @@ Anything else: STOP.
      ```
   3. In `src/components/home-modes.tsx` replace exactly `import { rememberToolsCheck } from "@/components/mode-tabs";` with `import { rememberToolsCheck } from "@/lib/use-tools-badge";`.
 
-- [ ] **Step 4: `src/components/session-guide.tsx`.**
+- [x] **Step 4: `src/components/session-guide.tsx`.**
   1. If the file still contains the line `  Zap,`, replace exactly
      ```tsx
        Sparkles,
@@ -817,7 +817,7 @@ Anything else: STOP.
 
      ```
 
-- [ ] **Step 5: Verify.** Run:
+- [x] **Step 5: Verify.** Run:
 ```bash
 npx eslint src/components/video-panel.tsx src/components/mode-tabs.tsx src/components/home-modes.tsx src/lib/use-tools-badge.ts src/components/session-guide.tsx
 git grep -n "INGEST_BOOKMARKLET_CODE\|getIngestBookmarkletCode\|copiedIngestCode" -- src
@@ -825,7 +825,7 @@ npm run typecheck && npm test
 ```
 Expected: ESLint prints nothing, the grep prints nothing, typecheck is clean and tests have 0 failures.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 ```bash
 git add src/components/video-panel.tsx src/components/mode-tabs.tsx src/components/home-modes.tsx src/lib/use-tools-badge.ts src/components/session-guide.tsx
 git commit -m "refactor(lint): keep component modules component-only; delete dead ingest bookmarklet
@@ -849,7 +849,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 The honest fix is a one-line disable with the reason. Because `reportUnusedDisableDirectives: "error"` (Task 3), each comment fails lint the day it stops being needed, e.g. after W7 bumps the plugin to ≥ 6.
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F '    return () => abortRef.current?.abort();' src/routes/index.tsx
 git grep -c -F '  }, [video, selected, downloading]);' src/routes/index.tsx
@@ -857,7 +857,7 @@ git grep -c -F '    void loadVideoTranscript(initialUrl);' src/components/transc
 ```
 Expected: `1` each. Otherwise STOP.
 
-- [ ] **Step 2: `src/routes/index.tsx`.**
+- [x] **Step 2: `src/routes/index.tsx`.**
   1. Replace exactly
      ```tsx
          if (saved && !urlRef.current) updateUrl(saved);
@@ -884,7 +884,7 @@ Expected: `1` each. Otherwise STOP.
        }, [video, selected, downloading]);
      ```
 
-- [ ] **Step 3: `src/components/transcript-studio.tsx`.** Replace exactly
+- [x] **Step 3: `src/components/transcript-studio.tsx`.** Replace exactly
 ```tsx
     void loadVideoTranscript(initialUrl);
   }, [initialUrl]);
@@ -896,10 +896,10 @@ with
   }, [initialUrl]);
 ```
 
-- [ ] **Step 4: Verify the four are gone.** Run: `npx eslint src/routes/index.tsx src/components/transcript-studio.tsx`
+- [x] **Step 4: Verify the four are gone.** Run: `npx eslint src/routes/index.tsx src/components/transcript-studio.tsx`
 Expected: no output.
 
-- [ ] **Step 5: Whole-repo residue check.** Run: `npx eslint .`
+- [x] **Step 5: Whole-repo residue check.** Run: `npx eslint .`
 Expected: exactly `✖ 2 problems (0 errors, 2 warnings)`: `src/components/ui/badge.tsx` and `src/components/ui/button.tsx`, both `react-refresh/only-export-components`. Task 3 handles them in config.
 
 Any other warning must be in a file W0 touched (`src/routes/login.tsx`, `src/components/session-guide.tsx`, `src/lib/auth/server.ts`, `src/routes/api/auth/$.ts`, `src/lib/rate-window.ts`):
@@ -908,10 +908,10 @@ Any other warning must be in a file W0 touched (`src/routes/login.tsx`, `src/com
 
 List every residue edit you made in the commit body.
 
-- [ ] **Step 6: Full gate.** Run: `npm run typecheck && npm test`
+- [x] **Step 6: Full gate.** Run: `npm run typecheck && npm test`
 Expected: clean, 0 failures.
 
-- [ ] **Step 7: Commit.** If Step 5 found no residue, drop the second paragraph of the message.
+- [x] **Step 7: Commit.** If Step 5 found no residue, drop the second paragraph of the message.
 ```bash
 git add -A src
 git commit -m "refactor(lint): document mount-once effects; clear post-W0 lint residue
@@ -939,7 +939,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `reportUnusedDisableDirectives: "error"`.
 - The two existing in-process evaluations get `// eslint-disable-next-line no-restricted-syntax -- W4b …`. **W4b deletes both lines together with the code.** The unused-directive check fails lint if a comment outlives its code.
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F '    "lint": "eslint .",' package.json
 git grep -c -F '    const vm = new Function(' src/lib/po-token.server.ts
@@ -948,7 +948,7 @@ git grep -n -E "new Function|\beval\(|runInThisContext" -- src scripts extension
 ```
 Expected: `1`, `1`, `1`, then exactly two lines: `src/lib/po-token.server.ts:<n>:    const vm = new Function(` and `src/lib/youtube-client.server.ts:<n>:Platform.shim.eval = …`. Any other occurrence: STOP and report it; it belongs to W4b's inventory.
 
-- [ ] **Step 2: Write the failing test.** Append to the end of `scripts/package-contract.test.mjs`:
+- [x] **Step 2: Write the failing test.** Append to the end of `scripts/package-contract.test.mjs`:
 ```js
 
 test("lint fails on any warning", () => {
@@ -958,7 +958,7 @@ test("lint fails on any warning", () => {
 Run: `node --test scripts/package-contract.test.mjs`
 Expected: `ℹ fail 1`, with `'eslint .' !== 'eslint . --max-warnings 0'`.
 
-- [ ] **Step 3: Replace `eslint.config.mjs` entirely with:**
+- [x] **Step 3: Replace `eslint.config.mjs` entirely with:**
 ```js
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
@@ -1047,7 +1047,7 @@ export default tseslint.config(
 );
 ```
 
-- [ ] **Step 4: Update `package.json` and allowlist the two W4b sites.**
+- [x] **Step 4: Update `package.json` and allowlist the two W4b sites.**
   1. `package.json`: replace exactly `    "lint": "eslint .",` with `    "lint": "eslint . --max-warnings 0",`.
   2. `src/lib/po-token.server.ts`: replace exactly
      ```ts
@@ -1070,7 +1070,7 @@ export default tseslint.config(
      Platform.shim.eval = (data) => new Function(data.output)();
      ```
 
-- [ ] **Step 5: Verify lint is green and every rule is an error.** Run:
+- [x] **Step 5: Verify lint is green and every rule is an error.** Run:
 ```bash
 npm run lint; echo "lint exit=$?"
 npx eslint --print-config src/routes/index.tsx | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s).rules;const warn=Object.entries(r).filter(([,v])=>[1,"warn"].includes(Array.isArray(v)?v[0]:v)).map(([k])=>k);console.log(warn.length?"WARN RULES: "+warn.join(","):"no warn-level rules")})'
@@ -1078,7 +1078,7 @@ node --test scripts/package-contract.test.mjs
 ```
 Expected: `lint exit=0` with no problems, then `no warn-level rules`, then `ℹ pass 5`.
 
-- [ ] **Step 6: Prove the new rules bite.** Nothing is written to disk. Run:
+- [x] **Step 6: Prove the new rules bite.** Nothing is written to disk. Run:
 ```bash
 printf 'export function f() {\n  console.log(1);\n  new Function("a")();\n  eval("1");\n  globalThis.eval("2");\n  Function("b");\n}\n' | npx eslint --stdin --stdin-filename src/lib/probe.server.ts; echo "exit=$?"
 printf 'export function f() {\n  console.log(1);\n}\n' | npx eslint --stdin --stdin-filename src/components/probe.ts; echo "exit=$?"
@@ -1087,10 +1087,10 @@ Expected:
 - the first command gives `✖ 5 problems (5 errors, 0 warnings)`: 1 `no-console` and 4 `no-restricted-syntax` with the message `Do not evaluate code in-process…`, then `exit=1`;
 - the second gives `exit=0`, because client code may use `console`.
 
-- [ ] **Step 7: Full gate.** Run: `npm run typecheck && npm test`
+- [x] **Step 7: Full gate.** Run: `npm run typecheck && npm test`
 Expected: clean, 0 failures.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 ```bash
 git add eslint.config.mjs package.json src/lib/po-token.server.ts src/lib/youtube-client.server.ts scripts/package-contract.test.mjs
 git commit -m "ci(lint): make every rule an error, ban in-process eval and server console
@@ -1121,10 +1121,10 @@ export async function startServer({ env = {} } = {}): Promise<{ baseUrl: string;
 - Tests pass `VITE_AUTH_ENABLED: "false"` (W0 fail-closed auth; W2 removes it). A Postgres-backed test uses `VELO_TEST_DATABASE_URL`: it is skipped locally when unset, and **runs and fails in CI when unset** (`process.env.CI`).
 - `npm run test:http` = `node --test "tests/http/*.test.mjs"` and requires a prior `npm run build`.
 
-- [ ] **Step 1: Verify anchors.** Run: `git grep -c -F '    "test": "node --test \"scripts/**/*.test.mjs\" && node scripts/run-ts-tests.mjs",' package.json`
+- [x] **Step 1: Verify anchors.** Run: `git grep -c -F '    "test": "node --test \"scripts/**/*.test.mjs\" && node scripts/run-ts-tests.mjs",' package.json`
 Expected: `1`. Also `ls tests/http 2>/dev/null` prints nothing. Otherwise STOP.
 
-- [ ] **Step 2: Write the failing tests.** Create `tests/http/harness.test.mjs`:
+- [x] **Step 2: Write the failing tests.** Create `tests/http/harness.test.mjs`:
 ```js
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -1305,12 +1305,12 @@ test("test:http runs the black-box suite against the built server", () => {
 });
 ```
 
-- [ ] **Step 3: Run them and see them fail.** Run: `node --test "tests/http/*.test.mjs"; node --test scripts/package-contract.test.mjs`
+- [x] **Step 3: Run them and see them fail.** Run: `node --test "tests/http/*.test.mjs"; node --test scripts/package-contract.test.mjs`
 Expected:
 - the HTTP files fail with `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/tests/http/harness.mjs'`;
 - the contract test fails with `undefined !== 'node --test "tests/http/*.test.mjs"'`.
 
-- [ ] **Step 4: Implement the harness.** Create `tests/http/harness.mjs`:
+- [x] **Step 4: Implement the harness.** Create `tests/http/harness.mjs`:
 ```js
 // HTTP black-box test harness (roadmap contract C6).
 //
@@ -1421,13 +1421,13 @@ with
     "test:http": "node --test \"tests/http/*.test.mjs\"",
 ```
 
-- [ ] **Step 5: Build and run.** Run: `npm run build && npm run test:http && node --test scripts/package-contract.test.mjs`
+- [x] **Step 5: Build and run.** Run: `npm run build && npm run test:http && node --test scripts/package-contract.test.mjs`
 Expected:
 - `test:http` reports `ℹ tests 20`, `ℹ pass 19`, `ℹ fail 0`, `ℹ skipped 1`. The Postgres test is skipped locally, with reason `set VELO_TEST_DATABASE_URL to a migrated Postgres`;
 - the contract test reports `ℹ pass 6`;
 - the server log contains `[db] PGLite bootstrap failed: Error: ENOENT … pglite.data`. That is expected (see Task 1) and never appears in a response body.
 
-- [ ] **Step 6: Run the Postgres leg locally and check for orphans.** Requires Docker. Run:
+- [x] **Step 6: Run the Postgres leg locally and check for orphans.** Requires Docker. Run:
 ```bash
 docker run -d --rm --name velo-w1-pg -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=velo -p 127.0.0.1:55432:5432 postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
 until docker exec velo-w1-pg pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
@@ -1441,10 +1441,10 @@ Expected:
 
 Then on Windows run `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object CommandLine -like "*.output*index.mjs*"` (PowerShell), or on Linux `pgrep -af ".output/server/index.mjs"`. Expected: no process started from this worktree. Without Docker, say so in the task report; CI runs this leg.
 
-- [ ] **Step 7: Lint and full gate.** Run: `npm run lint && npm run typecheck && npm test`
+- [x] **Step 7: Lint and full gate.** Run: `npm run lint && npm run typecheck && npm test`
 Expected: all clean. The tests in `tests/http/` are not part of `npm test`.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 ```bash
 git add tests/http package.json scripts/package-contract.test.mjs
 git commit -m "test(http): add built-server harness and first black-box tests
@@ -1483,7 +1483,7 @@ export function redact(fields: LogFields): LogFields;
 - Errors become `{name, message, stack}`, bigints become strings, cycles become `"[Circular]"`, and nesting past depth 6 becomes `"[Truncated]"`.
 - Known ceiling (documented in the header): values are not scanned, so a secret inside a free-text string such as an error message is not redacted. W3 keeps cookies out of messages.
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F 'console.warn(`[ytdlp] -J output exceeded ${JSON_STDOUT_MAX} bytes for ${id}`);' src/lib/ytdlp-meta.server.ts
 git grep -c -F 'import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";' src/lib/ytdlp-meta.server.ts
@@ -1492,7 +1492,7 @@ ls src/lib/log.server.ts 2>/dev/null
 ```
 Expected: `1`, `1`, `1`, and no output from `ls`. Otherwise STOP.
 
-- [ ] **Step 2: Write the failing test.** Create `src/lib/log.server.test.ts`:
+- [x] **Step 2: Write the failing test.** Create `src/lib/log.server.test.ts`:
 ```ts
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -1601,10 +1601,10 @@ test("LOG_LEVEL sets the threshold; the default drops debug", () => {
 });
 ```
 
-- [ ] **Step 3: Run it and see it fail.** Run: `node --experimental-strip-types --test src/lib/log.server.test.ts`
+- [x] **Step 3: Run it and see it fail.** Run: `node --experimental-strip-types --test src/lib/log.server.test.ts`
 Expected: FAIL with `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/src/lib/log.server.ts'`.
 
-- [ ] **Step 4: Implement.** Create `src/lib/log.server.ts`:
+- [x] **Step 4: Implement.** Create `src/lib/log.server.ts`:
 ```ts
 /**
  * Structured server logger (roadmap contract C4). Server code logs only through
@@ -1692,10 +1692,10 @@ export const log: {
 };
 ```
 
-- [ ] **Step 5: Run the test.** Run: `node --experimental-strip-types --test src/lib/log.server.test.ts`
+- [x] **Step 5: Run the test.** Run: `node --experimental-strip-types --test src/lib/log.server.test.ts`
 Expected: `ℹ pass 6`, `ℹ fail 0`.
 
-- [ ] **Step 6: Put `ytdlp-meta.server.ts` under the lint rule and see it fail.** In `eslint.config.mjs` delete exactly these two lines:
+- [x] **Step 6: Put `ytdlp-meta.server.ts` under the lint rule and see it fail.** In `eslint.config.mjs` delete exactly these two lines:
 ```js
       // W1-T5 moves its one console.warn to `log` and deletes this line.
       "src/lib/ytdlp-meta.server.ts",
@@ -1703,7 +1703,7 @@ Expected: `ℹ pass 6`, `ℹ fail 0`.
 Run: `npx eslint src/lib/ytdlp-meta.server.ts`
 Expected: `error  Unexpected console statement  no-console`, 1 problem.
 
-- [ ] **Step 7: Migrate the call.** In `src/lib/ytdlp-meta.server.ts`:
+- [x] **Step 7: Migrate the call.** In `src/lib/ytdlp-meta.server.ts`:
   1. Replace exactly `import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";` with the two lines
      ```ts
      import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";
@@ -1718,10 +1718,10 @@ Expected: `error  Unexpected console statement  no-console`, 1 problem.
                  log.warn("ytdlp.json_output_truncated", { videoId: id, maxBytes: JSON_STDOUT_MAX });
      ```
 
-- [ ] **Step 8: Verify.** Run: `npm run lint && npm run typecheck && npm test`
+- [x] **Step 8: Verify.** Run: `npm run lint && npm run typecheck && npm test`
 Expected: lint exits 0 and typecheck is clean. `npm test` has 0 failures, including `ytdlp-meta-routing.test.ts` and `ytdlp-fallback-contract.test.ts`, which read this file's source.
 
-- [ ] **Step 9: Commit.**
+- [x] **Step 9: Commit.**
 ```bash
 git add src/lib/log.server.ts src/lib/log.server.test.ts src/lib/ytdlp-meta.server.ts eslint.config.mjs
 git commit -m "feat(log): add redacting structured server logger
@@ -1749,7 +1749,7 @@ The expected values were cross-checked with `ffmpeg -bsf:v trace_headers` (decod
 
 The tests assert **structure** (codec, sizes, slice pattern, fragment count, box arithmetic), never byte offsets, so a fixture regenerated by another ffmpeg build still passes. The PCR PID is 256 (ffmpeg puts the PCR on the video PID, where YouTube uses 8191), and the test says so.
 
-- [ ] **Step 1: Verify anchors and tools.** Run:
+- [x] **Step 1: Verify anchors and tools.** Run:
 ```bash
 git grep -n -F '"/tmp/' -- src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts
 git grep -c -F '["media.mkv", "video/x-matroska"],' src/lib/download-pool.server.test.ts
@@ -1764,7 +1764,7 @@ Expected:
 
 Without ffmpeg/libx264: STOP and ask the orchestrator. The fixtures must come from this generator, never from a downloaded video.
 
-- [ ] **Step 2: Write the fixture loader and rewrite the tests (they fail: fixtures absent).** Create `src/lib/media-test-fixtures/index.ts`:
+- [x] **Step 2: Write the fixture loader and rewrite the tests (they fail: fixtures absent).** Create `src/lib/media-test-fixtures/index.ts`:
 ```ts
 import { readFileSync } from "node:fs";
 
@@ -2109,10 +2109,10 @@ Before replacing, confirm the current file contains nothing after that second te
    });
    ```
 
-- [ ] **Step 3: Run and see them fail.** Run: `node --experimental-strip-types --test src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
+- [x] **Step 3: Run and see them fail.** Run: `node --experimental-strip-types --test src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
 Expected: 7 failures (h264-syntax 2, nal-h264 2, mpeg-ts 2, iso-bmff 1), each `Error: ENOENT: no such file or directory, open '…media-test-fixtures\h264-high40-1080p-…'`.
 
-- [ ] **Step 4: Generate the fixtures.** Run from the worktree root, exactly as in the loader's header:
+- [x] **Step 4: Generate the fixtures.** Run from the worktree root, exactly as in the loader's header:
 ```bash
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=25" -f lavfi -i "sine=frequency=440:sample_rate=48000" -t 0.48 -c:v libx264 -threads 1 -preset veryfast -profile:v high -level:v 4.0 -pix_fmt yuv420p -crf 51 -bf 2 -g 12 -x264-params "aud=1:scenecut=0:b-adapt=0" -c:a aac -b:a 32k -f mpegts -mpegts_pmt_start_pid 4095 -mpegts_start_pid 256 -muxdelay 0 -bitexact src/lib/media-test-fixtures/h264-high40-1080p-hls.mpegts
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=25" -t 0.8 -an -c:v libx264 -threads 1 -preset veryfast -profile:v high -level:v 4.0 -pix_fmt yuv420p -crf 51 -bf 2 -g 5 -keyint_min 5 -x264-params "scenecut=0:b-adapt=0" -f mp4 -brand dash -movflags +dash+global_sidx -bitexact src/lib/media-test-fixtures/h264-high40-1080p-dash.mp4
@@ -2123,22 +2123,22 @@ Expected:
 - the `.mpegts` is ~27 KB and the `.mp4` ~42 KB (exact bytes may differ between ffmpeg builds; the tests do not depend on them);
 - the last line prints `7 5 6 6 5 6 6 5 6 6 5 6`.
 
-- [ ] **Step 5: Mark the fixtures binary.** Append to `.gitattributes`:
+- [x] **Step 5: Mark the fixtures binary.** Append to `.gitattributes`:
 ```
 # Committed media fixtures (TEST-05): never normalise line endings.
 *.mpegts binary
 *.mp4 binary
 ```
 
-- [ ] **Step 6: Run the parser tests.** Run: `node --experimental-strip-types --test --test-reporter=spec src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
+- [x] **Step 6: Run the parser tests.** Run: `node --experimental-strip-types --test --test-reporter=spec src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
 Expected: `ℹ tests 17`, `ℹ pass 17`, `ℹ fail 0`, `ℹ skipped 0`.
 
-- [ ] **Step 7: Mutation check (TEST-05's own verification).**
+- [x] **Step 7: Mutation check (TEST-05's own verification).**
   1. In `src/lib/h264-syntax.ts`, change the width computation inside `parseSps` so the result is off by 16. For example, add `+ 16` to the expression assigned to the returned `width`.
   2. Re-run Step 6. Expected: at least 2 failures (`1936 !== 1920`).
   3. Revert with `git checkout -- src/lib/h264-syntax.ts`, then confirm `git diff --stat src/lib/h264-syntax.ts` prints nothing.
 
-- [ ] **Step 8: TEST-14.**
+- [x] **Step 8: TEST-14.**
   1. Anchor: `git grep -c -F 'test("mediaFileResponse tells the client the real container", async (t: TestContext) => {' src/lib/download-pool.server.test.ts` must print `1`.
   2. Replace that whole test, which ends with `    await res.body?.cancel();\n  }\n});`, with:
      ```ts
@@ -2169,10 +2169,10 @@ Expected: `ℹ tests 17`, `ℹ pass 17`, `ℹ fail 0`, `ℹ skipped 0`.
      Expected: all pass. This is a characterization of intended behaviour, so it passes on current code.
   4. Mutation: in `src/lib/download-pool.server.ts`, change `` `attachment; filename="media.${ext}"` `` to `` `attachment; filename="${filename}"` ``. Re-run and expect a failure on `My Video [abc].mkv`. Revert with `git checkout -- src/lib/download-pool.server.ts`.
 
-- [ ] **Step 9: Full gate.** Run: `npm run lint && npm run typecheck && npm test && grep -rn "/tmp/" src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
+- [x] **Step 9: Full gate.** Run: `npm run lint && npm run typecheck && npm test && grep -rn "/tmp/" src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts`
 Expected: lint, typecheck and tests all green, and the final grep prints nothing.
 
-- [ ] **Step 10: Commit.**
+- [x] **Step 10: Commit.**
 ```bash
 git add src/lib/media-test-fixtures src/lib/h264-syntax.test.ts src/lib/nal-h264.test.ts src/lib/mpeg-ts.test.ts src/lib/iso-bmff.test.ts src/lib/download-pool.server.test.ts .gitattributes
 git commit -m "test: give media-parser tests real fixtures; pin media filename header
@@ -2217,7 +2217,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 | github/codeql-action | v4.38.1 | 1c5b675653bb5c22dbe9b12b556ec555138e09fd (tag object c23de5a8…) |
 | ossf/scorecard-action | v2.4.4 | 2d1146689b8cda280b9bc96326124645441f03bc (tag object 55891bbd…) |
 
-- [ ] **Step 1: Verify anchors.** Run:
+- [x] **Step 1: Verify anchors.** Run:
 ```bash
 git grep -c -F '    ["lint", ["run", "lint"]],' scripts/auto-update.mjs
 git grep -c -F '  ytdlpNeedsUpdate,' scripts/auto-update.mjs
@@ -2226,7 +2226,7 @@ ls .github/workflows
 ```
 Expected: `1`, `1`, `1`, then only `auto-update.yml`. Otherwise STOP.
 
-- [ ] **Step 2: Write the failing tests.** Create `scripts/auto-update-verify.test.mjs`:
+- [x] **Step 2: Write the failing tests.** Create `scripts/auto-update-verify.test.mjs`:
 ```js
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -2313,12 +2313,12 @@ for (const { name, text } of workflows) {
 }
 ```
 
-- [ ] **Step 3: Run them and see them fail.** Run: `node --test scripts/auto-update-verify.test.mjs scripts/workflow-policy.test.mjs`
+- [x] **Step 3: Run them and see them fail.** Run: `node --test scripts/auto-update-verify.test.mjs scripts/workflow-policy.test.mjs`
 Expected:
 - `auto-update-verify.test.mjs` fails with `SyntaxError: The requested module './auto-update-plan.mjs' does not provide an export named 'verifySteps'`;
 - `workflow-policy.test.mjs` fails on the W0-state `auto-update.yml`: not pinned (`actions/checkout@v4`), no `permissions: {}`, no `persist-credentials: false`, no `timeout-minutes`/`ubuntu-latest`, and the unpinned `pip install`.
 
-- [ ] **Step 4: Implement `verifySteps`.**
+- [x] **Step 4: Implement `verifySteps`.**
   1. Append to the end of `scripts/auto-update-plan.mjs`:
      ```js
 
@@ -2376,7 +2376,7 @@ Expected:
      ```
   4. Replace exactly ` * unverified. Every install is followed by `typecheck` + `test` + `lint`, and` with ` * unverified. Every install is followed by `typecheck` + `test` + `lint` + `build`, and`.
 
-- [ ] **Step 5: Replace `.github/workflows/auto-update.yml` entirely with:**
+- [x] **Step 5: Replace `.github/workflows/auto-update.yml` entirely with:**
 ```yaml
 # Weekly refresh of the extraction libraries that track the YouTube player
 # (youtubei.js, bgutils-js, jsdom, undici, socks-proxy-agent). Everything else
@@ -2503,7 +2503,7 @@ jobs:
             --body "Scheduled run failed: $RUN_URL"
 ```
 
-- [ ] **Step 6: Run the tests and a local dry run.** Run:
+- [x] **Step 6: Run the tests and a local dry run.** Run:
 ```bash
 node --test scripts/auto-update-verify.test.mjs scripts/workflow-policy.test.mjs scripts/auto-update-plan.test.mjs
 node -e 'require("yaml").parse(require("fs").readFileSync(".github/workflows/auto-update.yml","utf8")); console.log("yaml ok")'
@@ -2514,10 +2514,10 @@ Expected:
 - `yaml ok` prints; `yaml` is a transitive dependency and is used here only as a one-off check, never imported by repo code;
 - the dry run prints `Velo dependency update (dry run)` followed by either `everything is current` or a plan. It changes nothing: `git status --short package.json package-lock.json` prints nothing.
 
-- [ ] **Step 7: Full gate.** Run: `npm run lint && npm run typecheck && npm test`
+- [x] **Step 7: Full gate.** Run: `npm run lint && npm run typecheck && npm test`
 Expected: green.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 ```bash
 git add .github/workflows/auto-update.yml scripts/auto-update-plan.mjs scripts/auto-update.mjs scripts/auto-update-verify.test.mjs scripts/workflow-policy.test.mjs
 git commit -m "ci(auto-update): split untrusted update from PR creation; verify with build
@@ -2539,10 +2539,10 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - `verify` provides a Postgres 16.15 service at `postgres://postgres@127.0.0.1:5432/velo` with trust auth, CI only, so there is no secret-like literal. It exposes the URL to `test:http` as `VELO_TEST_DATABASE_URL`.
 - W8 later appends an `e2e` job to this file (Hand-off).
 
-- [ ] **Step 1: Verify anchors.** Run: `ls .github/workflows` and `git grep -c -F 'for (const { name, text } of workflows) {' scripts/workflow-policy.test.mjs`
+- [x] **Step 1: Verify anchors.** Run: `ls .github/workflows` and `git grep -c -F 'for (const { name, text } of workflows) {' scripts/workflow-policy.test.mjs`
 Expected: `auto-update.yml` only, then `1`. Otherwise STOP.
 
-- [ ] **Step 2: Write the failing test.** Append to the end of `scripts/workflow-policy.test.mjs`:
+- [x] **Step 2: Write the failing test.** Append to the end of `scripts/workflow-policy.test.mjs`:
 ```js
 
 test("ci.yml exists and gates unit tests on Linux and Windows plus the verify job", () => {
@@ -2557,7 +2557,7 @@ test("ci.yml exists and gates unit tests on Linux and Windows plus the verify jo
 Run: `node --test scripts/workflow-policy.test.mjs`
 Expected: 1 failure, `ci.yml is missing`.
 
-- [ ] **Step 3: Create `.github/workflows/ci.yml`:**
+- [x] **Step 3: Create `.github/workflows/ci.yml`:**
 ```yaml
 # Required checks for every PR and every push to main.
 #   unit (ubuntu-24.04), unit (windows-2025): npm test on both OSes
@@ -2649,10 +2649,10 @@ jobs:
 ```
 The Postgres digest `sha256:721873c3…` is the multi-arch index of `postgres:16.15-alpine`, which is also `16-alpine`. It was resolved from `registry-1.docker.io` on 2026-09-23. Dependabot's `docker` ecosystem does not watch service images; W5 owns image pinning policy (Hand-off).
 
-- [ ] **Step 4: Run the tests.** Run: `node --test scripts/workflow-policy.test.mjs && node -e 'require("yaml").parse(require("fs").readFileSync(".github/workflows/ci.yml","utf8")); console.log("yaml ok")'`
+- [x] **Step 4: Run the tests.** Run: `node --test scripts/workflow-policy.test.mjs && node -e 'require("yaml").parse(require("fs").readFileSync(".github/workflows/ci.yml","utf8")); console.log("yaml ok")'`
 Expected: all pass, then `yaml ok`.
 
-- [ ] **Step 5: Reproduce the `verify` job locally** (Docker; skip if unavailable and say so):
+- [x] **Step 5: Reproduce the `verify` job locally** (Docker; skip if unavailable and say so):
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund && npm audit signatures && npm run typecheck && npm run lint && npm run build
 docker run -d --rm --name velo-w1-pg -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=velo -p 127.0.0.1:55432:5432 postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -2667,7 +2667,7 @@ Expected:
 - the second migrate prints `[migrate] up to date.`;
 - `test:http` passes with `ℹ skipped 0`.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 ```bash
 git add .github/workflows/ci.yml scripts/workflow-policy.test.mjs
 git commit -m "ci: add required CI workflow with pinned actions and Postgres-backed HTTP tests
@@ -2689,10 +2689,10 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Dependabot has `npm` and `github-actions`, and **not `pip`**: W5 adds it together with `requirements.txt`.
 - Dependabot also applies `ignore` to security updates. The extraction family is covered weekly by `auto-update.yml` instead.
 
-- [ ] **Step 1: Verify anchors.** Run: `ls .github .github/workflows`
+- [x] **Step 1: Verify anchors.** Run: `ls .github .github/workflows`
 Expected: `.github` holds only `workflows`, and `workflows` holds `auto-update.yml` and `ci.yml`. Otherwise STOP.
 
-- [ ] **Step 2: Write the failing test.** Append to the end of `scripts/workflow-policy.test.mjs`:
+- [x] **Step 2: Write the failing test.** Append to the end of `scripts/workflow-policy.test.mjs`:
 ```js
 
 test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with auto-update", () => {
@@ -2714,7 +2714,7 @@ test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with 
 Run: `node --test scripts/workflow-policy.test.mjs`
 Expected: 1 failure, `codeql.yml is missing`.
 
-- [ ] **Step 3: Create `.github/dependabot.yml`:**
+- [x] **Step 3: Create `.github/dependabot.yml`:**
 ```yaml
 # Dependency updates. The extraction family (youtubei.js, bgutils-js, jsdom,
 # undici, socks-proxy-agent) is refreshed weekly by auto-update.yml with a
@@ -2763,7 +2763,7 @@ updates:
 ```
 `jose` is deliberately not ignored: its exact pin plus CODEOWNERS review already controls every bump, and a JWT library must still receive Dependabot security PRs.
 
-- [ ] **Step 4: Create `.github/workflows/codeql.yml`:**
+- [x] **Step 4: Create `.github/workflows/codeql.yml`:**
 ```yaml
 name: codeql
 
@@ -2803,7 +2803,7 @@ jobs:
           category: /language:${{ matrix.language }}
 ```
 
-- [ ] **Step 5: Create `.github/workflows/dependency-review.yml`:**
+- [x] **Step 5: Create `.github/workflows/dependency-review.yml`:**
 ```yaml
 name: dependency-review
 
@@ -2827,7 +2827,7 @@ jobs:
           deny-licenses: AGPL-3.0-only, AGPL-3.0-or-later
 ```
 
-- [ ] **Step 6: Create `.github/workflows/scorecard.yml`:**
+- [x] **Step 6: Create `.github/workflows/scorecard.yml`:**
 ```yaml
 name: scorecard
 
@@ -2863,7 +2863,7 @@ jobs:
           sarif_file: results.sarif
 ```
 
-- [ ] **Step 7: Create `.github/CODEOWNERS`:**
+- [x] **Step 7: Create `.github/CODEOWNERS`:**
 ```
 # Review is required from the owner on everything (enforced by the main ruleset
 # once require_code_owner_review is on). The explicit lines keep the
@@ -2890,7 +2890,7 @@ jobs:
 /packages/extension/                @EgerDev
 ```
 
-- [ ] **Step 8: Verify.** Run:
+- [x] **Step 8: Verify.** Run:
 ```bash
 node --test scripts/workflow-policy.test.mjs
 node -e 'const y=require("yaml"),fs=require("fs");for(const f of ["dependabot.yml","workflows/codeql.yml","workflows/dependency-review.yml","workflows/scorecard.yml"])y.parse(fs.readFileSync(".github/"+f,"utf8"));console.log("yaml ok")'
@@ -2899,7 +2899,7 @@ npm run lint && npm test
 ```
 Expected: all policy tests pass, `yaml ok`, `all pinned`, and lint and tests are green.
 
-- [ ] **Step 9: Commit.**
+- [x] **Step 9: Commit.**
 ```bash
 git add .github scripts/workflow-policy.test.mjs
 git commit -m "ci: add Dependabot, CodeQL, dependency review, Scorecard and CODEOWNERS
@@ -2950,6 +2950,7 @@ Verify: `gh api repos/EgerDev/velo/private-vulnerability-reporting` → `{"enabl
   - The approval count is **0** because you are the only maintainer and GitHub never lets an author approve their own PR. Required status checks, a PR for every change, no force-push/deletion and linear history still apply to everyone, including admins, with no bypass.
   - When a second maintainer joins, raise the count to `1` and set `require_code_owner_review: true`.
   - `integration_id: 15368` (GitHub Actions) stops another app from posting a fake green status under the same name.
+  - Owner note: if a merge queue is enabled, add `merge_group:` to `codeql.yml` and `dependency-review.yml` first, or their required checks never report.
 ```bash
 gh api -X POST repos/EgerDev/velo/rulesets --input - <<'EOF'
 { "name": "protect-main", "target": "branch", "enforcement": "active",
@@ -3066,6 +3067,8 @@ gh ssh-key add ~/.ssh/id_ed25519.pub --type signing --title "velo signing"
     - make `api-guards`/`harness` pass `DATABASE_URL: process.env.VELO_TEST_DATABASE_URL` (CI already provides it);
   - delete `check:auth`, `scripts/check-auth-invariant.mjs` and its test (TEST-10), the gate-identity code and tests (TEST-12), the connector tests (TEST-13), and `scripts/with-app-env.mjs` (`dev`/`build` become `vite dev`/`vite build`; INST-04);
   - delete `startup.sh`, which starts `npm run dev` expecting `0.0.0.0`;
+  - fail-closed at boot needs a startup hook: Nitro imports the SSR entry on first request, so a module-scope throw (as in W0's `auth-boot-policy`) makes the server listen and return 500 on every route instead of exiting. W2 must call `loadServerEnv()` before the server listens (e.g. a Nitro plugin in `server/plugins/`) and prove `startServer` rejects with the EnvError exit;
+  - before deleting `scripts/with-app-env.mjs`, move `projectRoot`/`isMainModule` (imported by `scripts/auto-update.mjs:51` and three test files) to a surviving module;
   - **Contract change request for W2 (compatible; the default stays 8080):** C1's dev default for `VELO_PUBLIC_ORIGIN` should follow `VELO_DEV_PORT` (`http://localhost:${VELO_DEV_PORT ?? 8080}`), or dev on another port fails Better Auth origin checks. W2 must amend C1 in the roadmap first, in its own reviewed commit.
 - **W4b:** delete both `eslint-disable-next-line no-restricted-syntax -- W4b …` lines together with the `new Function` code (`po-token.server.ts`, `youtube-client.server.ts`). `reportUnusedDisableDirectives` fails lint if one survives. W4b then extends the ban to `vm.*` (roadmap Global Constraint); no module may execute remote JavaScript.
 - **W4a:**
@@ -3079,6 +3082,7 @@ gh ssh-key add ~/.ssh/id_ed25519.pub --type signing --title "velo signing"
 - **W6:** `extension/` got a one-variable lint fix in Task 2A and goes away in W6. CODEOWNERS already lists `/packages/extension/`.
 - **W7:**
   - README (Node ≥ 24.15 via `.nvmrc`, `npm ci`, `VELO_DEV_HOST`/`VELO_DEV_PORT`, `npm start` with `PORT`/`HOST`);
+  - document that `npm start` binds `0.0.0.0:3000` by default (Nitro) and how `HOST`/`PORT` change it, while dev binds `127.0.0.1:8080`;
   - `docs/architecture.md` §2/§5 (node-server preset, no `pgliteAssetsPlugin`, CI), `SECURITY.md`, package rename, bump `@types/node` to `^24`;
   - CONTRIBUTING/RELEASING signing policy. Suggested text: "Release tags `v*` are SSH-signed annotated tags created by the maintainer and protected by the `protect-release-tags` ruleset. `main` only receives squash or rebase merges of reviewed PRs with green `ci`, `codeql` and `dependency-review`. Contributors are encouraged, not required, to sign commits.";
   - release workflow with `actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2` and `anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2` (both re-verified 2026-09-23), checksums and signed image (GH-12, REL-10).
