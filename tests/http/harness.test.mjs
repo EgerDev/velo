@@ -1,16 +1,75 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { startServer } from "./harness.mjs";
+import { HARNESS_ENV_ALLOWLIST, buildChildEnv, startServer } from "./harness.mjs";
 
 // W2 removes the Grok auth flag; until then production boot needs it off.
 const BASE_ENV = { VITE_AUTH_ENABLED: "false" };
 
-test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL never reach the server under test", async () => {
-  const keys = ["NITRO_PORT", "NITRO_HOST", "DATABASE_URL"];
+test("the child env allowlist is exactly the OS/runtime basics", () => {
+  assert.deepEqual(
+    [...HARNESS_ENV_ALLOWLIST].sort(),
+    ["APPDATA", "CI", "COMSPEC", "HOME", "LANG", "LOCALAPPDATA", "PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "TZ", "USERPROFILE", "WINDIR"],
+  );
+});
+
+test("buildChildEnv drops the developer's shell, keeps OS basics, lets overrides win and forces the runtime vars last", () => {
+  const ambient = {
+    Path: "C:/bin",
+    SystemRoot: "C:/Windows",
+    windir: "C:/Windows",
+    HOME: "/home/dev",
+    CI: "true",
+    VELO_ALLOW_TOOL_INSTALL: "1",
+    TRUST_CLOUDFLARE: "1",
+    VELO_ADMIN_EMAILS: "dev@example.test",
+    GROK_AUTH_SECRET: "ambient",
+    BETTER_AUTH_SECRET: "ambient",
+    NODE_OPTIONS: "--inspect",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
+    HTTPS_PROXY: "http://proxy.invalid",
+    https_proxy: "http://proxy.invalid",
+    VITE_AUTH_ENABLED: "true",
+    DATABASE_URL: "postgres://dev@127.0.0.1:1/dev",
+    NITRO_PORT: "1",
+    NITRO_HOST: "0.0.0.0",
+    NODE_ENV: "development",
+    HOST: "0.0.0.0",
+    PORT: "8080",
+  };
+  const overrides = { VITE_AUTH_ENABLED: "false", DATABASE_URL: "postgres://test", NODE_ENV: "test", PORT: "9", NITRO_PORT: "2" };
+  assert.deepEqual(buildChildEnv(ambient, overrides), {
+    Path: "C:/bin",
+    SystemRoot: "C:/Windows",
+    windir: "C:/Windows",
+    HOME: "/home/dev",
+    CI: "true",
+    VITE_AUTH_ENABLED: "false",
+    DATABASE_URL: "postgres://test",
+    NODE_ENV: "production",
+    HOST: "127.0.0.1",
+    PORT: "0",
+  });
+  assert.deepEqual(buildChildEnv(ambient), {
+    Path: "C:/bin",
+    SystemRoot: "C:/Windows",
+    windir: "C:/Windows",
+    HOME: "/home/dev",
+    CI: "true",
+    DATABASE_URL: "",
+    NODE_ENV: "production",
+    HOST: "127.0.0.1",
+    PORT: "0",
+  });
+});
+
+test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL/VELO_*/TRUST_* never reach the server under test", async () => {
+  const keys = ["NITRO_PORT", "NITRO_HOST", "DATABASE_URL", "VELO_ALLOW_TOOL_INSTALL", "TRUST_CLOUDFLARE"];
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   process.env.NITRO_PORT = "1";
   process.env.NITRO_HOST = "0.0.0.0";
   process.env.DATABASE_URL = "postgres://must-not-be-used@127.0.0.1:1/none";
+  process.env.VELO_ALLOW_TOOL_INSTALL = "1";
+  process.env.TRUST_CLOUDFLARE = "1";
   try {
     const server = await startServer({ env: BASE_ENV });
     try {
@@ -31,8 +90,11 @@ test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL never reach the server under te
 
 test("stop() kills the server, frees the port and is idempotent", async () => {
   const server = await startServer({ env: BASE_ENV });
-  assert.match(server.logs(), /Listening on:/);
-  await server.stop();
+  try {
+    assert.match(server.logs(), /Listening on:/);
+  } finally {
+    await server.stop();
+  }
   await server.stop();
   await assert.rejects(fetch(`${server.baseUrl}/api/health`, { signal: AbortSignal.timeout(2_000) }));
 });
