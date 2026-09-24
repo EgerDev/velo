@@ -108,3 +108,12 @@ for (const { name, text } of workflows) {
     assert.doesNotMatch(text, /\bgit\s+apply\b/);
   });
 }
+
+test("ci.yml exists and gates unit tests on Linux and Windows plus the verify job", () => {
+  const ci = workflows.find((w) => w.name === "ci.yml");
+  assert.ok(ci, "ci.yml is missing");
+  assert.match(ci.text, /os: \[ubuntu-24\.04, windows-2025\]/);
+  for (const step of ["npm run typecheck", "npm run lint", "npm run build", "npm run test:http", "npm audit signatures"]) {
+    assert.ok(ci.text.includes(step), step);
+  }
+});
