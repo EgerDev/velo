@@ -49,7 +49,7 @@ describe("production boot refuses incomplete configuration", () => {
 
   test("startServer rejects with the EnvError output", async () => {
     await assert.rejects(
-      startServer({ env: {} }),
+      startServer({ env: {} }).then((s) => s.stop()),
       /server exited before it was ready:[\s\S]*EnvError: Missing or invalid required environment variables: DATABASE_URL/,
     );
   });

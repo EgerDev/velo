@@ -68,7 +68,7 @@ test("an ambient DATABASE_URL never reaches the server: production boot reports 
   process.env.DATABASE_URL = "postgres://must-not-be-used@127.0.0.1:1/none";
   try {
     await assert.rejects(
-      startServer({ env: PROD_ENV }),
+      startServer({ env: PROD_ENV }).then((s) => s.stop()),
       /EnvError: Missing or invalid required environment variables: DATABASE_URL\r?\n/,
     );
   } finally {

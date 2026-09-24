@@ -37,5 +37,5 @@ test("lint fails on any warning", () => {
 });
 
 test("test:http runs the black-box suite against the built server", () => {
-  assert.equal(pkg.scripts["test:http"], 'node --test "tests/http/*.test.mjs"');
+  assert.equal(pkg.scripts["test:http"], 'node --test --test-force-exit "tests/http/*.test.mjs"');
 });
