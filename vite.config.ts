@@ -183,9 +183,9 @@ export default defineConfig(({ command, isPreview }) => ({
             // `.output/server/index.mjs` (`npm start`). Listens on NITRO_PORT ?? PORT
             // (default 3000) and NITRO_HOST || HOST (default: all interfaces).
             preset: "node-server",
-            // Auto-registers server/middleware/* (the PWA install page +
-            // manifest + head-tag middleware). Nitro v3 defaults serverDir to
-            // false, so removing this silently unwires /?install=1 on deploys.
+            // Auto-registers server/plugins/* — env.ts is the boot-time config
+            // check. Nitro v3 defaults serverDir to false, so removing this
+            // silently drops that check.
             serverDir: "./server",
           }),
         ]

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HARNESS_ENV_ALLOWLIST, buildChildEnv, startServer } from "./harness.mjs";
+import { NO_DB_URL, PROD_ENV } from "./env.mjs";
 
-// W2 removes the Grok auth flag; until then production boot needs it off.
-const BASE_ENV = { VITE_AUTH_ENABLED: "false" };
+const BOOT_ENV = { ...PROD_ENV, DATABASE_URL: NO_DB_URL };
 
 test("the child env allowlist is exactly the OS/runtime basics", () => {
   assert.deepEqual(
@@ -63,21 +63,34 @@ test("buildChildEnv drops the developer's shell, keeps OS basics, lets overrides
 });
 
 // buildChildEnv's unit test above covers the full allowlist (VELO_*, TRUST_*, ...).
-test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL leave the server on 127.0.0.1:<ephemeral> with PGlite", async () => {
-  const keys = ["NITRO_PORT", "NITRO_HOST", "DATABASE_URL", "VELO_ALLOW_TOOL_INSTALL", "TRUST_CLOUDFLARE"];
+test("an ambient DATABASE_URL never reaches the server: production boot reports it missing", async () => {
+  const saved = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = "postgres://must-not-be-used@127.0.0.1:1/none";
+  try {
+    await assert.rejects(
+      startServer({ env: PROD_ENV }),
+      /EnvError: Missing or invalid required environment variables: DATABASE_URL\r?\n/,
+    );
+  } finally {
+    if (saved === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = saved;
+  }
+});
+
+test("ambient NITRO_PORT/NITRO_HOST leave the server on 127.0.0.1:<ephemeral>", async () => {
+  const keys = ["NITRO_PORT", "NITRO_HOST", "VELO_ALLOW_TOOL_INSTALL", "TRUST_CLOUDFLARE"];
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   process.env.NITRO_PORT = "1";
   process.env.NITRO_HOST = "0.0.0.0";
-  process.env.DATABASE_URL = "postgres://must-not-be-used@127.0.0.1:1/none";
   process.env.VELO_ALLOW_TOOL_INSTALL = "1";
   process.env.TRUST_CLOUDFLARE = "1";
   try {
-    const server = await startServer({ env: BASE_ENV });
+    const server = await startServer({ env: BOOT_ENV });
     try {
       assert.match(server.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
       assert.notEqual(new URL(server.baseUrl).port, "1");
       const body = await (await fetch(`${server.baseUrl}/api/health`)).json();
-      assert.equal(body.checks.database.source, "pglite");
+      assert.equal(body.checks.database.source, "neon");
     } finally {
       await server.stop();
     }
@@ -90,7 +103,7 @@ test("ambient NITRO_PORT/NITRO_HOST/DATABASE_URL leave the server on 127.0.0.1:<
 });
 
 test("stop() kills the server, frees the port and is idempotent", async () => {
-  const server = await startServer({ env: BASE_ENV });
+  const server = await startServer({ env: BOOT_ENV });
   try {
     assert.match(server.logs(), /Listening on:/);
   } finally {
