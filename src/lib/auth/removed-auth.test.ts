@@ -36,6 +36,10 @@ test("the auth server registers no broker, bearer or password plugin", () => {
   assert.doesNotMatch(server, /genericOAuth|bearer\(|emailAndPassword|gateIdentity|oneTimeToken|magicLink/);
 });
 
+test("the auth server wires the session hooks (no IP/UA stored, one login per person)", () => {
+  assert.match(source("./server.ts"), /databaseHooks:\s*sessionHooks\(/);
+});
+
 test("no shared dev-user fallback exists in any environment", () => {
   for (const file of ["./verify.server.ts", "./middleware.ts", "./use-current-user.ts", "./client.ts"]) {
     assert.doesNotMatch(source(file), /dev-user|DEV_USER/, file);
@@ -47,4 +51,13 @@ test("the client keeps no session token in script-readable storage", () => {
   assert.doesNotMatch(client, /sessionStorage|localStorage|Bearer|set-auth-token|genericOAuthClient/);
   assert.equal(existsSync(here("../session-isolation.ts")), false);
   assert.equal(existsSync(here("../capture-auth-token.ts")), false);
+  assert.equal(existsSync(here("../session-token.ts")), false);
+});
+
+test("the guest id carries no auth header and stores nothing but itself", () => {
+  const guest = source("../guest-id.ts");
+  assert.doesNotMatch(guest, /authorization|bearer|withAuthHeaders|auth\/client|token/i);
+  const storageCalls = [...guest.matchAll(/(?:local|session)Storage\.(\w+)\(([^)]*)\)/g)];
+  assert.ok(storageCalls.length > 0);
+  for (const [call, , args] of storageCalls) assert.match(args, /^GUEST_KEY(,|$)/, call);
 });

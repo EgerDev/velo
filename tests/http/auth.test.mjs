@@ -146,6 +146,7 @@ describe("auth: Google only, __Host- cookies, no bearer, no password", { skip: N
     const res = await fetch(`${server.baseUrl}/api/auth/get-session`, {
       headers: { cookie: `__Host-velo.session_token=${token}` },
     });
+    assert.equal(res.status, 200);
     assert.equal(await res.json(), null);
   });
 });

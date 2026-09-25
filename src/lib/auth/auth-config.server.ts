@@ -71,6 +71,10 @@ type SessionRow = { id: string; userId: string; ipAddress?: string | null; userA
  * address or user agent (Velo keeps no login log), and a new sign-in ends the
  * person's other sessions, so an old device or a copied cookie cannot stay
  * signed in.
+ *
+ * Limit: the deleted rows are not re-checked while another device's signed
+ * `session_data` cookie is fresh, so that device stays signed in for up to
+ * 5 minutes (`session.cookieCache.maxAge`, 300 s) after the new sign-in.
  */
 export function sessionHooks(endOtherSessions: (userId: string, keepSessionId: string) => Promise<void>) {
   return {
