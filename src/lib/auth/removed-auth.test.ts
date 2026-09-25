@@ -46,4 +46,5 @@ test("the client keeps no session token in script-readable storage", () => {
   const client = source("./client.ts");
   assert.doesNotMatch(client, /sessionStorage|localStorage|Bearer|set-auth-token|genericOAuthClient/);
   assert.equal(existsSync(here("../session-isolation.ts")), false);
+  assert.equal(existsSync(here("../capture-auth-token.ts")), false);
 });

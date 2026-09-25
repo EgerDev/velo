@@ -2,7 +2,8 @@ import { useState } from "react";
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { signInWithGoogle } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { describeAuthError, describeOAuthSearch, type AuthErrorInfo } from "@/lib/capture-auth-token";
+import { getSignInStatus } from "@/lib/auth/status";
+import { describeAuthError, describeOAuthSearch, type AuthErrorInfo } from "@/lib/auth-errors";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
 import { GUEST } from "@/lib/guest-copy";
@@ -14,11 +15,13 @@ export const Route = createFileRoute("/login")({
     error: typeof search.error === "string" ? search.error : undefined,
     error_description: typeof search.error_description === "string" ? search.error_description : undefined,
   }),
+  loader: () => getSignInStatus(),
   component: Login,
 });
 
 function Login() {
   const search = Route.useSearch();
+  const { google } = Route.useLoaderData();
   const { user, isPending } = useCurrentUserState();
   const [error, setError] = useState<AuthErrorInfo | null>(
     describeOAuthSearch(search.error, search.error_description),
@@ -62,19 +65,28 @@ function Login() {
           </div>
         ) : null}
 
-        <div className="mt-8">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-12 w-full gap-2"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={() => void handleGoogle()}
-          >
-            <GoogleMark />
-            {busy ? "Opening Google…" : "Continue with Google"}
-          </Button>
-        </div>
+        {google ? (
+          <div className="mt-8">
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-12 w-full gap-2"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => void handleGoogle()}
+            >
+              <GoogleMark />
+              {busy ? "Opening Google…" : "Continue with Google"}
+            </Button>
+          </div>
+        ) : (
+          <div className="panel mt-8 px-4 py-4" role="status">
+            <p className="text-sm text-fg">Sign-in is not set up on this server.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart the server.
+            </p>
+          </div>
+        )}
 
         <Link to="/" className="mt-10 block text-sm text-muted">
           {GUEST.continueGuest}
