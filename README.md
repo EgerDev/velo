@@ -2,7 +2,7 @@
 
 > High-performance YouTube media downloader, stream diagnostic engine, and interactive transcript suite.
 
-Velo is a modern web application built to inspect, stream, download, and extract transcripts from YouTube videos at full quality (up to 4K UHD). It combines client-side streaming intelligence with backend fallback ladders to bypass rate limits, resolve throttled streams, and mux multi-track audio/video with zero quality loss.
+Velo is a modern web application built to inspect, stream, download, and extract transcripts from YouTube videos at full quality (up to 4K UHD). It tries YouTube's own format URLs first, falls back to the pinned yt-dlp on the server, and muxes multi-track audio/video with zero quality loss.
 
 ---
 
@@ -41,12 +41,12 @@ Velo is a modern web application built to inspect, stream, download, and extract
 - **High-Res Artwork & Thumbnail Extractor**:
   - 1-click downloads for uncompressed 1080p MaxRes JPG (`maxresdefault.jpg`), high-efficiency WebP, SD, and HQ assets.
 
-### 4. Anti-Throttle Bulk & Playlist Ingest Engine
+### 4. Bulk & Playlist Queue
 - **Intelligent Link Extractor**: Parses freeform text, multi-line pastes, CSVs, markdown, and playlists to extract unique YouTube videos while skipping duplicates.
 - **Playlist Auto-Expansion**: Automatically fetches and unpacks playlist items into individual queue rows.
 - **Anti-Burst Concurrency & Pacing**:
   - Configurable concurrency workers (1, 2, or 3 concurrent streams).
-  - Staggered launch delays (1.0s - 3.0s) between successive requests to prevent YouTube 429 rate limits and BotGuard burst triggers.
+  - Staggered launch delays (1.0s - 3.0s) between successive requests, so a long queue does not flood YouTube.
   - Progressive exponential backoff with auto-retry on transient failures.
 - **Global & Per-Item Quality Presets**: Apply 1080p Full HD, 720p HD, Audio-Only, or Subtitles-Only across the entire queue.
 - **Multi-Format Batch Exporters**:
@@ -56,9 +56,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 
 ### 5. Resilient Multi-Tier Fallback Ladder
 - **InnerTube Multi-Client Routing**: Dynamic switching between `WEB_EMBEDDED`, `VISIONOS`, `TV_SIMPLY`, `WEB`, and `ANDROID` clients.
-- **Proof-of-Origin (PO Token)**: Automated WebPO token minting and validation to prevent bot-detection blocks.
-- **Throttling Bypass & nsig Deciphering**: Live transformation of YouTube's `n` parameter to prevent 40 KB/s stream choking.
-- **SOCKS Proxy Pool & Same-Hop Routing**: Failover to IPv4 proxies when server IPs encounter 403 blocks.
+- **yt-dlp**: The pinned yt-dlp downloads and merges video with its audio when YouTube's direct URL is not available, through the operator's own proxy first when one is configured.
 
 ### 5. Session Credential Vault & Browser Exporter
 - **Universal Cookie Importer**: Supports Netscape HTTP cookie format, JSON arrays, and HTTP Archive (`.har`) files.
@@ -87,7 +85,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 .
 ├── src/
 │   ├── components/
-│   │   ├── bulk-downloader.tsx      # Anti-throttle bulk queue & playlist download manager
+│   │   ├── bulk-downloader.tsx      # Bulk queue & playlist download manager
 │   │   ├── transcript-viewer.tsx    # Interactive transcript reader & AI prompt generator
 │   │   ├── video-panel.tsx          # Video details, pre-flight telemetry, preset selector
 │   │   ├── cookie-import.tsx        # Multi-format cookie import dialog & health checker
@@ -101,7 +99,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 │   │   ├── youtube.server.ts        # InnerTube client, format resolution, caption fetcher
 │   │   ├── transcript.ts            # WebVTT parser, SRT/TXT/JSON formatters, AI templates
 │   │   ├── ytdlp.server.ts          # Process management, fallback ladder, slot throttler
-│   │   ├── stream-unlock.ts         # Stream cipher / signature / nsig deciphering
+│   │   ├── hls.ts                   # HLS playlist parser
 │   │   ├── cookies.ts               # Netscape/JSON/HAR cookie parser and validator
 │   │   ├── vault.ts                 # Server-side encrypted cookie credential vault
 │   │   └── guest-limit.server.ts    # Rate limiting & quota enforcement for guest IPs
@@ -127,16 +125,17 @@ Velo is a modern web application built to inspect, stream, download, and extract
 
   Velo is TypeScript end to end, but the yt-dlp extraction path shells out to
   Python (`python3 -m yt_dlp`). Without it the app still runs — the browser
-  hybrid and InnerTube paths cover most videos — but 1080p muxing over SOCKS,
+  relay and InnerTube paths cover some videos — but yt-dlp's 1080p muxing,
   the most reliable path, is unavailable. Install with:
 
   ```bash
-  python3 -m pip install -U "yt-dlp[default,curl-cffi]"
+  python3 -m pip install -U "yt-dlp[default]"
   ```
 
-  The extras bring the `--impersonate` backend and the EJS signature solver in
-  the versions this yt-dlp supports; yt-dlp also needs `ffmpeg` on `PATH` to
-  merge 1080p video with its audio.
+  The `default` extras include `yt-dlp-ejs`, the challenge solver yt-dlp runs
+  from its own install (Velo passes `--no-remote-components`, so nothing is
+  fetched at run time); yt-dlp also needs `ffmpeg` on `PATH` to merge 1080p
+  video with its audio.
 
   On Debian 12+ / Ubuntu 23.04+ the system Python refuses that
   ("externally-managed-environment", PEP 668). Use a virtualenv and point Velo
@@ -144,7 +143,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 
   ```bash
   python3 -m venv ~/.velo-py
-  ~/.velo-py/bin/pip install -U "yt-dlp[default,curl-cffi]"
+  ~/.velo-py/bin/pip install -U "yt-dlp[default]"
   export VELO_PYTHON=~/.velo-py/bin/python   # PYTHON_BIN also works
   ```
 
@@ -200,8 +199,8 @@ npm run test:http
 
 ## Keeping Dependencies Current
 
-Extraction depends on libraries that track a moving target: `youtubei.js` and
-`bgutils-js` follow the YouTube player, and the `yt-dlp` Python module ships
+Extraction depends on libraries that track a moving target: `youtubei.js`
+follows YouTube's InnerTube API, and the `yt-dlp` Python module ships
 roughly monthly because YouTube keeps breaking it. Once they go stale,
 extraction fails for reasons that look like bugs in this repo.
 

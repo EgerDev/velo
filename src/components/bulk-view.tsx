@@ -65,11 +65,11 @@ export function BulkView({
               </span>
               <h2 className="min-w-0 text-lg font-bold tracking-tight text-fg">Bulk & Playlist Downloader</h2>
               <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-wider border-accent/40 text-accent">
-                Anti-Throttle Queue
+                Queue
               </Badge>
             </div>
             <p className="text-xs text-muted mt-1 max-w-xl">
-              Paste multiple YouTube links or playlists. Velo uses staggered bursts, BotGuard PO token rotation, and zero-loss copy-muxing to prevent 429 rate-limiting.
+              Paste multiple YouTube links or playlists. Velo saves them a few at a time, with short pauses between starts, and copies the original streams into one file without re-encoding.
             </p>
           </div>
 

@@ -12,19 +12,19 @@ function route(id: string): YtdlpMetadataRoute {
   };
 }
 
-test("Given saved routes and free SOCKS, When yt-dlp metadata attempts run, Then the shared adapter preserves saved-first order", async () => {
+test("Given saved routes and a direct fallback, When yt-dlp metadata attempts run, Then the shared adapter preserves saved-first order", async () => {
   const attempts: string[] = [];
   const result = await attemptYtdlpMetadataLadder(
     [route("first"), route("second")],
     async (_route, url) => { attempts.push(url); return ""; },
-    async () => { attempts.push("free"); return "free-result"; },
+    async () => { attempts.push("direct"); return "direct-result"; },
     (value) => value.length > 0,
   );
-  assert.equal(result, "free-result");
-  assert.deepEqual(attempts, ["http://first:80", "http://second:80", "free"]);
+  assert.equal(result, "direct-result");
+  assert.deepEqual(attempts, ["http://first:80", "http://second:80", "direct"]);
 });
 
-test("Given a successful saved route, When yt-dlp metadata attempts run, Then free SOCKS is not reached", async () => {
+test("Given a successful saved route, When yt-dlp metadata attempts run, Then the direct fallback is not reached", async () => {
   let freeAttempts = 0;
   const result = await attemptYtdlpMetadataLadder(
     [route("saved")],
@@ -41,5 +41,5 @@ test("Given the live subtitle and format paths, When source wiring is inspected,
   assert.equal(source.includes("for (const up of userRoutes)"), false);
   const adapter = await readFile(new URL("./ytdlp-meta-routing.ts", import.meta.url), "utf8");
   assert.match(adapter, /attemptSelectedRoutes\(selected/);
-  assert.match(adapter, /allowDirectFallback: false/);
+  assert.doesNotMatch(adapter, /free_socks/);
 });

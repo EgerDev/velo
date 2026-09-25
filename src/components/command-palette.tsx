@@ -31,7 +31,7 @@ type CommandPaletteProps = {
 const MODE_META: Record<ViewMode, { label: string; icon: typeof Film; hint: string }> = {
   single: { label: "Single video", icon: Film, hint: "Resolve one link" },
   bulk: { label: "Bulk & playlists", icon: ListPlus, hint: "Queue many at once" },
-  transcript: { label: "Transcript", icon: FileText, hint: "Captions & AI summary" },
+  transcript: { label: "Transcript", icon: FileText, hint: "Captions & summary prompts" },
   watch: { label: "Channels", icon: Bell, hint: "Follow channel feeds" },
   tools: { label: "Tools", icon: RefreshCw, hint: "Extractor versions" },
 };

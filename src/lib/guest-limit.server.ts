@@ -91,8 +91,7 @@ export const IP_PLAN: QuotaPlan = {
 /**
  * Coarse per-IP backstop for cheap metadata routes (captions, channel feed,
  * non-media relay). These do not spend a download token but each fans out to
- * real upstream work — up to ~14 InnerTube calls plus a BotGuard mint for a
- * caption lookup — so an unmetered flood of attacker-chosen ids can get the
+ * real upstream work — up to ~14 InnerTube calls for a caption lookup — so an unmetered flood of attacker-chosen ids can get the
  * server IP rate-banned by YouTube. Sized generously above honest browsing and
  * held in `ipBuckets`, keyed by real network, so it can't be reset by rotating
  * a client-set header. Separate plan from `IP_PLAN` so metadata traffic and

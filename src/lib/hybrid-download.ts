@@ -1,24 +1,20 @@
 import { classifyDownloadError } from "@/lib/download-error";
 import { withRetry, isRetryable } from "@/lib/retry";
-import { mintPoToken, resolvePlayback } from "@/lib/resolve-video";
+import { resolvePlayback } from "@/lib/resolve-video";
 import { saveMediaBlob, type PendingSave } from "@/lib/builder-save";
 import { nameForBlob } from "@/lib/media-name";
 import { isAudioItag, isVideoOnlyItag } from "@/lib/ytdlp-auth";
 import { linkAbort } from "@/lib/abort-link";
 import { isImaUrl } from "@/lib/ima";
-import { downloadHeaders } from "@/lib/guest-id";
 import {
   type HybridStep,
   type StepHandler,
   assertMedia,
   proxyFetch,
   readBlob,
-  stampClientPot,
-  withTimeout,
 } from "@/lib/hybrid-net";
 import { ytdlpBlob } from "@/lib/hybrid-ytdlp";
 import {
-  applyPresentedHop,
   emptyTransfer,
   noteFileBytes,
   noteStage,
@@ -106,7 +102,7 @@ async function runAttempt<T>(
   }
 }
 
-function raceFirstBlob(
+export function raceFirstBlob(
   steps: HybridStep[],
   emit: StepHandler | undefined,
   attempts: { id: string; run: (signal: AbortSignal) => Promise<Blob> }[],
@@ -128,6 +124,12 @@ function raceFirstBlob(
       },
       { once: true },
     );
+    // No leg can run (e.g. a video-only itag whose relay leg is skipped): fail
+    // now instead of returning a promise that never settles.
+    if (attempts.length === 0) {
+      reject(classifyDownloadError(new Error("No download path is available for this quality.")));
+      return;
+    }
     for (const attempt of attempts) {
       void runAttempt(steps, emit, attempt.id, () => attempt.run(abort.signal), abort.signal).then((blob) => {
         if (blob && !winner) {
@@ -164,11 +166,8 @@ function saveBlob(
 }
 
 const INITIAL_STEPS: HybridStep[] = [
-  { id: "server", label: "Server + PO token", status: "pending" },
-  { id: "botguard", label: "BotGuard / PO token", status: "pending" },
-  { id: "bypass", label: "Velo unlock (nsig + dual POT + same-hop + HLS)", status: "pending" },
-  { id: "ytdlp", label: "yt-dlp web_embedded over SOCKS", status: "pending" },
-  { id: "relay", label: "CORS relays (corsfix / allorigins / Velo)", status: "pending" },
+  { id: "ytdlp", label: "yt-dlp on the server", status: "pending" },
+  { id: "relay", label: "Velo relay", status: "pending" },
 ];
 
 export async function hybridFetchBlob(opts: {
@@ -194,60 +193,19 @@ export async function hybridFetchBlob(opts: {
     onProgress?.(label, view);
   };
   const onBytes = (loaded: number, total: number) => {
-    // Relay bytes are their own leg. A same-hop HLS tick must not abandon them.
     transfer = noteFileBytes(transfer, "file", loaded, total);
     publish("Downloading");
   };
 
   transfer = noteStage(transfer, "hop", 5);
-  publish("Racing download paths");
-  patchStep(steps, "server", { status: "skip", detail: "Save already tried the builder hop" }, onSteps);
-  const potPromise = runAttempt(steps, onSteps, "botguard", async () => {
-    const info = await withTimeout(mintPoToken({ data: { id: videoId } }), 25_000, "BotGuard", signal);
-    if (!info?.token) throw new Error(info?.error || "No PO token.");
-    return info;
-  }, signal);
-  const potInfo = await potPromise;
-  const pot = potInfo?.token ?? null;
-  if (potInfo?.method === "cold-start") {
-    patchStep(
-      steps,
-      "botguard",
-      { status: "ok", detail: potInfo.error ? `cold-start · ${potInfo.error}` : "cold-start fallback" },
-      onSteps,
-    );
-  }
-
   transfer = noteStage(transfer, "hop", 18);
-  publish("Racing same-hop bypass, yt-dlp, relays");
+  publish("Racing yt-dlp and the relay");
   const muxPlan = isAudioItag(itag) || Boolean(opts.audioItag);
   const silentVideo = isVideoOnlyItag(itag) && !muxPlan;
   const muxLeg = isVideoOnlyItag(itag) && Boolean(opts.audioItag);
   const attempts: { id: string; run: (signal: AbortSignal) => Promise<Blob> }[] = [];
-  if (!silentVideo) {
-    attempts.push({
-      id: "bypass",
-      run: async (signal) => {
-        const { fetchSameHopBlob } = await import("@/lib/bypass");
-        return fetchSameHopBlob({
-          videoId,
-          itag,
-          pot,
-          signal,
-          onProgress: (label, view) => {
-            // The view is the same-hop attempt only. Server and relay bytes
-            // stay on their own legs; a segments view drops just the hop leg.
-            transfer = applyPresentedHop(transfer, view);
-            publish(label);
-          },
-        });
-      },
-    });
-  } else {
-    patchStep(steps, "bypass", { status: "skip", detail: "video-only — yt-dlp muxes audio" }, onSteps);
-  }
   if (!muxLeg) {
-    attempts.push({ id: "ytdlp", run: (signal) => ytdlpBlob(videoId, itag, cookies, pot, signal) });
+    attempts.push({ id: "ytdlp", run: (signal) => ytdlpBlob(videoId, itag, cookies, signal) });
   } else {
     patchStep(steps, "ytdlp", { status: "skip", detail: "caller muxes — exact itag, not 137+140/18" }, onSteps);
   }
@@ -262,17 +220,12 @@ export async function hybridFetchBlob(opts: {
         const errors: string[] = [];
         for (const url of urls) {
           try {
-            return await blobFromResponse(await proxyFetch(stampClientPot(url, pot), { signal }), onBytes);
+            return await blobFromResponse(await proxyFetch(url, { signal }), onBytes);
           } catch (err) {
             errors.push(err instanceof Error ? err.message : "relay failed");
           }
         }
-        const bypass = await fetch(`/api/bypass?id=${encodeURIComponent(videoId)}&itag=${itag}`, {
-          headers: downloadHeaders(),
-          signal,
-        });
-        if (bypass.ok) return blobFromResponse(bypass, onBytes);
-        throw new Error(errors[0] || "Relays blocked.");
+        throw new Error(errors[0] || "Relay blocked.");
       },
     });
   } else {
@@ -298,5 +251,3 @@ export async function downloadViaHybrid(opts: {
   await saveBlob(blob, nameForBlob(opts.filename, blob), opts.pendingSave, { videoId: opts.videoId, itag: opts.itag }, opts.signal);
   opts.onProgress?.("Saved", presentedTransfer(settleTransfer(emptyTransfer(), "complete")));
 }
-
-export { downloadViaHybrid as downloadViaBypass };

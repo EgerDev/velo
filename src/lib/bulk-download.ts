@@ -1,7 +1,7 @@
 /**
  * Velo Bulk & Batch Download Engine
  * - Robust URL extraction (watch, shorts, embed, youtu.be, playlists)
- * - Anti-throttling concurrency control (staggered bursts, max concurrency limits)
+ * - Concurrency control (a few downloads at a time, staggered starts)
  * - Rate-limit backoff & auto-retry ladder
  * - Export formats: yt-dlp script, curl batch, text list, JSON
  */
@@ -211,7 +211,7 @@ export function exportYtdlpBatchScript(items: BulkItem[]): string {
   const lines: string[] = [
     "#!/usr/bin/env bash",
     "# Velo - Generated Bulk Media Ingest Script",
-    "# Anti-throttling: using direct copy-mux and rate-limit safeguards",
+    "# Saves each video in turn, with a short pause between downloads",
     "set -euo pipefail",
     "",
     `echo "Starting batch download of ${activeItems.length} videos..."`,

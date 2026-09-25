@@ -46,10 +46,6 @@ describe("API input guards", () => {
     assert.equal((await get("/api/captions")).status, 400);
   });
 
-  test("bypass without id/itag is 400", async () => {
-    assert.equal((await get("/api/bypass")).status, 400);
-  });
-
   test("ytdlp rejects malformed JSON with 400", async () => {
     assert.equal((await postJson("/api/ytdlp", "{not json")).status, 400);
   });
@@ -59,8 +55,34 @@ describe("API input guards", () => {
     assert.equal(res.status, 400);
   });
 
-  test("unlock rejects a body without a stream URL with 400", async () => {
-    assert.equal((await postJson("/api/unlock", JSON.stringify({}))).status, 400);
+  // Roadmap D7/C5: the same-hop bypass and the server-side decipher/unlock
+  // routes are deleted; their paths fall through to the 404 page. The inputs
+  // are ones the old handlers rejected before any upstream fetch, so the
+  // failing-first run stays offline too.
+  test("GET /api/bypass is 404 (route deleted)", async () => {
+    assert.equal((await get("/api/bypass")).status, 404);
+  });
+
+  test("POST /api/unlock is 404 (route deleted)", async () => {
+    assert.equal((await postJson("/api/unlock", JSON.stringify({}))).status, 404);
+  });
+
+  test("GET /api/unlock is 404 (route deleted)", async () => {
+    assert.equal((await get("/api/unlock")).status, 404);
+  });
+
+  // The deleted paths answer exactly what any unknown path does: the app's
+  // HTML not-found page (AppNotFound), for GET and POST alike.
+  test("the deleted routes serve the app's not-found page", async () => {
+    for (const res of [
+      await get("/api/bypass"),
+      await get("/api/unlock"),
+      await postJson("/api/unlock", JSON.stringify({})),
+    ]) {
+      assert.equal(res.status, 404, res.url);
+      assert.equal(res.headers.get("content-type"), "text/html; charset=utf-8", res.url);
+      assert.match(await res.text(), /This page doesn’t exist/, res.url);
+    }
   });
 
   test("builder allows POST only", async () => {

@@ -1,6 +1,44 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
 /**
+ * The only ambient variables a child inherits (matched case-insensitively;
+ * Windows spells them Path, SystemRoot, ...). yt-dlp runs YouTube's challenge
+ * solver in a `node --permission` child that reads its environment, so server
+ * secrets (DATABASE_URL, BETTER_AUTH_SECRET, proxy keys, ...) must never reach
+ * it (roadmap D7, audit M-04). Everything a child needs to find python, node,
+ * ffmpeg, a temp dir and CA certificates is here; nothing else is.
+ */
+export const CHILD_ENV_ALLOWLIST = Object.freeze([
+  "PATH",
+  "PATHEXT",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "XDG_CACHE_HOME",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+]);
+const CHILD_ENV_ALLOWED = new Set(CHILD_ENV_ALLOWLIST);
+
+export function childEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(source).filter(
+      ([key, value]) => value !== undefined && CHILD_ENV_ALLOWED.has(key.toUpperCase()),
+    ),
+  );
+}
+
+/**
  * Child-process lifecycle for yt-dlp and friends, dependency-free so its kill
  * and idle-limit behaviour can be tested directly. Spawned `detached` so the
  * whole group (yt-dlp and the ffmpeg it forks) dies together.
@@ -45,7 +83,11 @@ export function run(
       reject(new Error("aborted"));
       return;
     }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+      env: childEnv(),
+    });
     let stderr = "";
     let timedOut = false;
     let killed = false;

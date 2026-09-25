@@ -6,7 +6,7 @@ import type { ViewMode } from "@/lib/view-mode";
 export const MODE_TABS = [
   { mode: "single", icon: Film, label: "Single video" },
   { mode: "bulk", icon: ListPlus, label: "Bulk & playlists" },
-  { mode: "transcript", icon: FileText, label: "Transcript", chip: "AI" },
+  { mode: "transcript", icon: FileText, label: "Transcript" },
   { mode: "watch", icon: Bell, label: "Channels" },
   { mode: "tools", icon: RefreshCw, label: "Tools" },
 ] as const;
@@ -86,7 +86,7 @@ export function ModeTabs({
           style={{ left: pill.left, width: pill.width }}
         />
       ) : null}
-      {tabs.map(({ mode, icon: Icon, label, ...tab }) => {
+      {tabs.map(({ mode, icon: Icon, label }) => {
         const active = value === mode;
         return (
           <button
@@ -117,16 +117,6 @@ export function ModeTabs({
             </span>
             {attention === mode ? <span className="sr-only">(update available)</span> : null}
             <span>{label}</span>
-            {"chip" in tab && tab.chip ? (
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold transition-colors duration-[var(--motion-medium)]",
-                  active ? "bg-accent-fg/20 text-accent-fg" : "bg-accent/15 text-accent",
-                )}
-              >
-                {tab.chip}
-              </span>
-            ) : null}
           </button>
         );
       })}

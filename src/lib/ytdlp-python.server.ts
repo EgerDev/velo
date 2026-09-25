@@ -1,16 +1,15 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { run, runCapture } from "@/lib/ytdlp-proc.server";
+import { runCapture } from "@/lib/ytdlp-proc.server";
 import { pythonBin, classifyPythonProbe, type PythonProbe } from "@/lib/ytdlp-auth";
 
 export const TMP_PREFIX = "velo-ytdl-";
 
 /**
- * Direct yt-dlp beats the free SOCKS pool by 2-40x where it works (measured:
- * ~3s vs 6-17s per live hop, 110s+ walking dead ones), but a datacenter origin
- * gets 403. So every ladder probes direct first and, once it fails, skips the
- * probe for a while: a blocked host pays one fast failure per window.
+ * A datacenter origin often gets 403 from YouTube. So every ladder probes
+ * direct first and, once it fails, skips the probe for a while: a blocked host
+ * pays one fast failure per window.
  * ponytail: one process-wide bit; key it by client/family if those diverge.
  */
 const DIRECT_RETRY_MS = 15 * 60_000;
@@ -51,8 +50,8 @@ sweepTimer.unref?.();
 /**
  * Is the Python side usable at all?
  *
- * Without this, a host with no Python ran the whole ladder — every client, then
- * every SOCKS hop — spawning a process that could never start, and reported it
+ * Without this, a host with no Python ran the whole ladder — every client on
+ * every route — spawning a process that could never start, and reported it
  * as `spawn python3 ENOENT · spawn python3 ENOENT · …`. The cause is permanent
  * and knowable in one spawn, so check once and say which of the two things is
  * actually missing.
@@ -97,49 +96,3 @@ export async function requirePython(): Promise<void> {
   const probe = await ensurePython();
   if (!probe.ok) throw new Error(probe.message);
 }
-
-/**
- * Probe for an optional Python package, installing it once if absent.
- *
- * Cached per process, but a failure is retried after a cooldown rather than
- * remembered forever — one transient pip failure otherwise disabled SOCKS (or
- * impersonation) for the life of the server.
- */
-function optionalModule(module: string, pipName: string): () => Promise<boolean> {
-  let state: { at: number; result: Promise<boolean> } | null = null;
-  return () => {
-    if (state && Date.now() - state.at < PROBE_RETRY_MS) return state.result;
-    const result = (async () => {
-      const bin = pythonBin();
-      const probe = await ensurePython();
-      if (!probe.ok) return false;
-      const check = await run(bin, ["-c", `import ${module}`], 8_000).catch(() => ({ code: 1 }));
-      if (check.code === 0) return true;
-      const install = await run(bin, ["-m", "pip", "install", "--quiet", pipName], 90_000).catch(
-        () => ({ code: 1 }),
-      );
-      return install.code === 0;
-    })();
-    // Hold at a far-future stamp WHILE the probe is in flight so a second caller
-    // arriving mid-install (the pip step can run ~90s, longer than PROBE_RETRY_MS)
-    // gets this same promise instead of kicking off a concurrent pip install into
-    // the same site-packages. Mutate this entry directly (not the module-level
-    // `state`, which a racing call may have replaced) so the settle pins the
-    // right probe: forever on success, `now` on failure so the cooldown runs
-    // from when it failed rather than caching `false` until restart.
-    const entry = { at: Number.POSITIVE_INFINITY, result };
-    state = entry;
-    void result.then(
-      (ok) => {
-        entry.at = ok ? Number.POSITIVE_INFINITY : Date.now();
-      },
-      () => {
-        entry.at = Date.now();
-      },
-    );
-    return result;
-  };
-}
-
-export const ensurePySocks = optionalModule("socks", "PySocks");
-export const ensureImpersonate = optionalModule("curl_cffi", "curl_cffi");

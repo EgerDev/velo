@@ -117,7 +117,7 @@ export async function streamYoutubeCaptions(
     return new Response(vttText, { status: 200, headers: responseHeaders });
   }
 
-  // 429/502: try yt-dlp over SOCKS (different IP bypasses rate-limiting)
+  // 429/502: try yt-dlp's caption fetch instead (operator proxy first, then direct)
   if (upstream.status === 429 || upstream.status === 502) {
     try {
       const { fetchSubtitlesViaYtdlp } = await import("@/lib/ytdlp.server");
@@ -230,8 +230,8 @@ export async function getTranscriptText(
   if (upstream.ok) {
     vttText = await upstream.text();
   } else if (upstream.status === 429 || upstream.status === 502) {
-    // timedtext is throttling this server's IP — route through yt-dlp over
-    // SOCKS so the request comes from a different IP entirely.
+    // timedtext refused this request — try yt-dlp's caption fetch instead
+    // (the operator's proxy first when one is configured, then direct).
     try {
       const { fetchSubtitlesViaYtdlp } = await import("@/lib/ytdlp.server");
       vttText = await fetchSubtitlesViaYtdlp({

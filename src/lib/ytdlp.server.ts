@@ -1,4 +1,3 @@
-import "@/lib/ipv4-bind.server";
 import { run } from "@/lib/ytdlp-proc.server";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,11 +15,8 @@ import {
   pythonBin,
   type YtdlpFailure,
 } from "@/lib/ytdlp-auth";
-import { markSocksDead, markSocksGood, releaseSocks, takeSocks } from "@/lib/socks-pool.server";
 import {
   requirePython,
-  ensurePySocks,
-  ensureImpersonate,
   directYtdlpOpen,
   markDirectYtdlpBlocked,
   TMP_PREFIX,
@@ -44,14 +40,11 @@ async function runClient(opts: {
   itag: number;
   client: string;
   cookiePath?: string;
-  pot?: string;
-  playerPot?: string;
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
   /** Set for a user-configured proxy: it MAY carry the session (cookies). */
   trustedProxy?: boolean;
-  impersonate?: boolean;
   signal?: AbortSignal;
 }): Promise<string> {
   const args = ytdlpArgv(opts);
@@ -104,8 +97,8 @@ async function runClient(opts: {
 type MuxResult = FileHit & { client: string; auth: string; tmpDir: string };
 
 /**
- * One budget for the whole ladder (saved routes × clients × retries, SOCKS
- * hops, direct): a worst-case walk of failing routes could hold a download
+ * One budget for the whole ladder (saved routes × clients × retries, then
+ * direct): a worst-case walk of failing routes could hold a download
  * slot for tens of minutes. It stops *starting* attempts; one that is moving
  * bytes runs to completion (a stalled one dies at its idle limit in `run`), so
  * a long 4K save is never cut mid-transfer. The message contains "abort" so
@@ -119,10 +112,9 @@ async function muxOne(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<MuxResult> {
-  // Before the tmpdir, the client ladder and the SOCKS hops: none of that can
+  // Before the tmpdir and the client ladder: none of that can
   // succeed if the interpreter cannot run yt-dlp, and the reason is knowable now.
   await requirePython();
   const dir = await mkdtemp(join(tmpdir(), TMP_PREFIX));
@@ -154,17 +146,6 @@ async function muxOne(opts: {
     const clients = loggedIn
       ? ytdlpClients(true)
       : [...new Set([...socksClientsForItag(opts.itag), ...ytdlpClients(false)])];
-    const impersonate = await ensureImpersonate().catch(() => false);
-    let gvsPot = opts.pot;
-    let playerPot = opts.pot;
-    try {
-      const { mintDualPoTokens } = await import("@/lib/po-token.server");
-      const dual = await mintDualPoTokens({ visitor: session?.visitorData, videoId: opts.id });
-      gvsPot = dual.gvs || opts.pot;
-      playerPot = dual.player || opts.pot;
-    } catch {
-      /* yt-dlp still runs without POT */
-    }
 
     const attempt = async (client: string, proxy?: string, trustedProxy = false): Promise<MuxResult> => {
       checkLadder();
@@ -174,15 +155,12 @@ async function muxOne(opts: {
         itag: opts.itag,
         client,
         // A user-configured (trusted) proxy may carry the session — it is the
-        // operator's own hop. Pool-SOCKS hops keep the strict no-cookie rule.
+        // operator's own hop. Any other proxy keeps the strict no-cookie rule.
         cookiePath: proxy && !trustedProxy ? undefined : cookiePath,
-        pot: gvsPot,
-        playerPot,
         visitorData: session?.visitorData,
         dataSyncId: session?.dataSyncId,
         proxy,
         trustedProxy,
-        impersonate,
         signal: opts.signal,
       });
       const filePath = join(dir, filename);
@@ -193,16 +171,15 @@ async function muxOne(opts: {
         filename,
         size,
         client,
-        auth: proxy ? "socks" : session?.loggedIn ? "cookies" : session ? "visitor" : "anon",
+        auth: proxy ? "proxy" : session?.loggedIn ? "cookies" : session ? "visitor" : "anon",
         tmpDir: dir,
       };
     };
 
-    // The operator's own proxy, before any free hop. It is a trusted hop: the
+    // The operator's own proxy, before direct. It is a trusted hop: the
     // session MAY ride it (that is the point on a datacenter origin IP), and a
-    // healthy-proxy "stop" verdict (private video) must not poison it — same
-    // rule as the pool loop below. Its own stage, outside `!loggedIn`, so a
-    // logged-in session also gets the proxy hop.
+    // healthy-proxy "stop" verdict (private video) must not poison it. Its own
+    // stage, outside `!loggedIn`, so a logged-in session also gets the proxy hop.
     const [{ userProxyLadder }, { attemptSelectedRoutes }] = await Promise.all([
       import("@/lib/user-proxy.server"), import("@/lib/proxy-selector.server"),
     ]);
@@ -252,44 +229,7 @@ async function muxOne(opts: {
       }
     }
 
-    if (!loggedIn) {
-      await ensurePySocks().catch(() => undefined);
-      const hopClients = socksClientsForItag(opts.itag);
-      for (let hop = 0; hop < 3; hop++) {
-        checkLadder();
-        const socks = await takeSocks(1);
-        const proxy = socks[0];
-        if (!proxy) break;
-        try {
-          for (const client of hopClients) {
-            checkLadder();
-            try {
-              const result = await attempt(client, proxy);
-              void markSocksGood(proxy);
-              return result;
-            } catch (err) {
-              const fail = (err as { ytdlp?: YtdlpFailure }).ytdlp;
-              const message = err instanceof Error ? err.message : "failed";
-              if (/abort/i.test(message)) throw err;
-              errors.push(`${client}@socks: ${message}`.slice(0, 180));
-              // "stop" is a permanent per-video verdict, not this hop's fault —
-              // marking the proxy dead would poison a healthy proxy for every
-              // user (persisted 15 min) and the outer loop would repeat it on
-              // two more proxies. Abort the ladder without touching the proxy.
-              if (fail?.next === "stop") throw err;
-              if (!fail || fail.next === "next-socks") {
-                markSocksDead(proxy);
-                break;
-              }
-            }
-          }
-        } finally {
-          releaseSocks(socks);
-        }
-      }
-    }
-
-    // Direct is the final fallback, after every configured and free route.
+    // Direct is the final fallback, after every configured route.
     for (const client of clients) {
       checkLadder();
       if (client === probed) continue;
@@ -313,7 +253,6 @@ export async function downloadWithYtdlp(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<Response> {
   const privateMux = Boolean(opts.cookies?.trim());
@@ -361,14 +300,3 @@ export async function downloadWithYtdlp(opts: {
   if (opts.signal?.aborted) throw new Error("aborted");
   return mediaFileResponse(stored.path, stored.filename, "cache", "anon", stored.size);
 }
-
-/**
- * Fetch a caption track through yt-dlp over SOCKS — bypasses IP-based 429
- * throttling on YouTube's timedtext endpoint because the request comes from a
- * different IP. Returns the VTT text, or null if yt-dlp can't fetch it.
- *
- * For `tlang` (auto-translate): yt-dlp lists translated tracks under
- * `automatic_captions` with language codes like "af", "sq", etc. We ask for
- * `--sub-langs <lang>` which picks up the auto-translated version when the
- * original track supports translation.
- */

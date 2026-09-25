@@ -63,7 +63,7 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   resolve: { tsconfigPaths: true },
   ssr: {
-    external: ["youtubei.js", "bgutils-js", "jsdom", "@electric-sql/pglite"],
+    external: ["youtubei.js", "@electric-sql/pglite"],
   },
   plugins: [
     pgliteBootstrapPlugin(),

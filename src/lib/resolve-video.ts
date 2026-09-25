@@ -28,12 +28,6 @@ const playbackSchema = z.object({
   itag: z.number().int().positive(),
 });
 
-const cipherSchema = z.object({
-  url: z.string().max(16_000).optional(),
-  signatureCipher: z.string().max(16_000).optional(),
-  cipher: z.string().max(16_000).optional(),
-});
-
 export const resolveVideo = createServerFn({ method: "POST" })
   .validator((input: unknown) => urlSchema.parse(input))
   .handler(async ({ data }) => {
@@ -48,22 +42,6 @@ export const searchVideos = createServerFn({ method: "POST" })
     await assertMetadataBudget();
     const { searchYoutubeVideos } = await import("@/lib/youtube.server");
     return searchYoutubeVideos(data.query);
-  });
-
-export const decipherCipher = createServerFn({ method: "POST" })
-  .validator((input: unknown) => cipherSchema.parse(input))
-  .handler(async ({ data }) => {
-    await assertMetadataBudget();
-    const { decipherRawFormat } = await import("@/lib/youtube.server");
-    return decipherRawFormat(data);
-  });
-
-export const mintPoToken = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{11}$/) }).parse(input))
-  .handler(async ({ data }) => {
-    await assertMetadataBudget();
-    const { mintPoTokenDetailed } = await import("@/lib/po-token.server");
-    return mintPoTokenDetailed(data.id);
   });
 
 export const resolvePlayback = createServerFn({ method: "POST" })

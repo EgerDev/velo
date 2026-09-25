@@ -4,10 +4,11 @@
  *
  * 1. --cookies Netscape file (what Velo imports)
  * 2. visitor_data from VISITOR_INFO1_LIVE
- * 3. po_token stamped per player client (gvs + player)
- * 4. account cookies unlock web_embedded / web / mweb / web_safari (not android/ios)
- * 5. --cookies-from-browser only if YTDLP_BROWSER is set
- * 6. --proxy SOCKS5 for guest same-hop when this host's IP is 403
+ * 3. account cookies unlock web_embedded / web / mweb / web_safari (not android/ios)
+ * 4. --cookies-from-browser only if YTDLP_BROWSER is set
+ * 5. --proxy for the operator's saved proxy routes, tried before direct
+ *
+ * Velo supplies no PO token (roadmap D7): yt-dlp runs with what it has.
  */
 import { parseCookieImport } from "./cookies.ts";
 import { THROTTLE_FLAGS } from "./throttle.ts";
@@ -55,9 +56,9 @@ const VIDEO_ONLY = new Set([
 ]);
 
 /**
- * What actually works on this host (proved over SOCKS): 1080p H.264 + AAC,
- * then H.264 + Opus (mkv), then HLS stitch, then muxed 720/360. Skip 1080p60
- * / AV1 / VP9 on the automatic hop — they stall, throttle, or fail mux more often.
+ * The automatic 1080p selector: H.264 + AAC, then H.264 + Opus (mkv), then the
+ * HLS itag 96 playlist. It skips 1080p60 / AV1 / VP9, which stalled or failed
+ * mux more often in testing (24 Aug 2026).
  * Do not fall through to muxed 720/360 here: Save would label 360p as Full HD.
  * Muxed 22/18 is offered as a user-confirmed fallback prompt after this selector
  * fails (pickMuxedFallback in routes/index.tsx), never substituted silently.
@@ -202,49 +203,19 @@ export function ytdlpHeaderArgs(): string[] {
   return ["--add-headers", "Accept-Language:en-US,en;q=0.9"];
 }
 
-/** TLS fingerprint via curl_cffi. Never on android/ios — that would replace their app UA with Chrome. */
-export function ytdlpImpersonateArgs(client: string): string[] {
-  const id = resolvePlayerClient(client).split(",")[0]?.trim() ?? "";
-  if (id === "web_safari" || id === "mweb") return ["--impersonate", "safari"];
-  if (id === "web" || id === "web_embedded" || id.startsWith("tv"))
-    return ["--impersonate", "chrome"];
-  return [];
-}
-
 export const YTDLP_CLIENT_EXTRACT = [
-  {
-    client: "web_embedded",
-    formats: "DASH 137/248 + mux 18; 1080p with POT",
-    cookies: true,
-    impersonate: "chrome",
-  },
-  { client: "tv_simply", formats: "muxed 18 (guest, no cookies)", cookies: false, impersonate: "" },
+  { client: "web_embedded", formats: "DASH 137/248 + mux 18; 1080p with POT", cookies: true },
+  { client: "tv_simply", formats: "muxed 18 (guest, no cookies)", cookies: false },
   {
     client: "web_safari",
     formats: "HLS 96 muxed 1080p (logged-in only since 2026.07)",
     cookies: true,
-    impersonate: "safari",
   },
-  {
-    client: "android",
-    formats: "muxed 18/22; SABR-only without POT",
-    cookies: false,
-    impersonate: "",
-  },
-  { client: "mweb", formats: "ultralow + HLS", cookies: true, impersonate: "safari" },
-  { client: "web", formats: "WEB dash (needs POT)", cookies: true, impersonate: "chrome" },
-  {
-    client: "tv_downgraded",
-    formats: "TVHTML5 authed default",
-    cookies: true,
-    impersonate: "chrome",
-  },
-  {
-    client: "visionos",
-    formats: "dash ≤240p guest, no mux, no cookies",
-    cookies: false,
-    impersonate: "",
-  },
+  { client: "android", formats: "muxed 18/22; SABR-only without POT", cookies: false },
+  { client: "mweb", formats: "ultralow + HLS", cookies: true },
+  { client: "web", formats: "WEB dash (needs POT)", cookies: true },
+  { client: "tv_downgraded", formats: "TVHTML5 authed default", cookies: true },
+  { client: "visionos", formats: "dash ≤240p guest, no mux, no cookies", cookies: false },
 ] as const;
 
 /** All yt-dlp 2026.08.19 InnerTube clients (INNERTUBE_CLIENTS). android_vr is 403 since 2026.08.17. */
@@ -355,131 +326,26 @@ export const YTDLP_PLAYER_CLIENTS = [
   },
 ] as const;
 
-/**
- * APIs besides yt-dlp player_client. Probed 24 Aug 2026 on this host:
- * Invidious/Piped public instances 403/disabled; Cobalt needs hostname-bound Turnstile;
- * Data API v3 has no streams. youtubei.js clients below are not in yt-dlp.
- */
-export const YOUTUBE_ALT_APIS = [
-  {
-    id: "tv_embedded",
-    via: "youtubei.js",
-    innertube: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-    note: "Embed TV; already in Innertube metadata loop",
-  },
-  {
-    id: "android_music",
-    via: "youtubei.js",
-    innertube: "ANDROID_MUSIC 7.x",
-    note: "Raw player POST LOGIN_REQUIRED; still tried with session POT",
-  },
-  {
-    id: "android_creator",
-    via: "youtubei.js",
-    innertube: "ANDROID_CREATOR",
-    note: "YouTube Studio Android; session POT",
-  },
-  {
-    id: "web_kids",
-    via: "youtubei.js",
-    innertube: "WEB_KIDS",
-    note: "Made-for-kids titles; 'reload' on zoo",
-  },
-  {
-    id: "ios",
-    via: "youtubei.js",
-    innertube: "IOS",
-    note: "play=OK but SABR (0 URLs) without POT",
-  },
-  {
-    id: "invidious",
-    via: "public API",
-    innertube: "—",
-    note: "yewtu.be 403, nadeko endpoint disabled, fdn NXDOMAIN",
-  },
-  { id: "piped", via: "public API", innertube: "—", note: "kavin 502, adminforge timeout" },
-  {
-    id: "cobalt",
-    via: "cobalt.tools",
-    innertube: "—",
-    note: "Turnstile is hostname-bound; cannot mint from this origin",
-  },
-  {
-    id: "data_api_v3",
-    via: "googleapis",
-    innertube: "—",
-    note: "Metadata only — no googlevideo URLs",
-  },
-] as const;
-
 export function ytdlpClients(loggedIn: boolean): readonly string[] {
   return loggedIn ? SESSION_CLIENTS : GUEST_CLIENTS;
 }
 
-/** InnerTube clients that accept WebPO (yt_dlp.extractor.youtube.pot.utils.WEBPO_CLIENTS). */
-const WEBPO_CLIENTS = new Set([
-  "web",
-  "web_safari",
-  "web_embedded",
-  "web_music",
-  "web_creator",
-  "mweb",
-  "tv",
-  "tv_downgraded",
-  "tv_simply",
-]);
-
-export function poTokenArgs(client: string, pot?: string, playerPot?: string): string {
-  const gvs = (pot || "").replace(/[^A-Za-z0-9_-]/g, "");
-  const player = (playerPot || pot || "").replace(/[^A-Za-z0-9_-]/g, "");
-  if (!gvs && !player) return "";
-  const id = resolvePlayerClient(client).split(",")[0] || "web_embedded";
-  if (!WEBPO_CLIENTS.has(id)) return "";
-  const parts: string[] = [];
-  if (gvs) parts.push(`${id}.gvs+${gvs}`);
-  if (player) parts.push(`${id}.player+${player}`);
-  return `po_token=${parts.join(",")}`;
-}
-
 /**
- * youtube extractor-args (yt-dlp 2026.08.19 `_video.py` / `_base.py`).
- * player_client, po_token=CLIENT.CONTEXT+TOKEN (gvs|player|subs),
- * visitor_data (only without cookies), data_sync_id (logged-in GVS),
- * player_js_variant, fetch_pot.
- * fetch_pot=never only when we already stamped a video-id POT.
+ * youtube extractor-args (yt-dlp 2026.08.19 `_video.py` / `_base.py`):
+ * player_client, visitor_data (only without cookies), data_sync_id (logged-in),
+ * player_js_variant. Never po_token or fetch_pot: Velo mints no PO token (D7).
  */
 export function extractorArgs(
   client: string,
-  pot?: string,
   visitor?: string | null,
-  playerPot?: string,
   dataSyncId?: string | null,
 ): string {
   const resolved = resolvePlayerClient(client);
   const parts = [`youtube:player_client=${resolved}`, "player_js_variant=main"];
   if (visitor) parts.push(`visitor_data=${visitor.replace(/[^A-Za-z0-9_=%-]/g, "")}`);
   if (dataSyncId) parts.push(`data_sync_id=${dataSyncId.replace(/[^A-Za-z0-9_|=%-]/g, "")}`);
-  const po = poTokenArgs(resolved, pot, playerPot);
-  if (po) {
-    parts.push("fetch_pot=never");
-    parts.push(po);
-  }
   return parts.join(";");
 }
-
-/** How Velo mints PO tokens (bgutils-js BotGuard, not yt-dlp's empty POT providers). */
-export const PO_TOKEN_STEPS = [
-  { step: "1 homepage", detail: "Fetch youtube.com, parse ytcfg + ytAtN BotGuard challenge" },
-  { step: "2 VM", detail: "Run BotGuard interpreter in jsdom, snapshot webPoSignalOutput" },
-  { step: "3 GenerateIT", detail: "POST integrity token (request key O43z0dpjhgX20SCx4KAo)" },
-  { step: "4 mint", detail: "WebPoMinter binds the token to the video id (player + GVS)" },
-  { step: "5 stamp", detail: "yt-dlp youtube:po_token=web_embedded.gvs+X,web_embedded.player+X" },
-  {
-    step: "fallback",
-    detail:
-      "Cold-start token if BotGuard walls; fetch_pot=never only when a token is already stamped",
-  },
-] as const;
 
 export function browserCookieArgs(): string[] {
   const browser = process.env.YTDLP_BROWSER?.trim().toLowerCase();
@@ -496,11 +362,27 @@ function proxyArg(raw: string): string {
  * `--force-ipv4` sets source_address=0.0.0.0 (yt-dlp options.py). Direct hops
  * need it so player + CDN share IPv4. SOCKS hops must NOT force family — the
  * proxy owns the YouTube-side address (ip=); forcing 0.0.0.0 breaks IPv6-only
- * proxies and can desync curl_cffi CONNECT.
+ * proxies.
  */
 export function ytdlpFamilyArgs(proxy?: string): string[] {
   return proxy ? [] : ["--force-ipv4"];
 }
+
+/**
+ * Every yt-dlp run starts with this. Config files, plugin dirs and remote
+ * components could each re-enable what Velo turns off (roadmap D7/C5), so
+ * yt-dlp ignores them and runs only its bundled challenge solver under node.
+ */
+export const YTDLP_BASE_ARGV = [
+  "-m",
+  "yt_dlp",
+  "--ignore-config",
+  "--no-plugin-dirs",
+  "--no-remote-components",
+  "--no-js-runtimes",
+  "--js-runtimes",
+  "node",
+] as const;
 
 export function ytdlpArgv(opts: {
   dir: string;
@@ -508,31 +390,21 @@ export function ytdlpArgv(opts: {
   itag: number;
   client: string;
   cookiePath?: string;
-  pot?: string;
-  playerPot?: string;
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
   /** Set for a user-configured proxy: the operator's own hop MAY carry the session. */
   trustedProxy?: boolean;
-  impersonate?: boolean;
 }): string[] {
   const client = resolvePlayerClient(opts.client);
-  const args = [
-    "-m",
-    "yt_dlp",
-    "--no-js-runtimes",
-    "--js-runtimes",
-    "node",
-    ...ytdlpFamilyArgs(opts.proxy),
-  ];
+  const args = [...YTDLP_BASE_ARGV, ...ytdlpFamilyArgs(opts.proxy)];
   if (opts.proxy) args.push("--proxy", proxyArg(opts.proxy));
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
   const hasFileCookies = Boolean(opts.cookiePath && cookiesOk);
-  // No cookie source of any kind over a pool-SOCKS hop (mirrors the cookiePath
+  // No cookie source of any kind over an untrusted proxy (mirrors the cookiePath
   // guard in attempt()): the host browser's account session must never ride a
-  // public proxy. A user-configured (trusted) proxy is the operator's own and
+  // proxy that is not the operator's own. A user-configured (trusted) proxy is the operator's own and
   // MAY carry the session — that is the point of configuring one.
   const browser =
     hasFileCookies || (opts.proxy && !opts.trustedProxy) ? [] : browserCookieArgs();
@@ -541,16 +413,11 @@ export function ytdlpArgv(opts: {
   else args.push(...browser);
   args.push(...ytdlpUserAgentArgs(client));
   args.push(...ytdlpHeaderArgs());
-  if (opts.impersonate) args.push(...ytdlpImpersonateArgs(client));
   args.push(
-    "--remote-components",
-    "ejs:github",
     "--extractor-args",
     extractorArgs(
       client,
-      opts.pot,
       hasCookies ? null : opts.visitorData,
-      opts.playerPot,
       hasCookies ? (opts.dataSyncId ?? null) : null,
     ),
     "--no-playlist",
@@ -585,7 +452,7 @@ export const YTDLP_EXTRACTOR_LAYERS = [
   {
     layer: "pot",
     file: "pot/_director.py",
-    does: "gvs + player PO tokens (we mint, yt-dlp has none built-in)",
+    does: "gvs + player PO tokens (yt-dlp's own providers; Velo supplies none)",
   },
   {
     layer: "formats",
@@ -594,8 +461,8 @@ export const YTDLP_EXTRACTOR_LAYERS = [
   },
   {
     layer: "download",
-    file: "networking urllib+curl_cffi",
-    does: "googlevideo; impersonate only on web clients",
+    file: "networking urllib",
+    does: "googlevideo; no TLS impersonation (D7)",
   },
 ] as const;
 
@@ -606,11 +473,7 @@ export const YTDLP_EXTRACTOR_LAYERS = [
  */
 export const YTDLP_EXTRACTOR_ARGS = [
   { arg: "player_client", use: "always", note: "web_embedded first; android_vr aliases to it" },
-  {
-    arg: "po_token",
-    use: "when minted",
-    note: "CLIENT.gvs+X,CLIENT.player+X — video-id bind (GVS experiment)",
-  },
+  { arg: "po_token", use: "never", note: "Velo mints no PO token (roadmap D7)" },
   { arg: "visitor_data", use: "guest only", note: "never with --cookies / --cookies-from-browser" },
   {
     arg: "data_sync_id",
@@ -622,11 +485,7 @@ export const YTDLP_EXTRACTOR_ARGS = [
     use: "main",
     note: "stable player.js; pinning player_js_version breaks nsig",
   },
-  {
-    arg: "fetch_pot",
-    use: "never iff stamped",
-    note: "omit (auto) when we have no token so yt-dlp can still fetch",
-  },
+  { arg: "fetch_pot", use: "omit", note: "yt-dlp keeps its default" },
   { arg: "use_ad_playback_context", use: "omit", note: "true is the IMA/DAI ad player — never" },
   { arg: "formats", use: "omit missing_pot", note: "would list SABR rows with no URL as 1080p" },
   { arg: "player_skip", use: "omit", note: "need js + configs for nsig" },
@@ -767,7 +626,7 @@ function lastErrorLine(stderr: string): string {
   );
   // Redact the FULL proxy authority — userinfo, host and port — keeping only
   // the scheme. This string reaches an unauthenticated caller as the
-  // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole
+  // /api/ytdlp 502 body, and a dead proxy hop puts the whole
   // `user:pass@host:port` into yt-dlp's stderr verbatim; the internal hop
   // address is as sensitive as the credentials. `[^\s/]` stops at the first
   // slash, so an https path (e.g. a watch URL's video id) stays readable —
@@ -802,7 +661,7 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
   });
 
   if (input.timedOut || /yt-dlp timed out/i.test(stderr)) {
-    return fail("timeout", "next-socks", "timed out — next matching hop");
+    return fail("timeout", "next-socks", "timed out — trying the next route");
   }
   if (input.signal === "SIGKILL" || code === YTDLP_EXIT.sigkill) {
     return fail("killed", "next-socks", "process killed — next hop (not a CDN 403)");
@@ -844,20 +703,20 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
     return fail("signin", "next-client", "bot wall — next client, then cookies");
   }
   if (log.sabr || /sabr-only|forcing sabr streaming|issues\/12482/i.test(blob)) {
-    return fail("sabr", "next-client", "SABR-only — need a video-bound PO token or a muxed client");
+    return fail("sabr", "next-client", "streaming-only response — trying a client with a downloadable format");
   }
   if (/gvs po token|po token which was not provided|missing required visitor data/i.test(blob)) {
-    return fail("pot", "next-client", "PO token missing — remint GVS+player, next client");
+    return fail("pot", "next-client", "YouTube refused this client — trying the next one");
   }
   if (
     /error solving n challenge|n result is invalid|nsig extraction failed|n-sig extraction/i.test(
       blob,
     )
   ) {
-    return fail("nsig", "retry", "nsig failed — retry node ejs, then next client");
+    return fail("nsig", "retry", "yt-dlp could not read this video’s formats — retrying");
   }
   if (/http error 403|unable to download video data:.*403|\b403 forbidden\b/i.test(blob)) {
-    return fail("forbidden", "next-socks", "CDN 403 — next matching hop");
+    return fail("forbidden", "next-socks", "YouTube refused the file (403) — trying the next route");
   }
   if (/no video formats found|requested format is not available/i.test(blob)) {
     return fail("formats", "next-client", "no playable formats on this client");
@@ -960,16 +819,17 @@ export function classifyPythonProbe(input: {
   return { ok: true, version };
 }
 
-/** Copy-paste command matching Save. POT is required for 1080p; without it yt-dlp falls to 18. */
+/** Copy-paste command matching Save. */
 export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): string {
   return [pythonBin(), ...ytdlpArgv(opts).map(shellQuote)].join(" ");
 }
 
 /**
- * Proved 24 Aug 2026 on this host (Me at the zoo, SOCKS, yt-dlp 2026.08.19):
- * web_embedded + chrome impersonate extracts; without po_token only itag 18 is playable.
- * android without POT is SABR-only (same 18). 1080p needs dual gvs+player po_token.
- * SOCKS example omits --force-ipv4 — the hop owns the YouTube-side family.
+ * The shape of the Save command over a proxy, for copy-paste. A proxied run
+ * omits --force-ipv4: the proxy owns the YouTube-side address family.
+ * Test record, 24 Aug 2026 (Me at the zoo, yt-dlp 2026.08.19): web_embedded
+ * extracts; without a PO token only itag 18 is playable and android is
+ * SABR-only, so this 1080p selector needs a PO token Velo does not supply (D7).
  */
 export const YTDLP_WORKING_EXAMPLE =
-  "python3 -m yt_dlp --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --impersonate chrome --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --remote-components ejs:github --no-playlist --check-formats --throttled-rate 100K --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";
+  "python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --no-playlist --check-formats --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";

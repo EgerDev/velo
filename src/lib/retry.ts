@@ -36,7 +36,6 @@ export function isRetryable(err: unknown): boolean {
   }
   return (
     msg.includes("throttl") ||
-    msg.includes("nsig") ||
     msg.includes("timed out") ||
     msg.includes("timeout") ||
     /\b(502|522)\b/.test(msg) ||

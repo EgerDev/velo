@@ -215,10 +215,6 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
               : `  ·  ${GUEST.saveSigned}`
             : `  ·  ${GUEST.save}`}
         </p>
-        <p className="text-xs leading-relaxed text-subtle">
-          Velo’s own chain: nsig even on “plain” URLs, dual PO token, cver/rn/keepalive,
-          YouTube client headers, same-hop IP, then HLS stitch if progressive is SABR.
-        </p>
       </div>
     </div>
   );

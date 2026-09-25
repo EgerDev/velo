@@ -145,7 +145,7 @@ export function adviseThrottle(
       verdict: "shaped",
       summary: `Running at about ${Math.round(ratio * 100)}% of this connection's usual speed — large downloads look shaped.${hedge}`,
       action:
-        "Retrying takes a fresh route. If you're on mobile or 5G home internet, Wi-Fi on another network is usually faster.",
+        "Retrying runs the download again: saved proxy routes first, then direct. If you're on mobile or 5G home internet, Wi-Fi on another network is usually faster.",
       speed,
       ratio,
       confidence,

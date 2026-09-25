@@ -1,4 +1,3 @@
-import "@/lib/ipv4-bind.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { parseVideoId } from "@/lib/youtube";
@@ -7,10 +6,9 @@ const bodySchema = z.object({
   id: z.string(),
   itag: z.number().int().positive(),
   cookies: z.string().max(400_000).optional(),
-  pot: z.string().max(4000).optional(),
 });
 
-async function handleBuilder(request: Request, id: string, itag: number, cookies?: string, pot?: string) {
+async function handleBuilder(request: Request, id: string, itag: number, cookies?: string) {
   const { cookiesNeedSession, downloadQuotaResponse, downloadQuotaRefund } = await import("@/lib/guest-limit.server");
   const blocked = await cookiesNeedSession(request, cookies);
   if (blocked) return blocked;
@@ -20,7 +18,7 @@ async function handleBuilder(request: Request, id: string, itag: number, cookies
 
   try {
     const { streamBuilderDownload } = await import("@/lib/builder.server");
-    return await streamBuilderDownload({ id, itag, cookies, pot, signal: request.signal });
+    return await streamBuilderDownload({ id, itag, cookies, signal: request.signal });
   } catch (err) {
     await downloadQuotaRefund(request, 1);
     const { isQueueError } = await import("@/lib/download-pool.server");
@@ -41,7 +39,7 @@ export const Route = createFileRoute("/api/builder")({
     handlers: {
       GET: async () =>
         Response.json(
-          { error: "POST /api/builder with { id, itag, cookies, pot }. GET cannot carry a YouTube session." },
+          { error: "POST /api/builder with { id, itag, cookies }. GET cannot carry a YouTube session." },
           { status: 405, headers: { Allow: "POST" } },
         ),
       POST: async ({ request }) => {
@@ -57,7 +55,7 @@ export const Route = createFileRoute("/api/builder")({
         }
         const id = parseVideoId(parsed.data.id);
         if (!id) return Response.json({ error: "Bad video id." }, { status: 400 });
-        return handleBuilder(request, id, parsed.data.itag, parsed.data.cookies, parsed.data.pot);
+        return handleBuilder(request, id, parsed.data.itag, parsed.data.cookies);
       },
     },
   },

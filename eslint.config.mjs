@@ -6,18 +6,70 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 /**
- * The server never executes remote JavaScript (roadmap D7/C5). These are the
- * in-process escape hatches; W4b deletes the remaining uses.
+ * The server never executes remote JavaScript (roadmap D7/C5). ESLint's core
+ * `no-eval`, `no-implied-eval` and `no-new-func` cover the direct forms; these
+ * selectors add the aliased ones they miss (`globalThis.Function(...)`,
+ * `x.eval(...)`, `(0, eval)(...)`, `x.constructor(...)`, any value reference
+ * to `Function`, `new Worker(..., { eval: true })`), every way to reach
+ * `node:vm`, and a dynamic `import()` of a non-literal specifier.
  */
 const UNTRUSTED_EVAL_MESSAGE =
   "Do not evaluate code in-process. The server never executes remote JavaScript (roadmap C5, D7).";
+const VM_MODULE = "/^(node:)?vm$/";
 const noInProcessEval = [
   { selector: "NewExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "NewExpression[callee.property.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.property.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.property.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "SequenceExpression > Identifier[name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.property.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: `ImportExpression[source.value=${VM_MODULE}]`, message: UNTRUSTED_EVAL_MESSAGE },
+  {
+    selector: `CallExpression[callee.name='require'][arguments.0.value=${VM_MODULE}]`,
+    message: UNTRUSTED_EVAL_MESSAGE,
+  },
+  {
+    selector: `CallExpression[callee.property.name='getBuiltinModule'][arguments.0.value=${VM_MODULE}]`,
+    message: UNTRUSTED_EVAL_MESSAGE,
+  },
+  {
+    // Any value reference to Function (alias, Reflect.construct, destructure). The
+    // TS type, `o.Function` and a `{ Function: 1 }` key are not references.
+    selector:
+      "Identifier[name='Function']:not(TSTypeReference > Identifier, MemberExpression[computed=false] > Identifier.property, Property[computed=false] > Identifier.key:not(ObjectPattern > Property > Identifier.key))",
+    message: `Do not reference the Function constructor. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "MemberExpression[computed=true][property.value='Function']",
+    message: `Do not reach the Function constructor through a computed key. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "MemberExpression[computed=true] > TemplateLiteral.property[quasis.0.value.cooked='Function']",
+    message: `Do not reach the Function constructor through a template key. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "CallExpression[callee.property.name='constructor']",
+    message: `Do not call .constructor(...): a function's constructor is Function. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "NewExpression[callee.property.name='constructor']",
+    message: `Do not construct via .constructor: a function's constructor is Function. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: `CallExpression[arguments.0.value=${VM_MODULE}]`,
+    message: `Do not load node:vm by any loader (createRequire, require aliases). ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "ImportExpression[source.type!='Literal']",
+    message: `Dynamic import() takes a string literal only, so the module is known at lint time. ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
+  {
+    selector: "NewExpression[callee.name='Worker'] Property[key.name='eval']",
+    message: `Do not start a Worker from a code string (eval: true). ${UNTRUSTED_EVAL_MESSAGE}`,
+  },
 ];
 
 /** Flat ESLint config. Every rule is an error; `npm run lint` runs with --max-warnings 0. */
@@ -64,7 +116,19 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "off",
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
       "no-restricted-syntax": ["error", ...noInProcessEval],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "vm", message: UNTRUSTED_EVAL_MESSAGE },
+            { name: "node:vm", message: UNTRUSTED_EVAL_MESSAGE },
+          ],
+        },
+      ],
     },
   },
   {

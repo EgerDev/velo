@@ -1,10 +1,14 @@
-import { Innertube, Platform } from "youtubei.js";
-import "@/lib/ipv4-bind.server";
+import { Innertube } from "youtubei.js";
 import { proxiedFetch } from "@/lib/user-proxy.server";
 import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
-// eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
-Platform.shim.eval = (data) => new Function(data.output)();
+// No JavaScript evaluator is installed and every client is created with
+// `retrieve_player: false` (roadmap D7/C5): the server never downloads or runs
+// YouTube's player script. With no player, youtubei.js's `decipher()` returns
+// the format URL exactly as YouTube sent it, or `''` when YouTube sent only a
+// signatureCipher; `plainFormatUrl` (youtube-stream.server.ts) turns `''` into
+// its fixed "isn't available as a direct download" message. The library's own
+// "provide your own JavaScript evaluator" error is an unreachable backstop.
 
 export const STREAM_HEADERS = {
   accept: "*/*",
@@ -48,7 +52,7 @@ export async function getClient(
     const client = await Innertube.create({
       lang: "en",
       location: "US",
-      retrieve_player: true,
+      retrieve_player: false,
       enable_session_cache: false,
       fetch: proxiedFetch,
       cookie: session.cookie,
@@ -62,7 +66,7 @@ export async function getClient(
     clientPromise = Innertube.create({
       lang: "en",
       location: "US",
-      retrieve_player: true,
+      retrieve_player: false,
       enable_session_cache: true,
       fetch: proxiedFetch,
     }).catch((err) => {
@@ -96,18 +100,6 @@ function evictPlayableCache() {
   }
 }
 
-const WEBPO_INNERTUBE = new Set([
-  "WEB_EMBEDDED",
-  "TV_EMBEDDED",
-  "TV_SIMPLY",
-  "MWEB",
-  "TV",
-  "YTMUSIC",
-  "YTKIDS",
-  "WEB_CREATOR",
-  "WEB",
-]);
-
 export async function getPlayableInfo(yt: InnertubeClient, id: string): Promise<PlayableInfo> {
   if (authenticatedClients.has(yt)) {
     return getPlayableInfoUncached(yt, id, false);
@@ -131,13 +123,6 @@ async function getPlayableInfoUncached(
 ): Promise<PlayableInfo> {
   let lastError: Error | null = null;
   let fallback: PlayableInfo | null = null;
-  let gvsPot: string | undefined;
-  try {
-    const { mintContentPoToken } = await import("@/lib/po-token.server");
-    gvsPot = (await mintContentPoToken(id)) || undefined;
-  } catch {
-    /* BotGuard optional — Innertube still tries */
-  }
 
   const clients = authenticatedClients.has(yt) ? SESSION_CLIENTS : CLIENTS;
   // Probe a few clients per round: fully serial cost one RTT per client on a
@@ -148,8 +133,7 @@ async function getPlayableInfoUncached(
     const settled = await Promise.all(
       clients.slice(i, i + WINDOW).map(async (client) => {
         try {
-          const usePot = Boolean(gvsPot && WEBPO_INNERTUBE.has(client));
-          return await yt.getBasicInfo(id, usePot ? { client, po_token: gvsPot } : { client });
+          return await yt.getBasicInfo(id, { client });
         } catch (err) {
           lastError = err instanceof Error ? err : new Error("Could not reach YouTube.");
           return null;

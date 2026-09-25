@@ -4,7 +4,7 @@
  * Dependency updater with rollback — `npm run update:deps`.
  *
  * The download path here is built on libraries that reverse a moving target:
- * `youtubei.js` and `bgutils-js` track the YouTube player, and the `yt-dlp`
+ * `youtubei.js` tracks the YouTube player, and the `yt-dlp`
  * Python module ships roughly monthly because YouTube keeps breaking it. Left
  * alone they go stale in weeks and extraction starts failing for reasons that
  * look like bugs in this repo. So this exists to be run unattended.

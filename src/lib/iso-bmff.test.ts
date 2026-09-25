@@ -8,7 +8,7 @@ import {
   looksLikeFragment,
   looksLikeMediaFile,
 } from "./iso-bmff.ts";
-import { parseHls } from "./stream-unlock.ts";
+import { parseHls } from "./hls.ts";
 
 test("YouTube HLS VOD is MPEG-TS fragments, not CMAF MAP", () => {
   const parsed = parseHls(

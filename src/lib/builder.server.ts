@@ -1,7 +1,7 @@
 /**
  * Server media pipe: the browser gets YouTube media from this origin only,
  * because googlevideo.com URLs are bound to the server's IP.
- * All three server paths run here so the browser only talks to `/api/builder`.
+ * Every server path runs here so the browser only talks to `/api/builder`.
  */
 
 function isMediaResponse(response: Response): boolean {
@@ -25,7 +25,6 @@ export async function streamBuilderDownload(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<Response> {
   const errors: string[] = [];
@@ -52,7 +51,6 @@ export async function streamBuilderDownload(opts: {
       id: opts.id,
       itag: opts.itag,
       cookies: opts.cookies,
-      pot: opts.pot,
       signal: opts.signal,
     });
     if (isMediaResponse(result)) return tag(result, "ytdlp");

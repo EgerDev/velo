@@ -17,7 +17,6 @@ import {
   ytdlpUserAgentArgs,
   CLIENT_USER_AGENTS,
   ytdlpHeaderArgs,
-  ytdlpImpersonateArgs,
   YTDLP_DEPRECATED_HEADERS,
   YTDLP_CLIENT_EXTRACT,
   parseYtdlpLog,
@@ -26,16 +25,13 @@ import {
   YTDLP_EXTRACTOR_LAYERS,
   YTDLP_EXTRACTOR_ARGS,
   YTDLP_PLAYER_CLIENTS,
-  YOUTUBE_ALT_APIS,
   GUEST_CLIENTS,
   resolvePlayerClient,
-  PO_TOKEN_STEPS,
   ytdlpFamilyArgs,
   classifyYtdlpFailure,
   formatYtdlpFailure,
   mapYtdlpExit,
   looksLikeIpv6Mismatch,
-  poTokenArgs,
   YTDLP_EXIT,
   pythonBin,
   classifyPythonProbe,
@@ -79,17 +75,14 @@ test("anonymous downloads try visionos first (guest dash/mux); android_vr aliase
   assert.equal(resolvePlayerClient("android"), "android");
   const vr = YTDLP_PLAYER_CLIENTS.find((row) => row.id === "android_vr");
   assert.equal(vr?.pot, "alias");
-  assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "tv_embedded"));
-  assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "invidious" && /403/.test(row.note)));
   const argv = ytdlpArgv({
     dir: "/tmp/x",
     id: "jNQXAC9IVRw",
     itag: 18,
     client: "android_vr",
-    impersonate: true,
   });
   assert.match(argv[argv.indexOf("--extractor-args") + 1] ?? "", /player_client=web_embedded/);
-  assert.equal(argv.includes("--impersonate"), true);
+  assert.equal(argv.includes("--impersonate"), false);
 });
 
 test("SOCKS hop uses web_embedded for 1080p and muxed 360", () => {
@@ -108,7 +101,7 @@ test("1080p Save uses the hop that works: 137+140 then Opus then HLS — not sil
   assert.equal(ytdlpFormatSelector(18), "18");
   const argv = ytdlpArgv({ dir: "/tmp/x", id: "dQw4w9WgXcQ", itag: 137, client: "web_embedded" });
   assert.equal(argv[argv.indexOf("-f") + 1], "137+140/137+251/96");
-  assert.equal(argv[argv.indexOf("--throttled-rate") + 1], "100K");
+  assert.equal(argv.includes("--throttled-rate"), false);
   assert.equal(argv[argv.indexOf("--http-chunk-size") + 1], "10M");
   assert.equal(argv[argv.indexOf("--concurrent-fragments") + 1], "1");
   assert.equal(argv[argv.indexOf("--merge-output-format") + 1], "mp4/mkv");
@@ -142,7 +135,9 @@ test("socks proxy is passed to yt-dlp and cookies are not required", () => {
   assert.equal(argv.includes("--force-ipv4"), false);
   assert.deepEqual(ytdlpFamilyArgs("socks5h://x"), []);
   assert.deepEqual(ytdlpFamilyArgs(), ["--force-ipv4"]);
-  assert.equal(argv[argv.indexOf("--remote-components") + 1], "ejs:github");
+  // The challenge solver comes from the pinned yt-dlp install, never fetched at run time.
+  assert.equal(argv.includes("--remote-components"), false);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--remote-components/);
 });
 
 test("browser cookies never ride a SOCKS hop even when YTDLP_BROWSER is set", () => {
@@ -161,22 +156,14 @@ test("browser cookies never ride a SOCKS hop even when YTDLP_BROWSER is set", ()
   }
 });
 
-test("extractor-args stamp po_token and visitor_data; never use -u/-p", () => {
-  const args = extractorArgs("mweb", "POTTOKEN", "visitorA");
+test("extractor-args carry visitor_data and never a PO token; never use -u/-p", () => {
+  const args = extractorArgs("mweb", "visitorA");
   assert.match(args, /player_client=mweb/);
   assert.match(args, /player_js_variant=main/);
-  assert.match(args, /fetch_pot=never/);
   assert.ok(!args.includes("use_ad_playback_context"));
   assert.match(args, /visitor_data=visitorA/);
-  assert.match(args, /po_token=mweb\.gvs\+POTTOKEN/);
-  assert.match(args, /mweb\.player\+POTTOKEN/);
-  const dual = extractorArgs("web_embedded", "GVS123", "visitorA", "PLAYER456");
-  assert.match(dual, /web_embedded\.gvs\+GVS123/);
-  assert.match(dual, /web_embedded\.player\+PLAYER456/);
-  assert.ok(!dual.includes("use_ad_playback_context"));
-  const none = extractorArgs("web_embedded");
-  assert.ok(!none.includes("fetch_pot=never"), "let yt-dlp fetch POT when we have none");
-  const vr = extractorArgs("android_vr", "POT");
+  assert.doesNotMatch(args, /po_token|fetch_pot/);
+  const vr = extractorArgs("android_vr");
   assert.match(vr, /player_client=web_embedded/);
   const argv = ytdlpArgv({
     dir: "/tmp/x",
@@ -191,7 +178,7 @@ test("extractor-args stamp po_token and visitor_data; never use -u/-p", () => {
   assert.ok(!argv.includes("--username"));
   assert.ok(!argv.join(" ").includes("visitor_data"), "cookies already carry visitor id");
   assert.equal(argv[argv.indexOf("-f") + 1], "18");
-  assert.ok(PO_TOKEN_STEPS.some((row) => row.step === "4 mint"));
+  assert.doesNotMatch(argv.join(" "), /po_token|fetch_pot/);
 });
 
 test("never pass a global User-Agent; InnerTube already stamps per client", () => {
@@ -211,27 +198,13 @@ test("never pass a global User-Agent; InnerTube already stamps per client", () =
   );
 });
 
-test("curl_cffi impersonate is chrome/safari on web clients, never android", () => {
-  assert.deepEqual(ytdlpImpersonateArgs("web_embedded"), ["--impersonate", "chrome"]);
-  assert.deepEqual(ytdlpImpersonateArgs("web_safari"), ["--impersonate", "safari"]);
-  assert.deepEqual(ytdlpImpersonateArgs("android"), []);
-  assert.deepEqual(ytdlpImpersonateArgs("ios"), []);
-  const web = ytdlpArgv({
-    dir: "/tmp/x",
-    id: "jNQXAC9IVRw",
-    itag: 137,
-    client: "web_embedded",
-    impersonate: true,
-  });
-  assert.equal(web[web.indexOf("--impersonate") + 1], "chrome");
-  const android = ytdlpArgv({
-    dir: "/tmp/x",
-    id: "jNQXAC9IVRw",
-    itag: 18,
-    client: "android",
-    impersonate: true,
-  });
-  assert.equal(android.includes("--impersonate"), false);
+test("yt-dlp argv never carries --impersonate (D7: no TLS fingerprint impersonation)", () => {
+  for (const client of ["web_embedded", "web_safari", "mweb", "tv_simply", "android", "ios"]) {
+    // A stale caller that still passes the old flag gets no impersonation either.
+    const legacy = { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client, impersonate: true };
+    assert.equal(ytdlpArgv(legacy).includes("--impersonate"), false, client);
+  }
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--impersonate/);
   assert.ok(YTDLP_CLIENT_EXTRACT.some((row) => row.client === "web_embedded" && row.cookies));
 });
 
@@ -279,12 +252,9 @@ test("working command matches argv and includes the zoo 1080 selector", () => {
     itag: 137,
     client: "web_embedded",
     proxy: "socks5h://127.0.0.1:1080",
-    impersonate: true,
-    pot: "GVS",
-    playerPot: "PLAYER",
   });
   assert.match(cmd, /^python3 -m yt_dlp /);
-  assert.match(cmd, /--impersonate chrome/);
+  assert.doesNotMatch(cmd, /--impersonate/);
   assert.match(cmd, /player_client=web_embedded/);
   assert.match(cmd, /137\+140\/137\+251\/96/);
   assert.match(cmd, /socks5h:\/\/127\.0\.0\.1:1080/);
@@ -292,7 +262,7 @@ test("working command matches argv and includes the zoo 1080 selector", () => {
   assert.match(cmd, /--check-formats/);
   assert.match(cmd, /jNQXAC9IVRw/);
   assert.match(YTDLP_WORKING_EXAMPLE, /player_client=web_embedded/);
-  assert.match(YTDLP_WORKING_EXAMPLE, /--impersonate chrome/);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--impersonate/);
   assert.equal(YTDLP_WORKING_EXAMPLE.includes("--force-ipv4"), false);
 });
 
@@ -306,18 +276,15 @@ test("cookies-from-browser only when YTDLP_BROWSER is a known browser", () => {
   else process.env.YTDLP_BROWSER = previous;
 });
 
-test("keeps = in visitor_data and does not pin fetch_pot without a token", () => {
-  const args = extractorArgs("mweb", undefined, "abc=def");
+test("keeps = in visitor_data and never pins fetch_pot", () => {
+  const args = extractorArgs("mweb", "abc=def");
   assert.match(args, /visitor_data=abc=def/);
-  assert.ok(!args.includes("fetch_pot=never"));
-  const loggedIn = extractorArgs("web_embedded", "POT", null, "PLAYER", "104123||");
+  assert.ok(!args.includes("fetch_pot"));
+  const loggedIn = extractorArgs("web_embedded", null, "104123||");
   assert.match(loggedIn, /data_sync_id=104123\|\|/);
-  assert.equal(poTokenArgs("android", "WEBPO"), "");
-  assert.match(poTokenArgs("web_embedded", "WEBPO"), /web_embedded\.gvs\+WEBPO/);
   assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "data_sync_id"));
-  assert.ok(
-    YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && /never iff/.test(row.use)),
-  );
+  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && row.use === "omit"));
+  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "po_token" && row.use === "never"));
 });
 
 test("yt-dlp exit codes: SIGKILL/timeout is not a 403", () => {
@@ -488,4 +455,34 @@ test("only a genuinely absent binary counts as a missing interpreter", () => {
   );
   assert.equal(isMissingInterpreterError(new Error("spawn failed")), false);
   assert.equal(isMissingInterpreterError(null), false);
+});
+
+// Config files, plugin dirs and remote components could each re-enable what
+// Velo turns off (D7/C5): every run ignores them and uses only the bundled solver.
+const LOCKED_PREFIX = [
+  "-m",
+  "yt_dlp",
+  "--ignore-config",
+  "--no-plugin-dirs",
+  "--no-remote-components",
+  "--no-js-runtimes",
+  "--js-runtimes",
+  "node",
+];
+
+test("the download argv starts with the locked-down prefix and sets no --throttled-rate", () => {
+  const cases = [
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client: "web_embedded" },
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "android", proxy: "socks5h://127.0.0.1:1080" },
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "mweb", cookiePath: "/tmp/x/cookies.txt" },
+  ];
+  for (const opts of cases) {
+    const argv = ytdlpArgv(opts);
+    assert.deepEqual(argv.slice(0, LOCKED_PREFIX.length), LOCKED_PREFIX, opts.client);
+    assert.equal(argv.includes("--throttled-rate"), false, opts.client);
+  }
+  const cmd = ytdlpWorkingCommand(cases[0]!);
+  assert.match(cmd, /^python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components /);
+  assert.match(YTDLP_WORKING_EXAMPLE, /^python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components /);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--throttled-rate/);
 });

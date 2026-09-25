@@ -30,7 +30,7 @@ export function BulkExportMenu(props: {
             <FileCode className="size-4 text-accent shrink-0" />
             <div>
               <div className="font-medium text-fg">yt-dlp Bash Script</div>
-              <div className="text-[10px] text-muted">Runs anti-throttle batch locally</div>
+              <div className="text-[10px] text-muted">Runs the batch on your computer</div>
             </div>
           </button>
           <button

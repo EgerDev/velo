@@ -2,9 +2,9 @@
 /**
  * Update planning shared by `scripts/auto-update.mjs` and its tests.
  *
- * This app's download path is only as good as the libraries that reverse the
- * YouTube player — `youtubei.js`, `bgutils-js` and the `yt-dlp` Python module
- * all go stale within weeks of a player change — so the updater has to be
+ * This app's download path is only as good as the libraries that read
+ * YouTube's formats — `youtubei.js` and the `yt-dlp` Python module — and
+ * both go stale within weeks of a YouTube change, so the updater has to be
  * something you can actually run unattended. That means the planning has to be
  * separable from the installing: everything below is pure, so the risky part
  * (which version do we move to, and is that move in-range or a range bump?) is

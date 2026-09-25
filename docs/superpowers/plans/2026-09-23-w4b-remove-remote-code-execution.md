@@ -2732,7 +2732,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - **Accept.** Add the sentence below to the roadmap's Global Constraint "Untrusted JavaScript", in its own reviewed commit, `docs(roadmap): allow yt-dlp's pinned challenge solver in a scrubbed child (W4b CCR-1)`:
     > "The one exception is the pinned yt-dlp's bundled challenge solver (`yt-dlp-ejs`, hash-pinned by W5), which runs in yt-dlp's own `node --permission` child with the allow-listed environment of `childEnv()`; nothing downloads solver code at run time."
   - **Reject (strict).** Tell the orchestrator. Task 8 is then re-planned: drop `--js-runtimes node`, stop forcing web clients, and accept losing signed-in yt-dlp downloads.
-- [ ] **Step 2: Add a W9 counsel question.** Append to the W9-1 packet: "yt-dlp's own JavaScript challenge solving (signature/n-parameter) and `--impersonate` (curl_cffi TLS impersonation) remain in the product after W4b. May they stay?"
+- [ ] **Step 2: Add a W9 counsel question.** Append to the W9-1 packet: "yt-dlp's own JavaScript challenge solving (signature/n-parameter), run from its pinned install with no remote components, remains in the product after W4b. May it stay?" (`--impersonate` was removed under ruling P1 and `--throttled-rate` under ruling P10, so neither is a question.)
 - [ ] **Step 3: Operator notice for existing deployments.** Post with the release that ships W4b:
   > Velo no longer reads `VELO_SOCKS_PROXY` or `ALL_PROXY` and no longer uses a public proxy list. If you relied on one, add your own proxy in the proxy console (Tools → Proxy operations). yt-dlp now runs with a minimal environment. If you set `HTTP_PROXY`/`HTTPS_PROXY` for yt-dlp, use the proxy console instead until `VELO_EGRESS_PROXY` lands.
 - [ ] **Step 4: Merge W4b** by PR after CI is green and the whole-branch review passes.
@@ -2765,14 +2765,19 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
    - yt-dlp keeps `--force-ipv4` on direct runs.
    - A host with broken IPv6 egress can set `NODE_OPTIONS=--dns-result-order=ipv4first`.
 10. **yt-dlp no longer downloads its challenge solver from GitHub** at run time. It needs `yt-dlp-ejs` installed (the `yt-dlp[default]` extra); without it, yt-dlp lists fewer formats.
-11. **Child processes get a minimal environment.** yt-dlp, ffmpeg and pip get only `PATH`/`PATHEXT`/`SYSTEMROOT`/`WINDIR`/`COMSPEC`/`TEMP`/`TMP`/`TMPDIR`/`HOME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA`/`XDG_CACHE_HOME`/`LANG`/`LC_ALL`/`TZ`/`SSL_CERT_FILE`/`SSL_CERT_DIR`. `HTTP(S)_PROXY`, `PYTHONPATH` and `NODE_OPTIONS` no longer reach them.
+11. **yt-dlp's child processes get a minimal environment.** yt-dlp (and the ffmpeg and `node` solver processes it starts) get only `PATH`/`PATHEXT`/`SYSTEMROOT`/`WINDIR`/`COMSPEC`/`TEMP`/`TMP`/`TMPDIR`/`HOME`/`USERPROFILE`/`APPDATA`/`LOCALAPPDATA`/`XDG_CACHE_HOME`/`LANG`/`LC_ALL`/`TZ`/`SSL_CERT_FILE`/`SSL_CERT_DIR`. `HTTP(S)_PROXY`, `PYTHONPATH` and `NODE_OPTIONS` no longer reach them. The Tools tab's `npm`/`pip` updater (`tool-updates.server.ts`) still passes the full environment until W4a (ruling P8).
 12. **`pot` in `/api/builder` and `/api/ytdlp` bodies is ignored.**
-13. **The Tools tab no longer lists `bgutils-js`.**
+13. **The Tools tab shows two tools**, `youtubei.js` and `yt-dlp`; `bgutils-js` is gone.
 14. **Copy.**
     - The Bulk badge reads "Queue".
     - The "Velo's own chain" paragraph and the "NSig & BotGuard Bypass" diagnostics row are gone.
     - The Transcript tab has no "AI" chip.
     - Save-error hints no longer mention PO tokens, nsig or "matching hop".
+15. **`--impersonate` is no longer passed to yt-dlp** (ruling P1: TLS fingerprint impersonation is bot-detection evasion). Some yt-dlp runs fail more often.
+16. **curl_cffi is no longer pip-installed at run time.** Nothing on the yt-dlp path installs a Python module.
+17. **The browser mux of a video-only itag is relay-only.** `hybridMux`'s video leg (an itag with an `audioItag`) skips "yt-dlp on the server" and takes only the Velo relay.
+18. **`--throttled-rate` is removed** (ruling P10: re-extracting a throttled stream is throttle bypass). A throttled yt-dlp download stays slow instead of restarting.
+19. **yt-dlp ignores configuration files and plugins.** Every run passes `--ignore-config --no-plugin-dirs --no-remote-components`, so a user or system `yt-dlp.conf` and any installed yt-dlp plugin are ignored.
 
 ## Audit coverage
 
@@ -2815,7 +2820,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
     - `isRelayTarget` exact hosts/paths/port (SEC-07 allowlist, TEST-18);
     - drop upstream `Content-Disposition`;
     - `requireSameOrigin` and `apiError` on every route, including the fixed strings W4b added (`BLOCKED`, "not available as a direct download", "No download path…") and the raw `err.message` in `download.ts`;
-    - the runtime installers (`optionalModule`'s `pip install curl_cffi` for `ensureImpersonate`, and `tool-updates.server.ts`);
+    - the runtime installers: `tool-updates.server.ts`'s `npm install` / `pip install` and the full `process.env` it passes (`optionalModule` and `ensureImpersonate` are already deleted, ruling P1);
     - ARCH-13.
   - **Wire `VELO_EGRESS_PROXY` (C1)** into yt-dlp `--proxy` and `proxiedFetch`. It replaces the deleted `VELO_SOCKS_PROXY`/`ALL_PROXY`.
 - **W3:**
@@ -2828,18 +2833,20 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - OPS-11's per-instance state (slots, "direct blocked" bit) moves to C8/deep health.
 - **W6:** `extension/README.md` "official Google" wording (ARCH-23) goes with the extension.
 - **W7:**
-  - `docs/architecture.md` still describes the deleted pieces: §2/§4 `po-token.server`, BotGuard in jsdom, `mintPoToken`, SOCKS same-hop, `cors-relays`, `ipv4-bind`, the `ssr.external` list, the Tools tab's `bgutils-js` and the env table's `VELO_SOCKS_PROXY`/`ALL_PROXY`;
+  - `docs/architecture.md` was brought up to date for W4b in the final fix wave; W7 keeps it current;
   - README rewrite;
   - dead code left in place, which W7 may delete:
     - `transfer-progress.ts` same-hop helpers (`applyPresentedHop`, `abandonFile`, `foldHybridBypassReport`, `fileByteReport`, `hlsSegmentReport`, `SameHopReport`), now used only by tests;
     - `hls.ts`, used only by tests;
     - `fallback-path.ts`' `BUILDER_FALLBACK_STEPS`;
+    - `looksThrottled` (`throttle.ts:27`), used only by tests;
+    - the research tables in `ytdlp-auth.ts` that only tests read: `YTDLP_PLAYER_CLIENTS`, `YTDLP_EXTRACTOR_ARGS`, `YTDLP_EXTRACTOR_LAYERS`, `YTDLP_CLIENT_EXTRACT` and `YTDLP_WORKING_EXAMPLE`;
     - naming: `SOCKS_CLIENTS`/`socksClientsForItag`, the `YtdlpNext` value `"next-socks"` and `YTDLP_PLAYER_CLIENTS.pot`;
   - CHANGELOG entry from "Behaviour changes" above.
 - **W8:** the privacy policy lists no CORS relay or free-proxy third party. Any "use only for content you have rights to" notice (OSS-11) uses counsel's text.
 - **W9 (counsel):**
-  - yt-dlp's own challenge solving and `--impersonate` (curl_cffi TLS impersonation) remain (CCR-1, Task 10 Step 2);
-  - `--throttled-rate 100K` makes yt-dlp re-extract a slow stream; it is a standard yt-dlp option and was not removed;
+  - yt-dlp's own challenge solving remains (CCR-1, Task 10 Step 2);
+  - `--impersonate` (ruling P1) and `--throttled-rate` (ruling P10) were removed, so they need no ruling;
   - PRIV-10.
 
 ## Self-review
