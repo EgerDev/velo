@@ -1,4 +1,4 @@
-import { isBuilderPreview, safeDownloadName } from "@/lib/builder-env";
+import { safeDownloadName } from "@/lib/builder-env";
 import { blobIsMedia, putCachedMedia } from "@/lib/media-cache";
 
 type WritableSink = {
@@ -17,9 +17,8 @@ type PickerWindow = Window & {
 export type PendingSave = Promise<WritableSink | null>;
 
 /**
- * Must run in the same tick as the click. Grok’s preview iframe drops the
- * user-gesture if we `await` a download first, then the Save picker is blocked
- * and `<a download>` may navigate the iframe instead of saving.
+ * Must run in the same tick as the click. The browser drops the user gesture
+ * if we `await` a download first, and then the Save picker is blocked.
  */
 export function beginBuilderSave(filename: string): PendingSave {
   if (typeof window === "undefined") return Promise.resolve(null);
@@ -89,7 +88,7 @@ export async function writePendingSave(
 }
 
 /**
- * Save without navigating the Grok preview. Prefer the picker opened at click;
+ * Save without navigating the app away. Prefer the picker opened at click;
  * otherwise blob + `<a download target="_blank">` so a blocked download attr
  * opens a tab instead of replacing the app.
  */
@@ -121,7 +120,7 @@ export async function saveMediaBlob(
 
   const href = URL.createObjectURL(blob);
   const framed = window.parent !== window;
-  const preview = framed || isBuilderPreview();
+  const preview = framed;
   try {
     const link = document.createElement("a");
     link.href = href;

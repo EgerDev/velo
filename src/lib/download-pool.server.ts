@@ -1,5 +1,5 @@
 /**
- * Caps yt-dlp/ffmpeg so a Grok sandbox cannot OOM when many people Save at once.
+ * Caps yt-dlp/ffmpeg so the server cannot run out of memory when many people Save at once.
  * Same video:itag is coalesced and served from a short disk cache.
  */
 import { createReadStream } from "node:fs";

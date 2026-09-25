@@ -5,7 +5,7 @@
  * slowly. Sliding-window log (safety): each spend is timestamped; cost ages out
  * exactly `windowMs` later so a client cannot sit on a fixed-window edge and
  * double the rate. Identity is user id when signed in, otherwise a per-browser
- * guest id (x-velo-guest / cookie) so 100 grok.me tabs on one NAT are not one
+ * guest id (x-velo-guest / cookie) so many browsers behind one NAT are not one
  * bucket.
  *
  * That guest id is client-set and unsigned, so it is a fairness key, NOT a cap:
@@ -14,10 +14,8 @@
  * then their own bucket. Charging in that order also means a refused caller
  * never mints a bucket, which is what keeps the map bounded under a flood.
  *
- * On grok.me the session rides a bearer token (partitioned cookies). Quota and
- * cookie gates must read Authorization from the download request itself.
+ * Quota and cookie gates read the session cookie from the download request itself.
  */
-import { readSessionTokenFromHeaders } from "./session-token.ts";
 
 type Spend = { at: number; cost: number };
 
@@ -331,12 +329,11 @@ export function quotaHeaders(result: {
   };
 }
 
-/** Resolve the signed-in person from this download request’s bearer (grok.me iframe). */
+/** Resolve the signed-in person from this download request’s session cookie. */
 export async function userIdFromDownloadRequest(request: Request): Promise<string | null> {
   const { getSessionUser } = await import("@/lib/auth/verify.server");
   try {
-    const token = readSessionTokenFromHeaders(request.headers);
-    return (await getSessionUser(token || undefined))?.id ?? null;
+    return (await getSessionUser(request.headers))?.id ?? null;
   } catch {
     return null;
   }

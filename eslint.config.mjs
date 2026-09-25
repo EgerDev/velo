@@ -35,7 +35,6 @@ export default tseslint.config(
       // and `update:deps` uses lint as a gate, so it would roll back every
       // upgrade for a reason that has nothing to do with the upgrade.
       ".remember/**",
-      ".grok/**",
       ".pi/**",
       ".tanstack/**",
     ],
@@ -70,12 +69,8 @@ export default tseslint.config(
   },
   {
     // Server code logs through `log` (src/lib/log.server.ts), which redacts secrets.
-    files: ["src/**/*.server.ts", "src/routes/**"],
-    ignores: [
-      // W2 deletes/rewrites these two Grok-gate auth files; remove both lines then.
-      "src/lib/auth/gate-session.server.ts",
-      "src/lib/auth/verify.server.ts",
-    ],
+    // Server-only modules without the `.server` suffix are listed by name.
+    files: ["src/**/*.server.ts", "src/routes/**", "src/lib/auth/server.ts", "src/lib/db.ts", "server/**"],
     rules: { "no-console": "error" },
   },
   // Disable rules that conflict with Prettier formatting.

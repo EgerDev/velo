@@ -1,15 +1,64 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
-import { startServer } from "./harness.mjs";
+import { buildChildEnv, startServer } from "./harness.mjs";
+import { DB_URL, NEEDS_DB, NO_DB_URL, PROD_ENV, dbEnv } from "./env.mjs";
 
-// W2 removes the Grok auth flag; until then production boot needs it off.
-const BASE_ENV = { VITE_AUTH_ENABLED: "false" };
-const DB_URL = process.env.VELO_TEST_DATABASE_URL ?? "";
+const ENTRY = fileURLToPath(new URL("../../.output/server/index.mjs", import.meta.url));
+const REQUIRED = ["DATABASE_URL", "BETTER_AUTH_SECRET", "VELO_PUBLIC_ORIGIN", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+const FULL_ENV = { ...PROD_ENV, DATABASE_URL: NO_DB_URL };
 
-describe("GET /api/health without a database", () => {
+/** Boots the built server synchronously; a correct refusal exits long before the timeout. */
+function boot(childEnv) {
+  return spawnSync(process.execPath, [ENTRY], { env: childEnv, encoding: "utf8", timeout: 20_000 });
+}
+const prodEnv = (env) => buildChildEnv(process.env, env);
+
+describe("production boot refuses incomplete configuration", () => {
+  test("no configuration: exits non-zero before listening and names all five variables, no values", () => {
+    const run = boot(prodEnv({ BETTER_AUTH_SECRET: "too-short-secret-value" }));
+    const output = `${run.stdout}${run.stderr}`;
+    assert.equal(typeof run.status, "number", `killed by ${run.signal}; the server must exit on its own`);
+    assert.notEqual(run.status, 0);
+    assert.match(output, new RegExp(`EnvError: Missing or invalid required environment variables: ${REQUIRED.join(", ")}\\r?\\n`));
+    assert.doesNotMatch(output, /Listening on/);
+    assert.doesNotMatch(output, /too-short-secret-value/);
+  });
+
+  for (const name of REQUIRED) {
+    test(`missing only ${name}: exits non-zero and names exactly that variable`, () => {
+      const run = boot(prodEnv({ ...FULL_ENV, [name]: "" }));
+      assert.equal(typeof run.status, "number", `killed by ${run.signal}; the server must exit on its own`);
+      assert.notEqual(run.status, 0);
+      assert.match(`${run.stdout}${run.stderr}`, new RegExp(`required environment variables: ${name}\\r?\\n`));
+    });
+  }
+
+  for (const nodeEnv of [undefined, "development"]) {
+    test(`the built server is production even with NODE_ENV=${nodeEnv ?? "(unset)"}`, () => {
+      const env = prodEnv({});
+      if (nodeEnv) env.NODE_ENV = nodeEnv;
+      else delete env.NODE_ENV;
+      const run = boot(env);
+      assert.equal(typeof run.status, "number", `killed by ${run.signal}; the server must exit on its own`);
+      assert.notEqual(run.status, 0);
+      assert.match(`${run.stdout}${run.stderr}`, /EnvError: Missing or invalid required environment variables: DATABASE_URL/);
+    });
+  }
+
+  test("startServer rejects with the EnvError output", async () => {
+    await assert.rejects(
+      startServer({ env: {} }).then((s) => s.stop()),
+      /server exited before it was ready:[\s\S]*EnvError: Missing or invalid required environment variables: DATABASE_URL/,
+    );
+  });
+});
+
+describe("GET /api/health with the database down", () => {
   let server;
   before(async () => {
-    server = await startServer({ env: BASE_ENV });
+    server = await startServer({ env: FULL_ENV });
   });
   after(() => server?.stop());
 
@@ -24,24 +73,21 @@ describe("GET /api/health without a database", () => {
     assert.equal(body.checks.database.detail, "database unreachable");
   });
 
-  test("leaks no path, stack or driver message", async () => {
+  test("leaks no path, stack, driver message or connection string", async () => {
     const text = await (await fetch(`${server.baseUrl}/api/health?deep=1`)).text();
-    assert.doesNotMatch(text, /ENOENT|\.output|node_modules|[A-Za-z]:\\|\bat \w+ \(|postgres:\/\//i);
+    assert.doesNotMatch(text, /ENOENT|ECONNREFUSED|\.output|node_modules|[A-Za-z]:\\|\bat \w+ \(|postgres:\/\/|velo-test@/i);
   });
 });
 
 describe("GET /api/health against a migrated Postgres", () => {
-  // Runs everywhere VELO_TEST_DATABASE_URL is set; CI always sets it (ci.yml `verify` job).
-  const skip = !DB_URL && !process.env.CI ? "set VELO_TEST_DATABASE_URL to a migrated Postgres" : false;
   let server;
   before(async () => {
-    if (skip) return;
-    assert.ok(DB_URL, "VELO_TEST_DATABASE_URL must be set in CI");
-    server = await startServer({ env: { ...BASE_ENV, DATABASE_URL: DB_URL } });
+    if (NEEDS_DB) return;
+    server = await startServer({ env: dbEnv() });
   });
   after(() => server?.stop());
 
-  test("deep check is 200 ok and never echoes the connection string", { skip }, async () => {
+  test("deep check is 200 ok and never echoes the connection string", { skip: NEEDS_DB }, async () => {
     const res = await fetch(`${server.baseUrl}/api/health?deep=1`);
     const text = await res.text();
     assert.equal(res.status, 200, text);

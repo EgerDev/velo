@@ -1,40 +1,18 @@
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isMigrationFile, migrationName, pendingMigrations } from "./migration-plan.mjs";
-import { projectRoot } from "./with-app-env.mjs";
-
-const AUTH_MIGRATION = "0001_auth.sql";
-
-/**
- * The auth-on copy of the Better Auth schema and its source, or null when the
- * app has not turned sign-in on (the shipped state).
- */
-function authSchemaCopy(root) {
-  const copy = join(root, "migrations", AUTH_MIGRATION);
-  const source = join(root, "migrations/auth", AUTH_MIGRATION);
-  if (!existsSync(copy) || !existsSync(source)) return null;
-  return { copy: readFileSync(copy, "utf8"), source: readFileSync(source, "utf8") };
-}
+import { projectRoot } from "./project-root.mjs";
 
 test("_migrations keys on basename, not path", () => {
   assert.equal(migrationName("/migrations/0002_todos.sql"), "0002_todos.sql");
-  assert.equal(migrationName("migrations/auth/0001_auth.sql"), "0001_auth.sql");
+  assert.equal(migrationName("migrations/sub/0001_auth.sql"), "0001_auth.sql");
   assert.equal(migrationName("0001_auth.sql"), "0001_auth.sql");
 });
 
-test("a file already applied from another directory does not re-apply", () => {
-  // The auth-on path copies migrations/auth/0001_auth.sql into the globbed
-  // directory; a database that already has it must not run it twice.
+test("a file already applied does not re-apply", () => {
   assert.deepEqual(pendingMigrations(["/migrations/0001_auth.sql"], ["0001_auth.sql"]), []);
 });
 
@@ -51,39 +29,36 @@ test("pending migrations are returned in name order", () => {
   );
 });
 
-test("non-.sql entries are dropped (readdir also yields the auth/ directory)", () => {
+test("non-.sql entries are dropped", () => {
   assert.equal(isMigrationFile("auth"), false);
   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
 });
 
-test("the auth schema ships outside the globbed directory", () => {
-  const migrationsDir = join(projectRoot(), "migrations");
-  assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+test("migrations/ holds only numbered .sql files (no template copies in subdirectories)", () => {
+  const entries = readdirSync(join(projectRoot(), "migrations"));
+  assert.deepEqual(entries.filter((entry) => !/^\d{4}_[a-z0-9_]+\.sql$/.test(entry)), []);
 });
 
-test("this workspace's auth schema copy is byte-identical to its source", () => {
-  // An edited copy diverges silently: basename keying skips it on a database
-  // that already ran the original, and applies it on a fresh PGLite preview.
-  const pair = authSchemaCopy(projectRoot());
-  if (pair === null) return; // sign-in off — nothing has been copied up
-  assert.equal(
-    pair.copy,
-    pair.source,
-    "migrations/0001_auth.sql has been edited — it must stay a verbatim copy of migrations/auth/0001_auth.sql",
-  );
-});
+// A migration already applied to a real database is immutable: editing it
+// after the fact desyncs that database's schema from the file, silently,
+// since `_migrations` keys on filename and never re-runs it. Pin each
+// already-applied file's content hash so an edit fails this test instead.
+const APPLIED_MIGRATION_HASHES = {
+  "0001_auth.sql": "217a634f966c9e8d93d59f22191fb5f377ec251e507e52d5eddd990e913eaa76",
+  "0002_youtube_vault.sql": "078d587d021d15efa6dcb6134cc19fdc574a0445dbc6c4dae54ac0abe3ba2826",
+  "0003_verification_value_idx.sql": "399416c133e87e75a6796d8633ce331e2da95cb7a06fae02b3fedddf91478cf0",
+  "0004_user_proxies.sql": "96fefd6dd49f53696c95ee61ad004b80b1a79d457fa24166f6f3537e4a1cbc42",
+  "0005_proxy_operations.sql": "f091dd203606c2cc13f50b19e52803a25932f9cdfaabdcc502ddfcc8484fdd3f",
+  "0006_google_only_auth.sql": "2918ece611bffa17f9f7a358cddf2d1e75235e0ff22f4e703515f81e89d6e54b",
+};
 
-test("the copy check reads both files and catches an edit", () => {
-  const root = mkdtempSync(join(tmpdir(), "auth-schema-"));
-  mkdirSync(join(root, "migrations/auth"), { recursive: true });
-  writeFileSync(join(root, "migrations/auth", AUTH_MIGRATION), "create table t ();\n");
-  assert.equal(authSchemaCopy(root), null);
-
-  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t ();\n");
-  const same = authSchemaCopy(root);
-  assert.equal(same.copy, same.source);
-
-  writeFileSync(join(root, "migrations", AUTH_MIGRATION), "create table t (x int);\n");
-  const drifted = authSchemaCopy(root);
-  assert.notEqual(drifted.copy, drifted.source);
-});
+for (const [name, expectedHash] of Object.entries(APPLIED_MIGRATION_HASHES)) {
+  test(`applied migration ${name} is unedited`, () => {
+    const content = readFileSync(join(projectRoot(), "migrations", name), "utf8").replace(
+      /\r\n/g,
+      "\n",
+    );
+    const hash = createHash("sha256").update(content, "utf8").digest("hex");
+    assert.equal(hash, expectedHash, `${name} content hash changed — applied migrations are immutable`);
+  });
+}

@@ -1,6 +1,6 @@
 /**
- * Grok Builder media pipe: YouTube bytes never leave this origin.
- * The preview iframe cannot follow googlevideo.com (IP-bound, no download attr).
+ * Server media pipe: the browser gets YouTube media from this origin only,
+ * because googlevideo.com URLs are bound to the server's IP.
  * All three server paths run here so the browser only talks to `/api/builder`.
  */
 

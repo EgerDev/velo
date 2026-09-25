@@ -4,14 +4,12 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { startServer } from "./harness.mjs";
-
-// W2 removes the Grok auth flag; until then production boot needs it off.
-const BASE_ENV = { VITE_AUTH_ENABLED: "false" };
+import { NO_DB_URL, PROD_ENV } from "./env.mjs";
 
 describe("API input guards", () => {
   let server;
   before(async () => {
-    server = await startServer({ env: BASE_ENV });
+    server = await startServer({ env: { ...PROD_ENV, DATABASE_URL: NO_DB_URL } });
   });
   after(() => server?.stop());
 
