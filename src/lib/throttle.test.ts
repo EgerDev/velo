@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { looksThrottled, THROTTLE_FLAGS, THROTTLE_QA } from "./throttle.ts";
+import { looksThrottled, THROTTLE_FLAGS } from "./throttle.ts";
 import { isRetryable } from "./retry.ts";
 import { ytdlpArgv } from "./ytdlp-auth.ts";
 
@@ -15,11 +15,4 @@ test("50 KB/s nsig cap is treated as throttle; 100K threshold is on the argv", (
   assert.equal(argv[argv.indexOf("--http-chunk-size") + 1], "10M");
   assert.equal(argv[argv.indexOf("--concurrent-fragments") + 1], "1");
   assert.ok(THROTTLE_FLAGS.includes("--extractor-retries"));
-});
-
-test("Q&A covers nsig, same-hop, and cookies-only-for-gated", () => {
-  assert.equal(THROTTLE_QA.length, 3);
-  assert.match(THROTTLE_QA[0]?.a ?? "", /100 KB\/s/);
-  assert.match(THROTTLE_QA[1]?.a ?? "", /137\+140/);
-  assert.match(THROTTLE_QA[2]?.a ?? "", /age-gated/);
 });

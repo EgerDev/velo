@@ -7,15 +7,16 @@
  *    `-c copy` remuxes — no transcode. `--merge-output-format mp4` is the container.
  *
  * 2. yt-dlp -f selector  (`/` = try next, `+` = mux these two)
- *    137+140  1080p H.264 + AAC — the hop that works
+ *    137+140  1080p H.264 + AAC — the default
  *    137+251  1080p H.264 + Opus in mkv if AAC is missing
  *    96       HLS 1080 MPEG-TS stitch if DASH is blocked
  *    Muxed 22 / 18 is offered to the user as a fallback prompt (pickMuxedFallback
  *    in routes/index.tsx) after this selector fails — never substituted silently.
  *
  * 3. Fallback order (stop at first real file)
- *    logged-in innertube on this host → SOCKS web_embedded (137+140/137+251)
- *    → SOCKS web_safari (HLS 96) → SOCKS tv_simply / android (18)
+ *    innertube on this host → yt-dlp web_embedded (137+140/137+251)
+ *    → yt-dlp web_safari (HLS 96) → yt-dlp tv_simply / android (18),
+ *    each through the operator's proxy first when one is configured
  */
 import { ytdlpFormatSelector } from "./ytdlp-auth.ts";
 
@@ -36,7 +37,7 @@ export function formatFallbackChain(itag: number): string[] {
 
 export const BUILDER_FALLBACK_STEPS = [
   "innertube on this host (often 403 — IPv6/IPv4 bind)",
-  "SOCKS web_embedded + ffmpeg mux (137+140 / 137+251)",
-  "SOCKS web_safari HLS (96)",
-  "SOCKS android muxed 360 (18)",
+  "yt-dlp web_embedded + ffmpeg mux (137+140 / 137+251)",
+  "yt-dlp web_safari HLS (96)",
+  "yt-dlp android muxed 360 (18)",
 ] as const;

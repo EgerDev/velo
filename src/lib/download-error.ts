@@ -113,7 +113,6 @@ export function classifyDownloadError(
   }
   if (
     lower.includes("not a bot") ||
-    lower.includes("botguard") ||
     lower.includes("sign in to confirm") ||
     lower.includes("sign in to use a youtube session")
   ) {
@@ -185,7 +184,7 @@ export function downloadHint(code: DownloadErrorCode, guest = false, retryAfterS
       .join(" ");
   }
   if (guest && code === "blocked") {
-    return "YouTube bound the file to a different IP than this host. Save already retries through a matching hop — wait a moment and try again.";
+    return "YouTube refused to serve this file to the server. Wait a moment and try again, or pick a lower quality.";
   }
   if (guest && (code === "bot" || code === "cookies")) {
     return "Guest downloads cannot attach youtube.com cookies. Sign in, import cookies.txt, then retry.";
@@ -213,7 +212,7 @@ export function downloadHint(code: DownloadErrorCode, guest = false, retryAfterS
     case "empty":
       return "The extractor found metadata but no bytes. Retry, or pick a lower quality.";
     case "network":
-      return "A CORS relay dropped. Wait a few seconds, then Save once.";
+      return "The connection dropped. Wait a few seconds, then Save once.";
     case "reload":
       return "Reloading fetches the latest app files; your history is kept.";
     default:

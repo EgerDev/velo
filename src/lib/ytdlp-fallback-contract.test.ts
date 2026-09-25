@@ -21,7 +21,7 @@ test("Given failed saved yt-dlp routes, When the download caller continues, Then
   assert.equal(source.includes("savedRoutes.length === 0"), false);
 });
 
-test("Given cookie-bearing downloads, When saved direct and pool attempts are wired, Then only saved proxies receive trusted-proxy authority", async () => {
+test("Given cookie-bearing downloads, When saved and direct attempts are wired, Then only saved proxies receive trusted-proxy authority", async () => {
   const source = await readFile(new URL("./ytdlp.server.ts", import.meta.url), "utf8");
   assert.match(source, /attempt\(client, url, true\)/);
   assert.match(source, /cookiePath: proxy && !trustedProxy \? undefined : cookiePath/);

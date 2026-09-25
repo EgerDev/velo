@@ -337,7 +337,7 @@ export function ProxyToolsCard() {
               Proxy operations
             </p>
             <h3 id="private-route-title" className="font-display text-xl text-fg">
-              A deliberate route vault, not an automatic bypass.
+              A deliberate route vault, not an automatic fallback.
             </h3>
             <p className="max-w-xl text-sm leading-relaxed text-muted">
               Checks run when you request them; results are marked stale after one hour. Each saved

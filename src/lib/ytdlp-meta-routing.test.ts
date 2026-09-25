@@ -12,7 +12,7 @@ function route(id: string): YtdlpMetadataRoute {
   };
 }
 
-test("Given saved routes and free SOCKS, When yt-dlp metadata attempts run, Then the shared adapter preserves saved-first order", async () => {
+test("Given saved routes and a direct fallback, When yt-dlp metadata attempts run, Then the shared adapter preserves saved-first order", async () => {
   const attempts: string[] = [];
   const result = await attemptYtdlpMetadataLadder(
     [route("first"), route("second")],
@@ -24,7 +24,7 @@ test("Given saved routes and free SOCKS, When yt-dlp metadata attempts run, Then
   assert.deepEqual(attempts, ["http://first:80", "http://second:80", "direct"]);
 });
 
-test("Given a successful saved route, When yt-dlp metadata attempts run, Then free SOCKS is not reached", async () => {
+test("Given a successful saved route, When yt-dlp metadata attempts run, Then the direct fallback is not reached", async () => {
   let freeAttempts = 0;
   const result = await attemptYtdlpMetadataLadder(
     [route("saved")],

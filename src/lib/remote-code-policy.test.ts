@@ -123,3 +123,17 @@ test("yt-dlp gets no TLS impersonation and nothing pip-installs curl_cffi at run
   }
   assert.doesNotMatch(source("./ytdlp-python.server.ts"), /"pip"/);
 });
+
+test("user-facing copy and the README make no circumvention claims", () => {
+  const banned = /bypass|beat bot|bot[- ]detection|po token|botguard|\bn-?sig\b|anti-throttle|same-hop|matching hop|cors relay/i;
+  const components = here("../components/");
+  for (const name of readdirSync(components, { recursive: true, encoding: "utf8" })) {
+    if (!name.endsWith(".tsx")) continue;
+    assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), components), "utf8"), banned, name);
+  }
+  for (const file of ["./youtube-copy.ts", "./download-error.ts", "./download-client.ts", "./builder-download.ts", "./hybrid-download.ts", "../../README.md"]) {
+    assert.doesNotMatch(source(file), banned, file);
+  }
+  // UX-05: no "AI" badge on a transcript feature that runs no AI.
+  assert.doesNotMatch(source("../components/mode-tabs.tsx"), /chip:\s*"AI"/);
+});

@@ -116,7 +116,7 @@ export function ToolsPanel({ onStatus }: { onStatus?: (check: ToolCheck) => void
             </p>
             <h2 className="font-display text-2xl text-fg">Keep the extraction path healthy.</h2>
             <p className="max-w-lg text-sm leading-relaxed text-muted">
-              Velo checks the three moving parts that track YouTube. Version checks are safe to run
+              Velo checks the moving parts that track YouTube. Version checks are safe to run
               anytime; package installs remain an operator action.
             </p>
           </div>

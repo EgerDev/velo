@@ -62,14 +62,14 @@ export async function downloadViaBuilder(opts: {
   const itag = opts.itag ?? opts.preset?.itag;
   if (!itag) throw new Error("Missing quality.");
   const steps: HybridStep[] = [
-    { id: "builder", label: "Matching hop — player and file share one IP", status: "running" },
+    { id: "builder", label: "Server download", status: "running" },
   ];
   opts.onSteps?.(steps.slice());
   opts.onProgress?.({ label: "Preparing the file on the server", percent: 8, mode: "preparing", steps });
 
   try {
-    // Server already muxes 137+140 (or HLS 96) on the matching hop.
-    // A second /api/builder call for audio would double quota and race two SOCKS downloads.
+    // The server already muxes 137+140 (or HLS 96). A second /api/builder call
+    // for audio would double the quota and race two server downloads.
     const probe = createSpeedProbe();
     let lastEmit = 0;
     let transfer = emptyTransfer();
@@ -90,7 +90,7 @@ export async function downloadViaBuilder(opts: {
         const view = presentedTransfer(transfer);
         opts.onProgress?.({
           label: sample.throttled
-            ? `Throttled · ${formatSpeed(sample.bytesPerSec)} — nsig crawl`
+            ? `Slow · ${formatSpeed(sample.bytesPerSec)}`
             : `Downloading · ${formatSpeed(sample.bytesPerSec)}`,
           percent: view.percent,
           mode: view.mode,
@@ -104,8 +104,8 @@ export async function downloadViaBuilder(opts: {
     steps[0] = {
       id: "builder",
       label: opts.preset?.audioItag
-        ? `${opts.preset.height ?? 1080}p hop — video+AAC muxed on this origin`
-        : "Matching hop — player and file share one IP",
+        ? `${opts.preset.height ?? 1080}p — video and AAC audio combined on the server`
+        : "Server download",
       status: "ok",
       detail: opts.preset?.audioItag ? "137+aac" : "saved",
     };
@@ -117,7 +117,7 @@ export async function downloadViaBuilder(opts: {
   } catch (err) {
     steps[0] = {
       id: "builder",
-      label: "Builder pipe (this origin + same-hop)",
+      label: "Server download",
       status: "fail",
       detail: err instanceof Error ? err.message : "failed",
     };

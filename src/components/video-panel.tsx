@@ -837,10 +837,6 @@ export function VideoPanel({
                     <span className="text-success font-mono">Active (Timestamp Aligned)</span>
                   </div>
                   <div>
-                    <span className="text-subtle font-medium">NSig & BotGuard Bypass: </span>
-                    <span className="text-success font-mono">Pre-warmed & Verified</span>
-                  </div>
-                  <div>
                     <span className="text-subtle font-medium">Captions Available: </span>
                     <span className="text-fg font-mono">{video.captions.length} Tracks Ready</span>
                   </div>
@@ -1135,7 +1131,7 @@ export function VideoPanel({
               <div className="mt-2 flex items-center justify-between text-[11px] tabular-nums text-muted">
                 <span>
                   {progress.bytesPerSec ? formatSpeed(progress.bytesPerSec) : ""}
-                  {progress.throttled ? " · slow speed (nsig hop active)" : ""}
+                  {progress.throttled ? " · slow download" : ""}
                 </span>
                 <span>
                   {progress.loaded != null ? formatBytes(progress.loaded) : ""}

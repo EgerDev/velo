@@ -6,7 +6,7 @@
  * 2. visitor_data from VISITOR_INFO1_LIVE
  * 3. account cookies unlock web_embedded / web / mweb / web_safari (not android/ios)
  * 4. --cookies-from-browser only if YTDLP_BROWSER is set
- * 5. --proxy SOCKS5 for guest same-hop when this host's IP is 403
+ * 5. --proxy for the operator's saved proxy routes, tried before direct
  *
  * Velo supplies no PO token (roadmap D7): yt-dlp runs with what it has.
  */
@@ -393,9 +393,9 @@ export function ytdlpArgv(opts: {
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
   const hasFileCookies = Boolean(opts.cookiePath && cookiesOk);
-  // No cookie source of any kind over a pool-SOCKS hop (mirrors the cookiePath
+  // No cookie source of any kind over an untrusted proxy (mirrors the cookiePath
   // guard in attempt()): the host browser's account session must never ride a
-  // public proxy. A user-configured (trusted) proxy is the operator's own and
+  // proxy that is not the operator's own. A user-configured (trusted) proxy is the operator's own and
   // MAY carry the session — that is the point of configuring one.
   const browser =
     hasFileCookies || (opts.proxy && !opts.trustedProxy) ? [] : browserCookieArgs();
@@ -617,7 +617,7 @@ function lastErrorLine(stderr: string): string {
   );
   // Redact the FULL proxy authority — userinfo, host and port — keeping only
   // the scheme. This string reaches an unauthenticated caller as the
-  // /api/ytdlp 502 body, and a dead SOCKS hop puts the whole
+  // /api/ytdlp 502 body, and a dead proxy hop puts the whole
   // `user:pass@host:port` into yt-dlp's stderr verbatim; the internal hop
   // address is as sensitive as the credentials. `[^\s/]` stops at the first
   // slash, so an https path (e.g. a watch URL's video id) stays readable —
@@ -652,7 +652,7 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
   });
 
   if (input.timedOut || /yt-dlp timed out/i.test(stderr)) {
-    return fail("timeout", "next-socks", "timed out — next matching hop");
+    return fail("timeout", "next-socks", "timed out — trying the next route");
   }
   if (input.signal === "SIGKILL" || code === YTDLP_EXIT.sigkill) {
     return fail("killed", "next-socks", "process killed — next hop (not a CDN 403)");
@@ -694,20 +694,20 @@ export function classifyYtdlpFailure(input: YtdlpExitInput): YtdlpFailure {
     return fail("signin", "next-client", "bot wall — next client, then cookies");
   }
   if (log.sabr || /sabr-only|forcing sabr streaming|issues\/12482/i.test(blob)) {
-    return fail("sabr", "next-client", "SABR-only — need a video-bound PO token or a muxed client");
+    return fail("sabr", "next-client", "streaming-only response — trying a client with a downloadable format");
   }
   if (/gvs po token|po token which was not provided|missing required visitor data/i.test(blob)) {
-    return fail("pot", "next-client", "PO token missing — remint GVS+player, next client");
+    return fail("pot", "next-client", "YouTube refused this client — trying the next one");
   }
   if (
     /error solving n challenge|n result is invalid|nsig extraction failed|n-sig extraction/i.test(
       blob,
     )
   ) {
-    return fail("nsig", "retry", "nsig failed — retry node ejs, then next client");
+    return fail("nsig", "retry", "yt-dlp could not read this video’s formats — retrying");
   }
   if (/http error 403|unable to download video data:.*403|\b403 forbidden\b/i.test(blob)) {
-    return fail("forbidden", "next-socks", "CDN 403 — next matching hop");
+    return fail("forbidden", "next-socks", "YouTube refused the file (403) — trying the next route");
   }
   if (/no video formats found|requested format is not available/i.test(blob)) {
     return fail("formats", "next-client", "no playable formats on this client");

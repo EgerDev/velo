@@ -198,7 +198,6 @@ export async function hybridFetchBlob(opts: {
   };
 
   transfer = noteStage(transfer, "hop", 5);
-  publish("Racing download paths");
   transfer = noteStage(transfer, "hop", 18);
   publish("Racing yt-dlp and the relay");
   const muxPlan = isAudioItag(itag) || Boolean(opts.audioItag);

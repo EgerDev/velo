@@ -89,7 +89,7 @@ async function hybridMux(opts: {
   // Don't seed the idle leg at 0. A video reading has to be able to stand
   // alone so a later audio tick cannot average it backward.
   let transfer = emptyTransfer();
-  onProgress({ label: "Hybrid: PO token + cookies + relays", ...presentedTransfer(transfer) });
+  onProgress({ label: "Trying yt-dlp and the relay", ...presentedTransfer(transfer) });
   try {
     // Each child view is folded whole: bytes keep loaded/total, segments stay
     // segments. Keeping only the percent turned 500/1000 + 100/100 into a
