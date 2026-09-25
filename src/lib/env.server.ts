@@ -76,6 +76,8 @@ function parseOrigin(value: string | undefined): string | undefined {
   const secure = url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname));
   if (!secure || url.username || url.password || url.search || url.hash) return undefined;
   if (url.pathname !== "/") return undefined;
+  // Better Auth reads `*` in a trusted origin as a wildcard pattern.
+  if (url.hostname.includes("*")) return undefined;
   return url.origin;
 }
 

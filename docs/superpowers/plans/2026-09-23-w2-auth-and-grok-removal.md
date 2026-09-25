@@ -976,7 +976,13 @@ These five inputs are the most likely to bite. Each is pinned by a test in the t
       prompt: "select_account",
     });
     assert.equal("emailAndPassword" in options, false);
-    assert.deepEqual(options.account.accountLinking.trustedProviders, ["google"]);
+  });
+
+  test("account linking trusts no provider, so linking always needs Google's verified email", () => {
+    const { accountLinking } = authSettings(PROD).options.account;
+    assert.equal(accountLinking.enabled, true);
+    const trusted: unknown = (accountLinking as { trustedProviders?: unknown }).trustedProviders;
+    assert.ok(trusted === undefined || (Array.isArray(trusted) && trusted.length === 0), `trustedProviders: ${String(trusted)}`);
   });
 
   test("without Google credentials (development) sign-in is simply unavailable", () => {
@@ -1268,7 +1274,10 @@ These five inputs are the most likely to bite. Each is pinned by a test in the t
         socialProviders: google ? { google } : {},
         account: {
           encryptOAuthTokens: true,
-          accountLinking: { enabled: true, trustedProviders: ["google"] },
+          // No `trustedProviders`: a trusted provider skips Better Auth's
+          // emailVerified check when linking, so linking to an existing user
+          // always needs Google to report the email as verified.
+          accountLinking: { enabled: true },
         },
         // Short-lived signed `session_data` cookie so session reads skip the database.
         session: { cookieCache: { enabled: true, maxAge: 300 } },
@@ -3560,7 +3569,7 @@ Ledger and hand-off items (W0 and W1 → W2):
    - decision 6 → Tasks 4–5 (read as "deleted outright", § Decisions applied);
    - decision 7 → Task 3 (`tests/http/env.mjs`, `NEEDS_DB` skip, CI never skips; the `VITE_AUTH_ENABLED` removal is in Task 4);
    - decision 8 → Task 4;
-   - decision 9 (cookies, Fetch-Metadata kept, `trustedProviders` google only) → Task 4;
+   - decision 9 (cookies, Fetch-Metadata kept; no `trustedProviders`, since a trusted provider skips Better Auth's `emailVerified` check on link — final-review ruling) → Task 4;
    - decision 10 → Task 10;
    - AGENTS.md note → Task 8;
    - Grok-host gate → Task 11;

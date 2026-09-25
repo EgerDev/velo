@@ -38,7 +38,13 @@ test("Google is the only sign-in method, on the public origin", () => {
     prompt: "select_account",
   });
   assert.equal("emailAndPassword" in options, false);
-  assert.deepEqual(options.account.accountLinking.trustedProviders, ["google"]);
+});
+
+test("account linking trusts no provider, so linking always needs Google's verified email", () => {
+  const { accountLinking } = authSettings(PROD).options.account;
+  assert.equal(accountLinking.enabled, true);
+  const trusted: unknown = (accountLinking as { trustedProviders?: unknown }).trustedProviders;
+  assert.ok(trusted === undefined || (Array.isArray(trusted) && trusted.length === 0), `trustedProviders: ${String(trusted)}`);
 });
 
 test("without Google credentials (development) sign-in is simply unavailable", () => {

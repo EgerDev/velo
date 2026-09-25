@@ -46,7 +46,10 @@ export function authSettings(env: ServerEnv, source: NodeJS.ProcessEnv = process
       socialProviders: google ? { google } : {},
       account: {
         encryptOAuthTokens: true,
-        accountLinking: { enabled: true, trustedProviders: ["google"] },
+        // No `trustedProviders`: a trusted provider skips Better Auth's
+        // emailVerified check when linking, so linking to an existing user
+        // always needs Google to report the email as verified.
+        accountLinking: { enabled: true },
       },
       // Short-lived signed `session_data` cookie so session reads skip the database.
       session: { cookieCache: { enabled: true, maxAge: 300 } },

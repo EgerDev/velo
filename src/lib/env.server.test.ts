@@ -58,6 +58,8 @@ test("VELO_PUBLIC_ORIGIN must be a bare https origin, or http on loopback", () =
     "https://velo.example/?x=1",
     "https://user:pw@velo.example",
     "ftp://velo.example",
+    "https://*.velo.example",
+    "https://velo.*",
   ]) {
     assert.deepEqual(envError({ ...PROD, VELO_PUBLIC_ORIGIN: bad }).missing, ["VELO_PUBLIC_ORIGIN"], bad);
   }

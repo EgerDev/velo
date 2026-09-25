@@ -49,6 +49,7 @@ const APPLIED_MIGRATION_HASHES = {
   "0003_verification_value_idx.sql": "399416c133e87e75a6796d8633ce331e2da95cb7a06fae02b3fedddf91478cf0",
   "0004_user_proxies.sql": "96fefd6dd49f53696c95ee61ad004b80b1a79d457fa24166f6f3537e4a1cbc42",
   "0005_proxy_operations.sql": "f091dd203606c2cc13f50b19e52803a25932f9cdfaabdcc502ddfcc8484fdd3f",
+  "0006_google_only_auth.sql": "2918ece611bffa17f9f7a358cddf2d1e75235e0ff22f4e703515f81e89d6e54b",
 };
 
 for (const [name, expectedHash] of Object.entries(APPLIED_MIGRATION_HASHES)) {
