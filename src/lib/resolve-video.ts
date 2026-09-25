@@ -58,14 +58,6 @@ export const decipherCipher = createServerFn({ method: "POST" })
     return decipherRawFormat(data);
   });
 
-export const mintPoToken = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ id: z.string().regex(/^[a-zA-Z0-9_-]{11}$/) }).parse(input))
-  .handler(async ({ data }) => {
-    await assertMetadataBudget();
-    const { mintPoTokenDetailed } = await import("@/lib/po-token.server");
-    return mintPoTokenDetailed(data.id);
-  });
-
 export const resolvePlayback = createServerFn({ method: "POST" })
   .validator((input: unknown) => playbackSchema.parse(input))
   .handler(async ({ data }) => {

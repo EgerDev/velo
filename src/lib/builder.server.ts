@@ -25,7 +25,6 @@ export async function streamBuilderDownload(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<Response> {
   const errors: string[] = [];
@@ -52,7 +51,6 @@ export async function streamBuilderDownload(opts: {
       id: opts.id,
       itag: opts.itag,
       cookies: opts.cookies,
-      pot: opts.pot,
       signal: opts.signal,
     });
     if (isMediaResponse(result)) return tag(result, "ytdlp");

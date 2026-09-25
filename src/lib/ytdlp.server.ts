@@ -44,8 +44,6 @@ async function runClient(opts: {
   itag: number;
   client: string;
   cookiePath?: string;
-  pot?: string;
-  playerPot?: string;
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
@@ -119,7 +117,6 @@ async function muxOne(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<MuxResult> {
   // Before the tmpdir, the client ladder and the SOCKS hops: none of that can
@@ -155,16 +152,6 @@ async function muxOne(opts: {
       ? ytdlpClients(true)
       : [...new Set([...socksClientsForItag(opts.itag), ...ytdlpClients(false)])];
     const impersonate = await ensureImpersonate().catch(() => false);
-    let gvsPot = opts.pot;
-    let playerPot = opts.pot;
-    try {
-      const { mintDualPoTokens } = await import("@/lib/po-token.server");
-      const dual = await mintDualPoTokens({ visitor: session?.visitorData, videoId: opts.id });
-      gvsPot = dual.gvs || opts.pot;
-      playerPot = dual.player || opts.pot;
-    } catch {
-      /* yt-dlp still runs without POT */
-    }
 
     const attempt = async (client: string, proxy?: string, trustedProxy = false): Promise<MuxResult> => {
       checkLadder();
@@ -176,8 +163,6 @@ async function muxOne(opts: {
         // A user-configured (trusted) proxy may carry the session — it is the
         // operator's own hop. Pool-SOCKS hops keep the strict no-cookie rule.
         cookiePath: proxy && !trustedProxy ? undefined : cookiePath,
-        pot: gvsPot,
-        playerPot,
         visitorData: session?.visitorData,
         dataSyncId: session?.dataSyncId,
         proxy,
@@ -313,7 +298,6 @@ export async function downloadWithYtdlp(opts: {
   id: string;
   itag: number;
   cookies?: string;
-  pot?: string;
   signal?: AbortSignal;
 }): Promise<Response> {
   const privateMux = Boolean(opts.cookies?.trim());

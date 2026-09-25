@@ -29,13 +29,11 @@ import {
   YOUTUBE_ALT_APIS,
   GUEST_CLIENTS,
   resolvePlayerClient,
-  PO_TOKEN_STEPS,
   ytdlpFamilyArgs,
   classifyYtdlpFailure,
   formatYtdlpFailure,
   mapYtdlpExit,
   looksLikeIpv6Mismatch,
-  poTokenArgs,
   YTDLP_EXIT,
   pythonBin,
   classifyPythonProbe,
@@ -161,22 +159,14 @@ test("browser cookies never ride a SOCKS hop even when YTDLP_BROWSER is set", ()
   }
 });
 
-test("extractor-args stamp po_token and visitor_data; never use -u/-p", () => {
-  const args = extractorArgs("mweb", "POTTOKEN", "visitorA");
+test("extractor-args carry visitor_data and never a PO token; never use -u/-p", () => {
+  const args = extractorArgs("mweb", "visitorA");
   assert.match(args, /player_client=mweb/);
   assert.match(args, /player_js_variant=main/);
-  assert.match(args, /fetch_pot=never/);
   assert.ok(!args.includes("use_ad_playback_context"));
   assert.match(args, /visitor_data=visitorA/);
-  assert.match(args, /po_token=mweb\.gvs\+POTTOKEN/);
-  assert.match(args, /mweb\.player\+POTTOKEN/);
-  const dual = extractorArgs("web_embedded", "GVS123", "visitorA", "PLAYER456");
-  assert.match(dual, /web_embedded\.gvs\+GVS123/);
-  assert.match(dual, /web_embedded\.player\+PLAYER456/);
-  assert.ok(!dual.includes("use_ad_playback_context"));
-  const none = extractorArgs("web_embedded");
-  assert.ok(!none.includes("fetch_pot=never"), "let yt-dlp fetch POT when we have none");
-  const vr = extractorArgs("android_vr", "POT");
+  assert.doesNotMatch(args, /po_token|fetch_pot/);
+  const vr = extractorArgs("android_vr");
   assert.match(vr, /player_client=web_embedded/);
   const argv = ytdlpArgv({
     dir: "/tmp/x",
@@ -191,7 +181,7 @@ test("extractor-args stamp po_token and visitor_data; never use -u/-p", () => {
   assert.ok(!argv.includes("--username"));
   assert.ok(!argv.join(" ").includes("visitor_data"), "cookies already carry visitor id");
   assert.equal(argv[argv.indexOf("-f") + 1], "18");
-  assert.ok(PO_TOKEN_STEPS.some((row) => row.step === "4 mint"));
+  assert.doesNotMatch(argv.join(" "), /po_token|fetch_pot/);
 });
 
 test("never pass a global User-Agent; InnerTube already stamps per client", () => {
@@ -280,8 +270,6 @@ test("working command matches argv and includes the zoo 1080 selector", () => {
     client: "web_embedded",
     proxy: "socks5h://127.0.0.1:1080",
     impersonate: true,
-    pot: "GVS",
-    playerPot: "PLAYER",
   });
   assert.match(cmd, /^python3 -m yt_dlp /);
   assert.match(cmd, /--impersonate chrome/);
@@ -306,18 +294,15 @@ test("cookies-from-browser only when YTDLP_BROWSER is a known browser", () => {
   else process.env.YTDLP_BROWSER = previous;
 });
 
-test("keeps = in visitor_data and does not pin fetch_pot without a token", () => {
-  const args = extractorArgs("mweb", undefined, "abc=def");
+test("keeps = in visitor_data and never pins fetch_pot", () => {
+  const args = extractorArgs("mweb", "abc=def");
   assert.match(args, /visitor_data=abc=def/);
-  assert.ok(!args.includes("fetch_pot=never"));
-  const loggedIn = extractorArgs("web_embedded", "POT", null, "PLAYER", "104123||");
+  assert.ok(!args.includes("fetch_pot"));
+  const loggedIn = extractorArgs("web_embedded", null, "104123||");
   assert.match(loggedIn, /data_sync_id=104123\|\|/);
-  assert.equal(poTokenArgs("android", "WEBPO"), "");
-  assert.match(poTokenArgs("web_embedded", "WEBPO"), /web_embedded\.gvs\+WEBPO/);
   assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "data_sync_id"));
-  assert.ok(
-    YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && /never iff/.test(row.use)),
-  );
+  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && row.use === "never"));
+  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "po_token" && row.use === "never"));
 });
 
 test("yt-dlp exit codes: SIGKILL/timeout is not a 403", () => {

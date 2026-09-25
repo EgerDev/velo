@@ -143,11 +143,9 @@ export type PlaybackFile = {
   size: number | null;
 };
 
-async function decorateUrls(raw: string, cpn: string, videoId: string): Promise<{ url: string; directUrl: string }> {
-  const { mintContentPoToken } = await import("@/lib/po-token.server");
+async function decorateUrls(raw: string, cpn: string): Promise<{ url: string; directUrl: string }> {
   const { unlockStreamUrl } = await import("@/lib/stream-unlock");
-  const pot = await mintContentPoToken(videoId);
-  const unlocked = unlockStreamUrl(raw, { pot, cpn, stripAlr: true });
+  const unlocked = unlockStreamUrl(raw, { cpn, stripAlr: true });
   const direct = new URL(unlocked.url);
   const redirector = new URL(direct.toString());
   redirector.hostname = "redirector.googlevideo.com";
@@ -198,16 +196,10 @@ export async function unlockPlaybackUrl(input: {
   cipher?: string;
   videoId?: string;
   cpn?: string;
-  pot?: boolean;
 }): Promise<{ url: string; applied: string[] }> {
   const deciphered = await decipherRawFormat(input);
-  let pot: string | null = null;
-  if (input.pot !== false && input.videoId) {
-    const { mintContentPoToken } = await import("@/lib/po-token.server");
-    pot = await mintContentPoToken(input.videoId);
-  }
   const { unlockStreamUrl } = await import("@/lib/stream-unlock");
-  return unlockStreamUrl(deciphered, { pot, cpn: input.cpn, stripAlr: true });
+  return unlockStreamUrl(deciphered, { cpn: input.cpn, stripAlr: true });
 }
 
 export async function getPlaybackUrl(id: string, itag: number): Promise<PlaybackFile> {
@@ -219,7 +211,7 @@ export async function getPlaybackUrl(id: string, itag: number): Promise<Playback
   });
   const ext = containerExt(format.mime_type, format.has_video);
   const mime = format.mime_type.split(";")[0]?.trim() || "application/octet-stream";
-  const urls = await decorateUrls(deciphered, cpn, id);
+  const urls = await decorateUrls(deciphered, cpn);
   return {
     url: urls.url,
     directUrl: urls.directUrl,
@@ -252,7 +244,7 @@ export async function streamYoutubeDownload(
     signatureCipher: format.signature_cipher,
     cipher: format.cipher,
   });
-  const urls = await decorateUrls(deciphered, cpn, id);
+  const urls = await decorateUrls(deciphered, cpn);
   if (signal?.aborted) throw new Error("aborted");
 
   const ext = containerExt(format.mime_type, format.has_video);

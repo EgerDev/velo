@@ -4,10 +4,11 @@
  *
  * 1. --cookies Netscape file (what Velo imports)
  * 2. visitor_data from VISITOR_INFO1_LIVE
- * 3. po_token stamped per player client (gvs + player)
- * 4. account cookies unlock web_embedded / web / mweb / web_safari (not android/ios)
- * 5. --cookies-from-browser only if YTDLP_BROWSER is set
- * 6. --proxy SOCKS5 for guest same-hop when this host's IP is 403
+ * 3. account cookies unlock web_embedded / web / mweb / web_safari (not android/ios)
+ * 4. --cookies-from-browser only if YTDLP_BROWSER is set
+ * 5. --proxy SOCKS5 for guest same-hop when this host's IP is 403
+ *
+ * Velo supplies no PO token (roadmap D7): yt-dlp runs with what it has.
  */
 import { parseCookieImport } from "./cookies.ts";
 import { THROTTLE_FLAGS } from "./throttle.ts";
@@ -416,70 +417,22 @@ export function ytdlpClients(loggedIn: boolean): readonly string[] {
   return loggedIn ? SESSION_CLIENTS : GUEST_CLIENTS;
 }
 
-/** InnerTube clients that accept WebPO (yt_dlp.extractor.youtube.pot.utils.WEBPO_CLIENTS). */
-const WEBPO_CLIENTS = new Set([
-  "web",
-  "web_safari",
-  "web_embedded",
-  "web_music",
-  "web_creator",
-  "mweb",
-  "tv",
-  "tv_downgraded",
-  "tv_simply",
-]);
-
-export function poTokenArgs(client: string, pot?: string, playerPot?: string): string {
-  const gvs = (pot || "").replace(/[^A-Za-z0-9_-]/g, "");
-  const player = (playerPot || pot || "").replace(/[^A-Za-z0-9_-]/g, "");
-  if (!gvs && !player) return "";
-  const id = resolvePlayerClient(client).split(",")[0] || "web_embedded";
-  if (!WEBPO_CLIENTS.has(id)) return "";
-  const parts: string[] = [];
-  if (gvs) parts.push(`${id}.gvs+${gvs}`);
-  if (player) parts.push(`${id}.player+${player}`);
-  return `po_token=${parts.join(",")}`;
-}
-
 /**
- * youtube extractor-args (yt-dlp 2026.08.19 `_video.py` / `_base.py`).
- * player_client, po_token=CLIENT.CONTEXT+TOKEN (gvs|player|subs),
- * visitor_data (only without cookies), data_sync_id (logged-in GVS),
- * player_js_variant, fetch_pot.
- * fetch_pot=never only when we already stamped a video-id POT.
+ * youtube extractor-args (yt-dlp 2026.08.19 `_video.py` / `_base.py`):
+ * player_client, visitor_data (only without cookies), data_sync_id (logged-in),
+ * player_js_variant. Never po_token or fetch_pot: Velo mints no PO token (D7).
  */
 export function extractorArgs(
   client: string,
-  pot?: string,
   visitor?: string | null,
-  playerPot?: string,
   dataSyncId?: string | null,
 ): string {
   const resolved = resolvePlayerClient(client);
   const parts = [`youtube:player_client=${resolved}`, "player_js_variant=main"];
   if (visitor) parts.push(`visitor_data=${visitor.replace(/[^A-Za-z0-9_=%-]/g, "")}`);
   if (dataSyncId) parts.push(`data_sync_id=${dataSyncId.replace(/[^A-Za-z0-9_|=%-]/g, "")}`);
-  const po = poTokenArgs(resolved, pot, playerPot);
-  if (po) {
-    parts.push("fetch_pot=never");
-    parts.push(po);
-  }
   return parts.join(";");
 }
-
-/** How Velo mints PO tokens (bgutils-js BotGuard, not yt-dlp's empty POT providers). */
-export const PO_TOKEN_STEPS = [
-  { step: "1 homepage", detail: "Fetch youtube.com, parse ytcfg + ytAtN BotGuard challenge" },
-  { step: "2 VM", detail: "Run BotGuard interpreter in jsdom, snapshot webPoSignalOutput" },
-  { step: "3 GenerateIT", detail: "POST integrity token (request key O43z0dpjhgX20SCx4KAo)" },
-  { step: "4 mint", detail: "WebPoMinter binds the token to the video id (player + GVS)" },
-  { step: "5 stamp", detail: "yt-dlp youtube:po_token=web_embedded.gvs+X,web_embedded.player+X" },
-  {
-    step: "fallback",
-    detail:
-      "Cold-start token if BotGuard walls; fetch_pot=never only when a token is already stamped",
-  },
-] as const;
 
 export function browserCookieArgs(): string[] {
   const browser = process.env.YTDLP_BROWSER?.trim().toLowerCase();
@@ -508,8 +461,6 @@ export function ytdlpArgv(opts: {
   itag: number;
   client: string;
   cookiePath?: string;
-  pot?: string;
-  playerPot?: string;
   visitorData?: string | null;
   dataSyncId?: string | null;
   proxy?: string;
@@ -548,9 +499,7 @@ export function ytdlpArgv(opts: {
     "--extractor-args",
     extractorArgs(
       client,
-      opts.pot,
       hasCookies ? null : opts.visitorData,
-      opts.playerPot,
       hasCookies ? (opts.dataSyncId ?? null) : null,
     ),
     "--no-playlist",
@@ -585,7 +534,7 @@ export const YTDLP_EXTRACTOR_LAYERS = [
   {
     layer: "pot",
     file: "pot/_director.py",
-    does: "gvs + player PO tokens (we mint, yt-dlp has none built-in)",
+    does: "gvs + player PO tokens (yt-dlp's own providers; Velo supplies none)",
   },
   {
     layer: "formats",
@@ -606,11 +555,7 @@ export const YTDLP_EXTRACTOR_LAYERS = [
  */
 export const YTDLP_EXTRACTOR_ARGS = [
   { arg: "player_client", use: "always", note: "web_embedded first; android_vr aliases to it" },
-  {
-    arg: "po_token",
-    use: "when minted",
-    note: "CLIENT.gvs+X,CLIENT.player+X — video-id bind (GVS experiment)",
-  },
+  { arg: "po_token", use: "never", note: "Velo mints no PO token (roadmap D7)" },
   { arg: "visitor_data", use: "guest only", note: "never with --cookies / --cookies-from-browser" },
   {
     arg: "data_sync_id",
@@ -622,11 +567,7 @@ export const YTDLP_EXTRACTOR_ARGS = [
     use: "main",
     note: "stable player.js; pinning player_js_version breaks nsig",
   },
-  {
-    arg: "fetch_pot",
-    use: "never iff stamped",
-    note: "omit (auto) when we have no token so yt-dlp can still fetch",
-  },
+  { arg: "fetch_pot", use: "never", note: "omitted; yt-dlp keeps its default" },
   { arg: "use_ad_playback_context", use: "omit", note: "true is the IMA/DAI ad player — never" },
   { arg: "formats", use: "omit missing_pot", note: "would list SABR rows with no URL as 1080p" },
   { arg: "player_skip", use: "omit", note: "need js + configs for nsig" },
@@ -960,7 +901,7 @@ export function classifyPythonProbe(input: {
   return { ok: true, version };
 }
 
-/** Copy-paste command matching Save. POT is required for 1080p; without it yt-dlp falls to 18. */
+/** Copy-paste command matching Save. */
 export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): string {
   return [pythonBin(), ...ytdlpArgv(opts).map(shellQuote)].join(" ");
 }

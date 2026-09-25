@@ -18,3 +18,28 @@ test("the browser download ladder mints no PO token and takes no same-hop, unloc
     );
   }
 });
+
+test("no PO-token minter remains, and no route or yt-dlp call carries a PO token", () => {
+  assert.equal(existsSync(here("./po-token.server.ts")), false);
+  const files = [
+    "./resolve-video.ts",
+    "./youtube-client.server.ts",
+    "./youtube-stream.server.ts",
+    "./ytdlp.server.ts",
+    "./ytdlp-meta.server.ts",
+    "./ytdlp-auth.ts",
+    "./builder.server.ts",
+    "../routes/api/builder.ts",
+    "../routes/api/ytdlp.ts",
+  ];
+  for (const file of files) {
+    assert.doesNotMatch(
+      source(file),
+      /po-token\.server|mintPoToken|mintDualPoTokens|mintContentPoToken|poTokenArgs|fetch_pot=never|po_token: /,
+      file,
+    );
+  }
+  for (const file of ["./builder.server.ts", "../routes/api/builder.ts", "../routes/api/ytdlp.ts", "./ytdlp.server.ts"]) {
+    assert.doesNotMatch(source(file), /\bpot\??:/, file);
+  }
+});

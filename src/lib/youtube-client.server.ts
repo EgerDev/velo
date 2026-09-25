@@ -96,18 +96,6 @@ function evictPlayableCache() {
   }
 }
 
-const WEBPO_INNERTUBE = new Set([
-  "WEB_EMBEDDED",
-  "TV_EMBEDDED",
-  "TV_SIMPLY",
-  "MWEB",
-  "TV",
-  "YTMUSIC",
-  "YTKIDS",
-  "WEB_CREATOR",
-  "WEB",
-]);
-
 export async function getPlayableInfo(yt: InnertubeClient, id: string): Promise<PlayableInfo> {
   if (authenticatedClients.has(yt)) {
     return getPlayableInfoUncached(yt, id, false);
@@ -131,13 +119,6 @@ async function getPlayableInfoUncached(
 ): Promise<PlayableInfo> {
   let lastError: Error | null = null;
   let fallback: PlayableInfo | null = null;
-  let gvsPot: string | undefined;
-  try {
-    const { mintContentPoToken } = await import("@/lib/po-token.server");
-    gvsPot = (await mintContentPoToken(id)) || undefined;
-  } catch {
-    /* BotGuard optional — Innertube still tries */
-  }
 
   const clients = authenticatedClients.has(yt) ? SESSION_CLIENTS : CLIENTS;
   // Probe a few clients per round: fully serial cost one RTT per client on a
@@ -148,8 +129,7 @@ async function getPlayableInfoUncached(
     const settled = await Promise.all(
       clients.slice(i, i + WINDOW).map(async (client) => {
         try {
-          const usePot = Boolean(gvsPot && WEBPO_INNERTUBE.has(client));
-          return await yt.getBasicInfo(id, usePot ? { client, po_token: gvsPot } : { client });
+          return await yt.getBasicInfo(id, { client });
         } catch (err) {
           lastError = err instanceof Error ? err : new Error("Could not reach YouTube.");
           return null;

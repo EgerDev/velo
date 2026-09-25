@@ -75,14 +75,6 @@ export async function fetchSubtitlesViaYtdlp(opts: {
     await ensurePySocks().catch(() => undefined);
     const impersonate = await ensureImpersonate().catch(() => false);
 
-    let dual: { gvs: string | null; player: string | null } = { gvs: null, player: null };
-    try {
-      const { mintDualPoTokens } = await import("@/lib/po-token.server");
-      dual = await mintDualPoTokens({ videoId: opts.id });
-    } catch {
-      /* captions may work without POT */
-    }
-
     const {
       extractorArgs,
       ytdlpHeaderArgs,
@@ -122,7 +114,7 @@ export async function fetchSubtitlesViaYtdlp(opts: {
               "--remote-components",
               "ejs:github",
               "--extractor-args",
-              extractorArgs(client, dual.gvs ?? undefined, null, dual.player ?? undefined),
+              extractorArgs(client),
               "--no-playlist",
               "--skip-download",
               "--write-subs",
@@ -182,19 +174,12 @@ export async function fetchSubtitlesViaYtdlp(opts: {
 
 async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
   // Best-effort enrichment: no Python means no extra formats, but it should not
-  // cost a pool slot, a SOCKS hop and a PO token mint to find that out.
+  // cost a pool slot and a SOCKS hop to find that out.
   if (!(await ensurePython()).ok) return [];
   const release = await acquireYtdlpSlot();
   try {
     await ensurePySocks().catch(() => undefined);
     const impersonate = await ensureImpersonate().catch(() => false);
-    let dual: { gvs: string | null; player: string | null } = { gvs: null, player: null };
-    try {
-      const { mintDualPoTokens } = await import("@/lib/po-token.server");
-      dual = await mintDualPoTokens({ videoId: id });
-    } catch {
-      /* list without POT */
-    }
     const {
       extractorArgs,
       ytdlpHeaderArgs,
@@ -228,7 +213,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
               "--remote-components",
               "ejs:github",
               "--extractor-args",
-              extractorArgs(client, dual.gvs ?? undefined, null, dual.player ?? undefined),
+              extractorArgs(client),
               "--newline",
               ...THROTTLE_FLAGS,
               "-J",

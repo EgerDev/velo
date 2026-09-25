@@ -7,7 +7,6 @@ const bodySchema = z.object({
   id: z.string(),
   itag: z.number().int().positive(),
   cookies: z.string().max(400_000).optional(),
-  pot: z.string().max(4000).optional(),
 });
 
 export const Route = createFileRoute("/api/ytdlp")({
@@ -39,7 +38,6 @@ export const Route = createFileRoute("/api/ytdlp")({
             id,
             itag: parsed.data.itag,
             cookies: parsed.data.cookies,
-            pot: parsed.data.pot,
             signal: request.signal,
           });
         } catch (err) {
