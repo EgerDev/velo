@@ -122,7 +122,7 @@ test("scanning workflows, Dependabot and CODEOWNERS are in place and agree with 
   // Every package auto-update.yml owns is ignored by Dependabot, so no package has two updaters.
   const auto = workflows.find((w) => w.name === "auto-update.yml").text;
   for (const pkg of auto.match(/--only=([\w.,@/-]+)/)[1].split(",")) {
-    assert.match(dependabot, new RegExp(`dependency-name: ${pkg.replace(/\./g, "\\.")}(\\s|$)`), pkg);
+    assert.match(dependabot, new RegExp(`dependency-name: ${pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`), pkg);
   }
   const owners = readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
   assert.match(owners, /^\/\.github\/\s+@EgerDev$/m);
