@@ -17,7 +17,6 @@ import {
 } from "@/lib/ytdlp-auth";
 import {
   requirePython,
-  ensureImpersonate,
   directYtdlpOpen,
   markDirectYtdlpBlocked,
   TMP_PREFIX,
@@ -46,7 +45,6 @@ async function runClient(opts: {
   proxy?: string;
   /** Set for a user-configured proxy: it MAY carry the session (cookies). */
   trustedProxy?: boolean;
-  impersonate?: boolean;
   signal?: AbortSignal;
 }): Promise<string> {
   const args = ytdlpArgv(opts);
@@ -148,7 +146,6 @@ async function muxOne(opts: {
     const clients = loggedIn
       ? ytdlpClients(true)
       : [...new Set([...socksClientsForItag(opts.itag), ...ytdlpClients(false)])];
-    const impersonate = await ensureImpersonate().catch(() => false);
 
     const attempt = async (client: string, proxy?: string, trustedProxy = false): Promise<MuxResult> => {
       checkLadder();
@@ -164,7 +161,6 @@ async function muxOne(opts: {
         dataSyncId: session?.dataSyncId,
         proxy,
         trustedProxy,
-        impersonate,
         signal: opts.signal,
       });
       const filePath = join(dir, filename);

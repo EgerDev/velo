@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { runCapture } from "@/lib/ytdlp-proc.server";
 import {
   ensurePython,
-  ensureImpersonate,
   directYtdlpOpen,
   markDirectYtdlpBlocked,
 } from "@/lib/ytdlp-python.server";
@@ -60,14 +59,9 @@ export async function fetchSubtitlesViaYtdlp(opts: {
   if (!(await ensurePython()).ok) return null;
   const release = await acquireYtdlpSlot(opts.signal);
   try {
-    const impersonate = await ensureImpersonate().catch(() => false);
-
-    const {
-      extractorArgs,
-      ytdlpHeaderArgs,
-      ytdlpImpersonateArgs,
-      ytdlpFamilyArgs: familyArgs,
-    } = await import("@/lib/ytdlp-auth");
+    const { extractorArgs, ytdlpHeaderArgs, ytdlpFamilyArgs: familyArgs } = await import(
+      "@/lib/ytdlp-auth"
+    );
 
     // The subtitle language to request. For translations, yt-dlp lists
     // auto-translated tracks under automatic_captions keyed by the *target*
@@ -97,9 +91,6 @@ export async function fetchSubtitlesViaYtdlp(opts: {
               ...familyArgs(proxy),
               ...(proxy ? ["--proxy", proxy] : []),
               ...ytdlpHeaderArgs(),
-              ...(impersonate ? ytdlpImpersonateArgs(client) : []),
-              "--remote-components",
-              "ejs:github",
               "--extractor-args",
               extractorArgs(client),
               "--no-playlist",
@@ -165,13 +156,9 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
   if (!(await ensurePython()).ok) return [];
   const release = await acquireYtdlpSlot();
   try {
-    const impersonate = await ensureImpersonate().catch(() => false);
-    const {
-      extractorArgs,
-      ytdlpHeaderArgs,
-      ytdlpImpersonateArgs,
-      ytdlpFamilyArgs: familyArgs,
-    } = await import("@/lib/ytdlp-auth");
+    const { extractorArgs, ytdlpHeaderArgs, ytdlpFamilyArgs: familyArgs } = await import(
+      "@/lib/ytdlp-auth"
+    );
     const { THROTTLE_FLAGS } = await import("@/lib/throttle");
     const clients = ["web_embedded", "tv_simply"];
 
@@ -195,9 +182,6 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
               ...familyArgs(proxy),
               ...(proxy ? ["--proxy", proxy] : []),
               ...ytdlpHeaderArgs(),
-              ...(impersonate ? ytdlpImpersonateArgs(client) : []),
-              "--remote-components",
-              "ejs:github",
               "--extractor-args",
               extractorArgs(client),
               "--newline",

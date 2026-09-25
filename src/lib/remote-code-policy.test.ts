@@ -107,3 +107,19 @@ test("no source file names a free proxy list, a public CORS relay or the BotGuar
   assert.ok(scanned > 100, "walked the source tree");
   assert.equal(existsSync(here("./socks-pool.server.ts")), false);
 });
+
+test("yt-dlp never downloads its challenge solver, and its children get no server secrets", () => {
+  for (const file of ["./ytdlp-auth.ts", "./ytdlp-meta.server.ts"]) {
+    assert.doesNotMatch(source(file), /remote-components|ejs:github/, file);
+  }
+  for (const file of ["./proc-run.server.ts", "./ytdlp-proc.server.ts"]) {
+    assert.match(source(file), /env: childEnv\(\)/, file);
+  }
+});
+
+test("yt-dlp gets no TLS impersonation and nothing pip-installs curl_cffi at run time (D7)", () => {
+  for (const file of ["./ytdlp-auth.ts", "./ytdlp-meta.server.ts", "./ytdlp.server.ts", "./ytdlp-python.server.ts"]) {
+    assert.doesNotMatch(source(file), /--impersonate|ytdlpImpersonateArgs|ensureImpersonate|optionalModule/, file);
+  }
+  assert.doesNotMatch(source("./ytdlp-python.server.ts"), /"pip"/);
+});

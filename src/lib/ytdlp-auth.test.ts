@@ -17,7 +17,6 @@ import {
   ytdlpUserAgentArgs,
   CLIENT_USER_AGENTS,
   ytdlpHeaderArgs,
-  ytdlpImpersonateArgs,
   YTDLP_DEPRECATED_HEADERS,
   YTDLP_CLIENT_EXTRACT,
   parseYtdlpLog,
@@ -81,10 +80,9 @@ test("anonymous downloads try visionos first (guest dash/mux); android_vr aliase
     id: "jNQXAC9IVRw",
     itag: 18,
     client: "android_vr",
-    impersonate: true,
   });
   assert.match(argv[argv.indexOf("--extractor-args") + 1] ?? "", /player_client=web_embedded/);
-  assert.equal(argv.includes("--impersonate"), true);
+  assert.equal(argv.includes("--impersonate"), false);
 });
 
 test("SOCKS hop uses web_embedded for 1080p and muxed 360", () => {
@@ -137,7 +135,9 @@ test("socks proxy is passed to yt-dlp and cookies are not required", () => {
   assert.equal(argv.includes("--force-ipv4"), false);
   assert.deepEqual(ytdlpFamilyArgs("socks5h://x"), []);
   assert.deepEqual(ytdlpFamilyArgs(), ["--force-ipv4"]);
-  assert.equal(argv[argv.indexOf("--remote-components") + 1], "ejs:github");
+  // The challenge solver comes from the pinned yt-dlp install, never fetched at run time.
+  assert.equal(argv.includes("--remote-components"), false);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--remote-components/);
 });
 
 test("browser cookies never ride a SOCKS hop even when YTDLP_BROWSER is set", () => {
@@ -198,27 +198,13 @@ test("never pass a global User-Agent; InnerTube already stamps per client", () =
   );
 });
 
-test("curl_cffi impersonate is chrome/safari on web clients, never android", () => {
-  assert.deepEqual(ytdlpImpersonateArgs("web_embedded"), ["--impersonate", "chrome"]);
-  assert.deepEqual(ytdlpImpersonateArgs("web_safari"), ["--impersonate", "safari"]);
-  assert.deepEqual(ytdlpImpersonateArgs("android"), []);
-  assert.deepEqual(ytdlpImpersonateArgs("ios"), []);
-  const web = ytdlpArgv({
-    dir: "/tmp/x",
-    id: "jNQXAC9IVRw",
-    itag: 137,
-    client: "web_embedded",
-    impersonate: true,
-  });
-  assert.equal(web[web.indexOf("--impersonate") + 1], "chrome");
-  const android = ytdlpArgv({
-    dir: "/tmp/x",
-    id: "jNQXAC9IVRw",
-    itag: 18,
-    client: "android",
-    impersonate: true,
-  });
-  assert.equal(android.includes("--impersonate"), false);
+test("yt-dlp argv never carries --impersonate (D7: no TLS fingerprint impersonation)", () => {
+  for (const client of ["web_embedded", "web_safari", "mweb", "tv_simply", "android", "ios"]) {
+    // A stale caller that still passes the old flag gets no impersonation either.
+    const legacy = { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client, impersonate: true };
+    assert.equal(ytdlpArgv(legacy).includes("--impersonate"), false, client);
+  }
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--impersonate/);
   assert.ok(YTDLP_CLIENT_EXTRACT.some((row) => row.client === "web_embedded" && row.cookies));
 });
 
@@ -266,10 +252,9 @@ test("working command matches argv and includes the zoo 1080 selector", () => {
     itag: 137,
     client: "web_embedded",
     proxy: "socks5h://127.0.0.1:1080",
-    impersonate: true,
   });
   assert.match(cmd, /^python3 -m yt_dlp /);
-  assert.match(cmd, /--impersonate chrome/);
+  assert.doesNotMatch(cmd, /--impersonate/);
   assert.match(cmd, /player_client=web_embedded/);
   assert.match(cmd, /137\+140\/137\+251\/96/);
   assert.match(cmd, /socks5h:\/\/127\.0\.0\.1:1080/);
@@ -277,7 +262,7 @@ test("working command matches argv and includes the zoo 1080 selector", () => {
   assert.match(cmd, /--check-formats/);
   assert.match(cmd, /jNQXAC9IVRw/);
   assert.match(YTDLP_WORKING_EXAMPLE, /player_client=web_embedded/);
-  assert.match(YTDLP_WORKING_EXAMPLE, /--impersonate chrome/);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--impersonate/);
   assert.equal(YTDLP_WORKING_EXAMPLE.includes("--force-ipv4"), false);
 });
 

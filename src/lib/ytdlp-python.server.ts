@@ -1,7 +1,7 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { run, runCapture } from "@/lib/ytdlp-proc.server";
+import { runCapture } from "@/lib/ytdlp-proc.server";
 import { pythonBin, classifyPythonProbe, type PythonProbe } from "@/lib/ytdlp-auth";
 
 export const TMP_PREFIX = "velo-ytdl-";
@@ -96,48 +96,3 @@ export async function requirePython(): Promise<void> {
   const probe = await ensurePython();
   if (!probe.ok) throw new Error(probe.message);
 }
-
-/**
- * Probe for an optional Python package, installing it once if absent.
- *
- * Cached per process, but a failure is retried after a cooldown rather than
- * remembered forever — one transient pip failure otherwise disabled
- * impersonation for the life of the server.
- */
-function optionalModule(module: string, pipName: string): () => Promise<boolean> {
-  let state: { at: number; result: Promise<boolean> } | null = null;
-  return () => {
-    if (state && Date.now() - state.at < PROBE_RETRY_MS) return state.result;
-    const result = (async () => {
-      const bin = pythonBin();
-      const probe = await ensurePython();
-      if (!probe.ok) return false;
-      const check = await run(bin, ["-c", `import ${module}`], 8_000).catch(() => ({ code: 1 }));
-      if (check.code === 0) return true;
-      const install = await run(bin, ["-m", "pip", "install", "--quiet", pipName], 90_000).catch(
-        () => ({ code: 1 }),
-      );
-      return install.code === 0;
-    })();
-    // Hold at a far-future stamp WHILE the probe is in flight so a second caller
-    // arriving mid-install (the pip step can run ~90s, longer than PROBE_RETRY_MS)
-    // gets this same promise instead of kicking off a concurrent pip install into
-    // the same site-packages. Mutate this entry directly (not the module-level
-    // `state`, which a racing call may have replaced) so the settle pins the
-    // right probe: forever on success, `now` on failure so the cooldown runs
-    // from when it failed rather than caching `false` until restart.
-    const entry = { at: Number.POSITIVE_INFINITY, result };
-    state = entry;
-    void result.then(
-      (ok) => {
-        entry.at = ok ? Number.POSITIVE_INFINITY : Date.now();
-      },
-      () => {
-        entry.at = Date.now();
-      },
-    );
-    return result;
-  };
-}
-
-export const ensureImpersonate = optionalModule("curl_cffi", "curl_cffi");

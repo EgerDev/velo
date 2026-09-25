@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 
 export { killTree, run } from "@/lib/proc-run.server";
-import { killTree } from "@/lib/proc-run.server";
+import { childEnv, killTree } from "@/lib/proc-run.server";
 
 /** Plenty for `--version`; a caption-heavy `-J` dump needs JSON_STDOUT_MAX. */
 const STDOUT_MAX_DEFAULT = 2_000_000;
@@ -32,7 +32,11 @@ export function runCapture(
       reject(new Error("aborted"));
       return;
     }
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+      env: childEnv(),
+    });
     let stdoutBytes = 0;
     let truncated = false;
     const stdoutChunks: Buffer[] = [];

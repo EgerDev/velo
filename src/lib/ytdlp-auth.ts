@@ -203,49 +203,19 @@ export function ytdlpHeaderArgs(): string[] {
   return ["--add-headers", "Accept-Language:en-US,en;q=0.9"];
 }
 
-/** TLS fingerprint via curl_cffi. Never on android/ios — that would replace their app UA with Chrome. */
-export function ytdlpImpersonateArgs(client: string): string[] {
-  const id = resolvePlayerClient(client).split(",")[0]?.trim() ?? "";
-  if (id === "web_safari" || id === "mweb") return ["--impersonate", "safari"];
-  if (id === "web" || id === "web_embedded" || id.startsWith("tv"))
-    return ["--impersonate", "chrome"];
-  return [];
-}
-
 export const YTDLP_CLIENT_EXTRACT = [
-  {
-    client: "web_embedded",
-    formats: "DASH 137/248 + mux 18; 1080p with POT",
-    cookies: true,
-    impersonate: "chrome",
-  },
-  { client: "tv_simply", formats: "muxed 18 (guest, no cookies)", cookies: false, impersonate: "" },
+  { client: "web_embedded", formats: "DASH 137/248 + mux 18; 1080p with POT", cookies: true },
+  { client: "tv_simply", formats: "muxed 18 (guest, no cookies)", cookies: false },
   {
     client: "web_safari",
     formats: "HLS 96 muxed 1080p (logged-in only since 2026.07)",
     cookies: true,
-    impersonate: "safari",
   },
-  {
-    client: "android",
-    formats: "muxed 18/22; SABR-only without POT",
-    cookies: false,
-    impersonate: "",
-  },
-  { client: "mweb", formats: "ultralow + HLS", cookies: true, impersonate: "safari" },
-  { client: "web", formats: "WEB dash (needs POT)", cookies: true, impersonate: "chrome" },
-  {
-    client: "tv_downgraded",
-    formats: "TVHTML5 authed default",
-    cookies: true,
-    impersonate: "chrome",
-  },
-  {
-    client: "visionos",
-    formats: "dash ≤240p guest, no mux, no cookies",
-    cookies: false,
-    impersonate: "",
-  },
+  { client: "android", formats: "muxed 18/22; SABR-only without POT", cookies: false },
+  { client: "mweb", formats: "ultralow + HLS", cookies: true },
+  { client: "web", formats: "WEB dash (needs POT)", cookies: true },
+  { client: "tv_downgraded", formats: "TVHTML5 authed default", cookies: true },
+  { client: "visionos", formats: "dash ≤240p guest, no mux, no cookies", cookies: false },
 ] as const;
 
 /** All yt-dlp 2026.08.19 InnerTube clients (INNERTUBE_CLIENTS). android_vr is 403 since 2026.08.17. */
@@ -392,7 +362,7 @@ function proxyArg(raw: string): string {
  * `--force-ipv4` sets source_address=0.0.0.0 (yt-dlp options.py). Direct hops
  * need it so player + CDN share IPv4. SOCKS hops must NOT force family — the
  * proxy owns the YouTube-side address (ip=); forcing 0.0.0.0 breaks IPv6-only
- * proxies and can desync curl_cffi CONNECT.
+ * proxies.
  */
 export function ytdlpFamilyArgs(proxy?: string): string[] {
   return proxy ? [] : ["--force-ipv4"];
@@ -409,7 +379,6 @@ export function ytdlpArgv(opts: {
   proxy?: string;
   /** Set for a user-configured proxy: the operator's own hop MAY carry the session. */
   trustedProxy?: boolean;
-  impersonate?: boolean;
 }): string[] {
   const client = resolvePlayerClient(opts.client);
   const args = [
@@ -435,10 +404,7 @@ export function ytdlpArgv(opts: {
   else args.push(...browser);
   args.push(...ytdlpUserAgentArgs(client));
   args.push(...ytdlpHeaderArgs());
-  if (opts.impersonate) args.push(...ytdlpImpersonateArgs(client));
   args.push(
-    "--remote-components",
-    "ejs:github",
     "--extractor-args",
     extractorArgs(
       client,
@@ -486,8 +452,8 @@ export const YTDLP_EXTRACTOR_LAYERS = [
   },
   {
     layer: "download",
-    file: "networking urllib+curl_cffi",
-    does: "googlevideo; impersonate only on web clients",
+    file: "networking urllib",
+    does: "googlevideo; no TLS impersonation (D7)",
   },
 ] as const;
 
@@ -851,9 +817,10 @@ export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): stri
 
 /**
  * Proved 24 Aug 2026 on this host (Me at the zoo, SOCKS, yt-dlp 2026.08.19):
- * web_embedded + chrome impersonate extracts; without po_token only itag 18 is playable.
+ * web_embedded extracts (then with TLS impersonation, since removed under D7);
+ * without po_token only itag 18 is playable.
  * android without POT is SABR-only (same 18). 1080p needs dual gvs+player po_token.
  * SOCKS example omits --force-ipv4 — the hop owns the YouTube-side family.
  */
 export const YTDLP_WORKING_EXAMPLE =
-  "python3 -m yt_dlp --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --impersonate chrome --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --remote-components ejs:github --no-playlist --check-formats --throttled-rate 100K --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";
+  "python3 -m yt_dlp --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --no-playlist --check-formats --throttled-rate 100K --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";
