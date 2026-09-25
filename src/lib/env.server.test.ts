@@ -41,7 +41,8 @@ test("the error names variables and never carries a value", () => {
   const err = envError({ ...PROD, BETTER_AUTH_SECRET: "short-secret-value", GOOGLE_CLIENT_ID: "" });
   assert.deepEqual(err.missing, ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID"]);
   for (const value of ["short-secret-value", "google-secret-value", "db.internal", "pw@", "velo.example"]) {
-    assert.doesNotMatch(`${err.message} ${JSON.stringify(err)} ${err.stack}`, new RegExp(value.replace(/\./g, "\\.")));
+    const text = `${err.message} ${JSON.stringify(err)} ${err.stack}`;
+    assert.equal(text.includes(value), false, value);
   }
 });
 

@@ -3,8 +3,8 @@
 // packages/ or public/. Keep literal hosts out of this file too: the samples
 // below are assembled at runtime.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { test } from "node:test";
 import { projectRoot } from "./project-root.mjs";
 
@@ -39,11 +39,11 @@ test("no platform host in src/, server/, scripts/, packages/ or public/", () => 
   for (const root of ROOTS) {
     const dir = join(projectRoot(), root);
     if (!existsSync(dir)) continue;
-    for (const entry of readdirSync(dir, { recursive: true })) {
-      const file = join(dir, String(entry));
-      if (!statSync(file).isFile()) continue;
+    for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const file = join(entry.parentPath, entry.name);
       const host = forbiddenHost(readFileSync(file, "utf8"));
-      if (host) hits.push(`${join(root, String(entry))}: ${host}`);
+      if (host) hits.push(`${relative(projectRoot(), file)}: ${host}`);
     }
   }
   assert.deepEqual(hits, []);
