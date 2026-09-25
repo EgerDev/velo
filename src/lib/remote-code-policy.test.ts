@@ -110,7 +110,8 @@ test("no source file names a free proxy list, a public CORS relay or the BotGuar
 
 test("yt-dlp never downloads its challenge solver, and its children get no server secrets", () => {
   for (const file of ["./ytdlp-auth.ts", "./ytdlp-meta.server.ts"]) {
-    assert.doesNotMatch(source(file), /remote-components|ejs:github/, file);
+    // The --no- form is the lock (YTDLP_BASE_ARGV); only the enabling flag is banned.
+    assert.doesNotMatch(source(file), /--remote-components|ejs:github/, file);
   }
   for (const file of ["./proc-run.server.ts", "./ytdlp-proc.server.ts"]) {
     assert.match(source(file), /env: childEnv\(\)/, file);

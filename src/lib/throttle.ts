@@ -1,6 +1,6 @@
 /**
- * yt-dlp transfer flags for every run: re-extract when speed stays under
- * 100 KB/s, 10 MB HTTP chunks, one HLS fragment at a time.
+ * yt-dlp transfer flags for every run: retry counts, 10 MB HTTP chunks, one
+ * HLS fragment at a time, a socket timeout and a short pause between requests.
  *
  * --retries stays at 1: a 403 never succeeds on the same URL.
  * Fragment retries still cover HLS flake.
@@ -14,8 +14,6 @@ export const THROTTLE_FLAGS = [
   "3",
   "--retry-sleep",
   "linear=1:4:2",
-  "--throttled-rate",
-  "100K",
   "--http-chunk-size",
   "10M",
   "--concurrent-fragments",

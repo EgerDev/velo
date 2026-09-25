@@ -101,7 +101,7 @@ test("1080p Save uses the hop that works: 137+140 then Opus then HLS — not sil
   assert.equal(ytdlpFormatSelector(18), "18");
   const argv = ytdlpArgv({ dir: "/tmp/x", id: "dQw4w9WgXcQ", itag: 137, client: "web_embedded" });
   assert.equal(argv[argv.indexOf("-f") + 1], "137+140/137+251/96");
-  assert.equal(argv[argv.indexOf("--throttled-rate") + 1], "100K");
+  assert.equal(argv.includes("--throttled-rate"), false);
   assert.equal(argv[argv.indexOf("--http-chunk-size") + 1], "10M");
   assert.equal(argv[argv.indexOf("--concurrent-fragments") + 1], "1");
   assert.equal(argv[argv.indexOf("--merge-output-format") + 1], "mp4/mkv");
@@ -283,7 +283,7 @@ test("keeps = in visitor_data and never pins fetch_pot", () => {
   const loggedIn = extractorArgs("web_embedded", null, "104123||");
   assert.match(loggedIn, /data_sync_id=104123\|\|/);
   assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "data_sync_id"));
-  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && row.use === "never"));
+  assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "fetch_pot" && row.use === "omit"));
   assert.ok(YTDLP_EXTRACTOR_ARGS.some((row) => row.arg === "po_token" && row.use === "never"));
 });
 
@@ -455,4 +455,34 @@ test("only a genuinely absent binary counts as a missing interpreter", () => {
   );
   assert.equal(isMissingInterpreterError(new Error("spawn failed")), false);
   assert.equal(isMissingInterpreterError(null), false);
+});
+
+// Config files, plugin dirs and remote components could each re-enable what
+// Velo turns off (D7/C5): every run ignores them and uses only the bundled solver.
+const LOCKED_PREFIX = [
+  "-m",
+  "yt_dlp",
+  "--ignore-config",
+  "--no-plugin-dirs",
+  "--no-remote-components",
+  "--no-js-runtimes",
+  "--js-runtimes",
+  "node",
+];
+
+test("the download argv starts with the locked-down prefix and sets no --throttled-rate", () => {
+  const cases = [
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 137, client: "web_embedded" },
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "android", proxy: "socks5h://127.0.0.1:1080" },
+    { dir: "/tmp/x", id: "jNQXAC9IVRw", itag: 18, client: "mweb", cookiePath: "/tmp/x/cookies.txt" },
+  ];
+  for (const opts of cases) {
+    const argv = ytdlpArgv(opts);
+    assert.deepEqual(argv.slice(0, LOCKED_PREFIX.length), LOCKED_PREFIX, opts.client);
+    assert.equal(argv.includes("--throttled-rate"), false, opts.client);
+  }
+  const cmd = ytdlpWorkingCommand(cases[0]!);
+  assert.match(cmd, /^python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components /);
+  assert.match(YTDLP_WORKING_EXAMPLE, /^python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components /);
+  assert.doesNotMatch(YTDLP_WORKING_EXAMPLE, /--throttled-rate/);
 });

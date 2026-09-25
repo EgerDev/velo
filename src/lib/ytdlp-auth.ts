@@ -368,6 +368,22 @@ export function ytdlpFamilyArgs(proxy?: string): string[] {
   return proxy ? [] : ["--force-ipv4"];
 }
 
+/**
+ * Every yt-dlp run starts with this. Config files, plugin dirs and remote
+ * components could each re-enable what Velo turns off (roadmap D7/C5), so
+ * yt-dlp ignores them and runs only its bundled challenge solver under node.
+ */
+export const YTDLP_BASE_ARGV = [
+  "-m",
+  "yt_dlp",
+  "--ignore-config",
+  "--no-plugin-dirs",
+  "--no-remote-components",
+  "--no-js-runtimes",
+  "--js-runtimes",
+  "node",
+] as const;
+
 export function ytdlpArgv(opts: {
   dir: string;
   id: string;
@@ -381,14 +397,7 @@ export function ytdlpArgv(opts: {
   trustedProxy?: boolean;
 }): string[] {
   const client = resolvePlayerClient(opts.client);
-  const args = [
-    "-m",
-    "yt_dlp",
-    "--no-js-runtimes",
-    "--js-runtimes",
-    "node",
-    ...ytdlpFamilyArgs(opts.proxy),
-  ];
+  const args = [...YTDLP_BASE_ARGV, ...ytdlpFamilyArgs(opts.proxy)];
   if (opts.proxy) args.push("--proxy", proxyArg(opts.proxy));
   const id = client.split(",")[0] ?? "";
   const cookiesOk = !/^(android|ios|visionos|tv_simply)$/.test(id);
@@ -476,7 +485,7 @@ export const YTDLP_EXTRACTOR_ARGS = [
     use: "main",
     note: "stable player.js; pinning player_js_version breaks nsig",
   },
-  { arg: "fetch_pot", use: "never", note: "omitted; yt-dlp keeps its default" },
+  { arg: "fetch_pot", use: "omit", note: "yt-dlp keeps its default" },
   { arg: "use_ad_playback_context", use: "omit", note: "true is the IMA/DAI ad player — never" },
   { arg: "formats", use: "omit missing_pot", note: "would list SABR rows with no URL as 1080p" },
   { arg: "player_skip", use: "omit", note: "need js + configs for nsig" },
@@ -823,4 +832,4 @@ export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): stri
  * SOCKS example omits --force-ipv4 — the hop owns the YouTube-side family.
  */
 export const YTDLP_WORKING_EXAMPLE =
-  "python3 -m yt_dlp --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --no-playlist --check-formats --throttled-rate 100K --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";
+  "python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --no-playlist --check-formats --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";

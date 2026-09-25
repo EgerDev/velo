@@ -10,7 +10,7 @@ import {
 import { ytdlpJsonToFormats, type YtDlpJsonFormat } from "@/lib/ytdlp-formats";
 import type { VideoFormat } from "@/lib/youtube";
 import { acquireYtdlpSlot } from "@/lib/download-pool.server";
-import { mapYtdlpExit, pythonBin } from "@/lib/ytdlp-auth";
+import { YTDLP_BASE_ARGV, mapYtdlpExit, pythonBin } from "@/lib/ytdlp-auth";
 import { JSON_STDOUT_MAX } from "@/lib/ytdlp-proc.server";
 import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";
 import { log } from "@/lib/log.server";
@@ -83,11 +83,7 @@ export async function fetchSubtitlesViaYtdlp(opts: {
           const result = await runCapture(
             pythonBin(),
             [
-              "-m",
-              "yt_dlp",
-              "--no-js-runtimes",
-              "--js-runtimes",
-              "node",
+              ...YTDLP_BASE_ARGV,
               ...familyArgs(proxy),
               ...(proxy ? ["--proxy", proxy] : []),
               ...ytdlpHeaderArgs(),
@@ -174,11 +170,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
           const result = await runCapture(
             pythonBin(),
             [
-              "-m",
-              "yt_dlp",
-              "--no-js-runtimes",
-              "--js-runtimes",
-              "node",
+              ...YTDLP_BASE_ARGV,
               ...familyArgs(proxy),
               ...(proxy ? ["--proxy", proxy] : []),
               ...ytdlpHeaderArgs(),
