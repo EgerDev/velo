@@ -14,7 +14,7 @@ import {
   parseSpec,
   ytdlpNeedsUpdate,
 } from "./auto-update-plan.mjs";
-import { projectRoot } from "./with-app-env.mjs";
+import { projectRoot } from "./project-root.mjs";
 
 test("range operators survive a bump", () => {
   assert.equal(bumpSpec("^18.0.0", "19.2.0"), "^19.2.0");

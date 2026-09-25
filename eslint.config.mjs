@@ -35,7 +35,6 @@ export default tseslint.config(
       // and `update:deps` uses lint as a gate, so it would roll back every
       // upgrade for a reason that has nothing to do with the upgrade.
       ".remember/**",
-      ".grok/**",
       ".pi/**",
       ".tanstack/**",
     ],

@@ -32,6 +32,13 @@ test("the server builds with Nitro's node-server preset; nothing targets Vercel 
   assert.doesNotMatch(vite, /preset: "vercel"|\.vercel\/output|pgliteAssetsPlugin/);
 });
 
+test("dev and build run Vite directly: no env wrapper, no auth-invariant check", () => {
+  assert.equal(pkg.scripts.dev, "vite dev");
+  assert.equal(pkg.scripts.build, "vite build");
+  assert.equal(pkg.scripts["check:auth"], undefined);
+  assert.doesNotMatch(JSON.stringify(pkg.scripts), /with-app-env|check-auth-invariant/);
+});
+
 test("lint fails on any warning", () => {
   assert.equal(pkg.scripts.lint, "eslint . --max-warnings 0");
 });

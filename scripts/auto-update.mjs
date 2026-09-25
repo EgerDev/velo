@@ -48,7 +48,7 @@ import {
   verifySteps,
   ytdlpNeedsUpdate,
 } from "./auto-update-plan.mjs";
-import { projectRoot } from "./with-app-env.mjs";
+import { projectRoot } from "./project-root.mjs";
 
 const ROOT = projectRoot();
 const PKG_PATH = join(ROOT, "package.json");

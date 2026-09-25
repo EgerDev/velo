@@ -12,14 +12,13 @@
     "nf3": "0.3.17"
   },
   "scripts": {
-    "dev": "node scripts/with-app-env.mjs vite dev",
-    "build": "node scripts/with-app-env.mjs vite build",
+    "dev": "vite dev",
+    "build": "vite build",
     "start": "node .output/server/index.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
-    "preview": "node scripts/with-app-env.mjs vite preview",
+    "build:dev": "vite build --mode development",
+    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "check:auth": "node scripts/check-auth-invariant.mjs",
     "update:deps": "node scripts/auto-update.mjs",
     "update:check": "node scripts/auto-update.mjs --check",
     "test": "node --test \"scripts/**/*.test.mjs\" && node scripts/run-ts-tests.mjs",

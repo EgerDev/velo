@@ -6,8 +6,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { nitro } from "nitro/vite";
-// @ts-expect-error JS plugin alongside the TS vite config
-import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
@@ -30,7 +28,7 @@ function hasGlobbedMigrations(root: string): boolean {
  */
 function pgliteBootstrapPlugin(): Plugin {
   return {
-    name: "app-builder:pglite-bootstrap",
+    name: "velo:pglite-bootstrap",
     apply: "serve",
     async configureServer(server) {
       if (!hasGlobbedMigrations(server.config.root)) return;
@@ -42,7 +40,7 @@ function pgliteBootstrapPlugin(): Plugin {
           await mod.ensureDbReady();
         }
       } catch (err) {
-        console.error("[app-builder] DB bootstrap failed:", err);
+        console.error("[velo] DB bootstrap failed:", err);
         throw err;
       }
     },
@@ -69,8 +67,6 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   plugins: [
     pgliteBootstrapPlugin(),
-    // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
-    appEnvPlugin(),
     tailwindcss(),
     tanstackStart(),
     ...(command === "build" || isPreview
