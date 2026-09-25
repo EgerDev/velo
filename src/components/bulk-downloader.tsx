@@ -1,25 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  Download,
-  FileCode,
-  FileText,
-  ListPlus,
-  Loader2,
-  Pause,
-  Play,
-  RefreshCw,
-  Sliders,
-  Trash2,
-  X,
-  XCircle,
-} from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import {
   calculateQueueStats,
   createBulkItems,
@@ -28,17 +8,10 @@ import {
   exportUrlList,
   exportYtdlpBatchScript,
   extractYoutubeLinks,
-  importBatchJson,
   type BulkItem,
   type BulkQualityPreset,
   type BulkQueueOptions,
 } from "@/lib/bulk-download";
-import { resolveBulkVideos, resolvePlaylist, resolveVideo } from "@/lib/resolve-video";
-import { downloadPresetFile, type DownloadProgress } from "@/lib/download-client";
-import { isUserAbort } from "@/lib/download-error";
-import { beginBuilderSave, discardPendingSave, type PendingSave } from "@/lib/builder-save";
-import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
-import { BulkQueueItem } from "@/components/bulk-queue-item";
 import { BulkView } from "@/components/bulk-view";
 import { processBulkItem } from "@/lib/bulk-process";
 import { startBulkQueue } from "@/lib/bulk-queue-run";

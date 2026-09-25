@@ -266,3 +266,19 @@ export function lockstepGroups(steps) {
     name.startsWith("@") ? name.split("/")[0] : name === "react-dom" ? "react" : name;
   return [...Map.groupBy(steps, (step) => family(step.name)).values()];
 }
+
+/**
+ * The gates an update must pass, in order, as `npm` argv. `build` runs last:
+ * it is the slowest and the only one that catches bundler/runtime breakage
+ * (vite, nitro, @tanstack/react-start) that typecheck and tests miss.
+ * @param {{ skipTests?: boolean }} [options]
+ * @returns {Array<[string, string[]]>}
+ */
+export function verifySteps({ skipTests = false } = {}) {
+  return [
+    ["typecheck", ["run", "typecheck"]],
+    ...(skipTests ? [] : [/** @type {[string, string[]]} */ (["test", ["run", "test"]])]),
+    ["lint", ["run", "lint"]],
+    ["build", ["run", "build"]],
+  ];
+}

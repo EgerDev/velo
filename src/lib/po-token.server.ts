@@ -229,6 +229,7 @@ async function createMinter(): Promise<Minter> {
   }
 
   const { webPoSignalOutput, botguardResponse } = await withBgWindow(async () => {
+    // eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
     const vm = new Function(
       "window",
       "self",

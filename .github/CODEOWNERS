@@ -1,0 +1,23 @@
+# Review is required from the owner on everything (enforced by the main ruleset
+# once require_code_owner_review is on). The explicit lines keep the
+# security-critical paths owned even if the catch-all is narrowed later.
+*                                   @EgerDev
+/.github/                           @EgerDev
+/package.json                       @EgerDev
+/package-lock.json                  @EgerDev
+/eslint.config.mjs                  @EgerDev
+/vite.config.ts                     @EgerDev
+/migrations/                        @EgerDev
+/scripts/auto-update*.mjs           @EgerDev
+/scripts/migrate.mjs                @EgerDev
+/src/lib/auth/                      @EgerDev
+/src/lib/http/                      @EgerDev
+/src/lib/log.server.ts              @EgerDev
+/src/lib/env.server.ts              @EgerDev
+/src/lib/guest-limit.server.ts      @EgerDev
+/src/lib/operator-gate.server.ts    @EgerDev
+/src/lib/vault*                     @EgerDev
+/src/routes/api/                    @EgerDev
+/extension/                         @EgerDev
+/extensions/                        @EgerDev
+/packages/extension/                @EgerDev

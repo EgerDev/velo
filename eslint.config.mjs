@@ -5,7 +5,22 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-/** Flat ESLint config for the TanStack Start app-builder template. */
+/**
+ * The server never executes remote JavaScript (roadmap D7/C5). These are the
+ * in-process escape hatches; W4b deletes the remaining uses.
+ */
+const UNTRUSTED_EVAL_MESSAGE =
+  "Do not evaluate code in-process. The server never executes remote JavaScript (roadmap C5, D7).";
+const noInProcessEval = [
+  { selector: "NewExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.property.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.property.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
+];
+
+/** Flat ESLint config. Every rule is an error; `npm run lint` runs with --max-warnings 0. */
 export default tseslint.config(
   {
     ignores: [
@@ -25,6 +40,7 @@ export default tseslint.config(
       ".tanstack/**",
     ],
   },
+  { linterOptions: { reportUnusedDisableDirectives: "error" } },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -39,13 +55,28 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-hooks/exhaustive-deps": "error",
+      "react-refresh/only-export-components": [
+        "error",
+        { allowConstantExport: true, allowExportNames: ["badgeVariants", "buttonVariants"] },
+      ],
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "off",
+      "no-restricted-syntax": ["error", ...noInProcessEval],
     },
+  },
+  {
+    // Server code logs through `log` (src/lib/log.server.ts), which redacts secrets.
+    files: ["src/**/*.server.ts", "src/routes/**"],
+    ignores: [
+      // W2 deletes/rewrites these two Grok-gate auth files; remove both lines then.
+      "src/lib/auth/gate-session.server.ts",
+      "src/lib/auth/verify.server.ts",
+    ],
+    rules: { "no-console": "error" },
   },
   // Disable rules that conflict with Prettier formatting.
   prettier,

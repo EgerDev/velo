@@ -1,35 +1,5 @@
 import { spawn } from "node:child_process";
 import "@/lib/ipv4-bind.server";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { withRetry } from "@/lib/retry";
-import {
-  readCookieSession,
-  socksClientsForItag,
-  ytdlpArgv,
-  ytdlpClients,
-  ytdlpRunTimeoutMs,
-  mapYtdlpExit,
-  formatYtdlpFailure,
-  isAudioItag,
-  pythonBin,
-  classifyPythonProbe,
-  type PythonProbe,
-  type YtdlpFailure,
-} from "@/lib/ytdlp-auth";
-import { markSocksDead, markSocksGood, releaseSocks, takeSocks } from "@/lib/socks-pool.server";
-import { ytdlpJsonToFormats, type YtDlpJsonFormat } from "@/lib/ytdlp-formats";
-import type { VideoFormat } from "@/lib/youtube";
-import {
-  acquireYtdlpSlot,
-  coalesceFile,
-  looksLikeMediaFile,
-  mediaFileResponse,
-  muxCacheGet,
-  muxCachePut,
-  type FileHit,
-} from "@/lib/download-pool.server";
 
 export { killTree, run } from "@/lib/proc-run.server";
 import { killTree } from "@/lib/proc-run.server";

@@ -7,12 +7,7 @@ import type { TranscriptViewProps } from "@/components/transcript-props";
 export function TranscriptForm(props: TranscriptViewProps) {
   const {
     urlInput, setUrlInput, loadVideoTranscript, loading, samples, error, setError, video,
-    selectedLanguage, handleLanguageChange, translationLanguages, canTranslate, translateTo,
-    handleTranslateChange, selectedTrack, searchQuery, setSearchQuery, copyFormattedTranscript,
-    copiedFormat, downloadTranscriptFile, cues, deletedCueIds, toggleDeleteCue, restoreAllCues,
-    seekTo, handleNleExport, copyAiPrompt, copiedPromptId, loadingTranscript, filteredCues,
-    activeCues, excludedCount, fps, setFps, showNleMenu, setShowNleMenu, onOpenInDownloader,
-    translatedTo, readingMinutes,
+    onOpenInDownloader, readingMinutes,
   } = props;
 
   return (

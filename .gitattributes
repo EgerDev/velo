@@ -1,3 +1,7 @@
 # LF everywhere, whatever core.autocrlf says: the deploy target is Linux, and a
 # CRLF startup.sh (the revive entrypoint) dies with "set: Illegal option -".
 * text=auto eol=lf
+
+# Committed media fixtures (TEST-05): never normalise line endings.
+*.mpegts binary
+*.mp4 binary

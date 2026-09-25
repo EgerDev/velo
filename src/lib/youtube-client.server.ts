@@ -1,10 +1,9 @@
 import { Innertube, Platform } from "youtubei.js";
 import "@/lib/ipv4-bind.server";
-import type { VideoFormat } from "@/lib/youtube";
-import { toFormat, uniqueFormats } from "@/lib/youtube-map.server";
 import { proxiedFetch } from "@/lib/user-proxy.server";
 import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
+// eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
 Platform.shim.eval = (data) => new Function(data.output)();
 
 export const STREAM_HEADERS = {

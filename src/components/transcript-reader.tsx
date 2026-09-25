@@ -1,22 +1,15 @@
 import { memo } from "react";
 import { Check, ChevronDown, Clock, Copy, Download, Layers, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AI_PROMPT_TEMPLATES } from "@/lib/transcript";
-import { formatDuration } from "@/lib/youtube";
 import { NLE_EXPORT_OPTIONS, type TranscriptViewProps } from "@/components/transcript-props";
 import { VirtualRows } from "@/components/virtual-rows";
 
 export function TranscriptReader(props: TranscriptViewProps) {
   const {
-    urlInput, setUrlInput, loadVideoTranscript, loading, samples, error, setError, video,
-    selectedLanguage, handleLanguageChange, translationLanguages, canTranslate, translateTo,
-    handleTranslateChange, selectedTrack, searchQuery, setSearchQuery, copyFormattedTranscript,
-    copiedFormat, downloadTranscriptFile, cues, deletedCueIds, toggleDeleteCue, restoreAllCues,
-    seekTo, handleNleExport, copyAiPrompt, copiedPromptId, loadingTranscript, filteredCues,
-    excludedCount, fps, setFps, showNleMenu, setShowNleMenu, onOpenInDownloader,
-    translatedTo, readingMinutes, stats,
+    searchQuery, setSearchQuery, copyFormattedTranscript, copiedFormat, downloadTranscriptFile,
+    cues, deletedCueIds, toggleDeleteCue, restoreAllCues, seekTo, handleNleExport,
+    loadingTranscript, filteredCues, fps, setFps, showNleMenu, setShowNleMenu, translatedTo, stats,
   } = props;
 
   return (

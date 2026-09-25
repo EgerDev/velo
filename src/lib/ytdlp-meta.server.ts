@@ -16,6 +16,7 @@ import { acquireYtdlpSlot } from "@/lib/download-pool.server";
 import { mapYtdlpExit, pythonBin } from "@/lib/ytdlp-auth";
 import { JSON_STDOUT_MAX } from "@/lib/ytdlp-proc.server";
 import { attemptYtdlpMetadataLadder } from "@/lib/ytdlp-meta-routing";
+import { log } from "@/lib/log.server";
 
 const TMP_PREFIX = "velo-ytdl-";
 const FORMAT_TTL_MS = 10 * 60_000;
@@ -253,7 +254,7 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
             // Not the hop's fault and not fixable by retrying: every client and
             // hop would overflow identically. Say so and stop instead of
             // failing four runs with an opaque SyntaxError.
-            console.warn(`[ytdlp] -J output exceeded ${JSON_STDOUT_MAX} bytes for ${id}`);
+            log.warn("ytdlp.json_output_truncated", { videoId: id, maxBytes: JSON_STDOUT_MAX });
             return [];
           }
           const json = JSON.parse(result.stdout) as { formats?: YtDlpJsonFormat[] };

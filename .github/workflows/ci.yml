@@ -1,0 +1,87 @@
+# Required checks for every PR and every push to main.
+#   unit (ubuntu-24.04), unit (windows-2025): npm test on both OSes
+#   verify: typecheck, lint, build, migrations against Postgres 16, HTTP tests
+# Read-only token, no persisted credentials, no lifecycle scripts, pinned actions.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # --ignore-scripts: nothing here needs a lifecycle script, and a
+      # compromised dependency's install script must not run in CI.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: velo
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI_DATABASE_URL: postgres://postgres@127.0.0.1:5432/velo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm audit signatures
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: migrations apply to Postgres 16 and re-run as a no-op
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: |
+          npm run db:migrate
+          npm run db:migrate | tee migrate-second.log
+          grep -q "up to date" migrate-second.log
+      - name: HTTP tests against the built server
+        env:
+          VELO_TEST_DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npm run test:http

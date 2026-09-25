@@ -1,23 +1,14 @@
 import {
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  Download,
-  FileCode,
-  FileText,
   ListPlus,
-  Loader2,
   Pause,
   Play,
   RefreshCw,
   Sliders,
   Trash2,
   X,
-  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import type { BulkItem, BulkQualityPreset, BulkQueueOptions } from "@/lib/bulk-download";
 import { BulkQueueItem } from "@/components/bulk-queue-item";
 import { BulkSettings } from "@/components/bulk-settings";
