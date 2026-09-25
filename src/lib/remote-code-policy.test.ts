@@ -86,8 +86,8 @@ test("nothing patches process-wide DNS or the global fetch dispatcher", () => {
   assert.doesNotMatch(source("../../package.json"), /sideEffects/);
 });
 
-test("no source file names a free proxy list, a public CORS relay or the BotGuard library", () => {
-  const banned = /proxifly|free-proxy-list|corsfix|allorigins|bgutils/i;
+test("no source file names a free proxy list, a public CORS relay, a CDN script host, the BotGuard library or a SOCKS pool variable", () => {
+  const banned = /proxifly|free-proxy-list|corsfix|allorigins|cors\.sh|jsdelivr\.net\/gh|bgutils|VELO_SOCKS_PROXY|ALL_PROXY/i;
   const repo = here("../../");
   const self = "remote-code-policy.test.ts";
   let scanned = 0;

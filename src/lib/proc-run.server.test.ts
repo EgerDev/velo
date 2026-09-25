@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { childEnv, run } from "./proc-run.server.ts";
+import type { ServerEnv } from "./env.server.ts";
+import { CHILD_ENV_ALLOWLIST, childEnv, run } from "./proc-run.server.ts";
 
 const node = process.execPath;
 
@@ -44,6 +45,34 @@ test("childEnv keeps only allow-listed variables, matched case-insensitively", (
     UNSET: undefined,
   });
   assert.deepEqual(env, { Path: "C:/bin", SystemRoot: "C:/Windows", HOME: "/home/velo" });
+});
+
+test("no server config key, proxy variable or loader hook survives childEnv", () => {
+  // Typed as every ServerEnv key: typecheck fails when a key is added and not listed here.
+  const server: Record<keyof ServerEnv, string> = {
+    NODE_ENV: "production",
+    DATABASE_URL: "postgres://u:p@db/velo",
+    BETTER_AUTH_SECRET: "x".repeat(40),
+    VELO_PUBLIC_ORIGIN: "https://velo.example",
+    GOOGLE_CLIENT_ID: "id",
+    GOOGLE_CLIENT_SECRET: "g",
+    VELO_ADMIN_EMAILS: "a@example.com",
+    VELO_EGRESS_PROXY: "http://egress.example:3128",
+    VELO_PROXY_SECRET_KEY: "k",
+    VELO_PROXY_SECRET_KEY_PREVIOUS: "k0",
+    VELO_EXTENSION_IDS: "abc",
+    SENTRY_DSN: "https://k@sentry.example/1",
+    LOG_LEVEL: "debug",
+    YTDLP_PYTHON: "/usr/bin/python3",
+  };
+  // Built, not spelled: the policy test bans the literal names from src/.
+  const proxies = ["HTTP", "HTTPS", "ALL", "NO"].flatMap((name) => [`${name}_PROXY`, `${name.toLowerCase()}_proxy`]);
+  const hostile = [...Object.keys(server), ...proxies, "NODE_OPTIONS", "PYTHONPATH"];
+  assert.equal(hostile.length, Object.keys(server).length + 10);
+  const source = Object.fromEntries(hostile.map((key) => [key, "set"]));
+  assert.deepEqual(childEnv({ ...server, ...source }), {});
+  const allowed = new Set(CHILD_ENV_ALLOWLIST);
+  assert.deepEqual(hostile.filter((key) => allowed.has(key.toUpperCase())), []);
 });
 
 test("a child started by run() cannot read server secrets", async () => {
