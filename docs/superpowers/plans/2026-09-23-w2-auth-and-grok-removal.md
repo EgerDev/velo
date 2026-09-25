@@ -3511,6 +3511,7 @@ Ledger and hand-off items (W0 and W1 → W2):
   - `/api/download`, `listUserProxies`, `testUserProxy` (ARCH-18 remainder, or W7).
   - `pythonBin()` still reads `VELO_PYTHON`/`PYTHON_BIN`, while C1 names `YTDLP_PYTHON`: migrate the reader to `serverEnv().YTDLP_PYTHON`, or amend C1.
   - `requireSameOrigin` HTTP tests can boot with `tests/http/env.mjs` (`PROD_ENV`, `TEST_ORIGIN`). A request whose `Origin` must equal `VELO_PUBLIC_ORIGIN` uses `TEST_ORIGIN`.
+  - `requireSameOrigin` must exempt `/api/auth/*`: Google's OAuth callback arrives as a cross-site top-level GET; Better Auth's own origin and state checks cover that route.
 - **W4b:** no new work. Anchor note: W2-T7 removed the `builderFirst` branch in `src/lib/hybrid-download.ts`, around the POT minting W4b deletes.
 - **W5:**
   - Better Auth's built-in rate limiter (active in production) reads the client IP from `X-Forwarded-For` by default. Without a proxy that is spoofable. Behind a proxy that appends, it collapses to one shared bucket.

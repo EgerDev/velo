@@ -45,22 +45,19 @@ Other features visible in the UI: SponsorBlock segments (browser → `sponsor.aj
 diagnostics, thumbnail extractor, time-range "clip" command generator, keyboard shortcuts,
 command palette (`cmdk`).
 
-The repo was scaffolded from the **Grok App Builder** template. Large parts of the platform glue
-(auth broker, PWA/OG injector, preview bridge, dev-server plugins, sandbox scripts) are template
-code written for `*.grok-sandbox.com` / `*.grok.me` hosting (see §11).
+The repo was scaffolded from the **Grok App Builder** template. W2 removed its platform glue: the auth broker, gate identity, PWA/branding injector, preview bridge, dev-server plugins, sandbox scripts and connectors. The template-derived code that remains awaits licensing review (W9).
 
 ---
 
 ## 2. Repository map
 
 ```
-AGENTS.md                 Grok Build sandbox contract (template artifact — instructions for an AI agent)
-startup.sh                Grok sandbox "revive" script (starts `npm run dev` on :8080)
+AGENTS.md                 short note for coding agents (points to the hardening roadmap)
 vite.config.ts            Vite 8 + TanStack Start + Nitro (vercel preset) + dev-only plugins
-server/middleware/        Nitro global middleware (grok-pwa.ts: PWA manifest, OG/"Created with Grok" head injection)
-scripts/                  build/migrate/test/update tooling + Grok template helpers
+server/plugins/           Nitro plugin env.ts: forces NODE_ENV=production and validates the config before the server listens
+scripts/                  migrate/test/update tooling and repository policy tests
 migrations/               SQL schema (applied at build to DATABASE_URL, or at boot to PGLite)
-public/                   static assets incl. __grok/ PWA icons (the velo-session extension zip + unpacked copy were removed in W0-T3)
+public/                   static assets (favicon; the velo-session extension zip + unpacked copy were removed in W0-T3)
 extension/                "Velo" Chrome MV3 extension (in-page buttons, queue, transcript popup) — not packaged/served
 extensions/velo-session/  "Velo YouTube Session" MV3 extension (cookie exporter) — source only, no longer served; stays until W6
 src/routes/               TanStack file routes: /, /login, /api/*
@@ -81,8 +78,8 @@ inside the handler (`src/lib/tool-updates.ts:9-13`).
 | Route | File | Purpose |
 |---|---|---|
 | `/` | `src/routes/index.tsx` | The whole app. Tabs ("modes"): single, bulk, transcript, watch, tools (tools only when signed in, `index.tsx:35`). |
-| `/login` | `src/routes/login.tsx` | OAuth buttons (broker providers), email+password sign-up/sign-in. (The copy-paste "sign-in link" flow was removed in W0-T4.) |
-| document shell | `src/routes/__root.tsx` | `<PreviewHostBridge/>`, `<AuthProvider>` (sonner toaster), manifest + `__grok` icon links. |
+| `/login` | `src/routes/login.tsx` | "Continue with Google" (Better Auth social sign-in, full-page redirect); "Sign-in is not set up" when the Google credentials are absent (development only); OAuth failures arrive as `?error=<code>`. |
+| document shell | `src/routes/__root.tsx` | `<AuthProvider>` (sonner toaster), favicon and stylesheet links. |
 | router | `src/router.tsx` | `getRouter()` with `AppErrorComponent` / `AppNotFound`. |
 
 Query-string flags read by `/` (`index.tsx:49-80`): `tab=bulk|transcript|watch|tools`, `batch=<ids>`,
@@ -114,7 +111,6 @@ Two separate transcript UIs exist: `transcript-viewer.tsx` (inside the video pan
 | HAR diagnostics | `src/lib/har-store.ts` | memory |
 | draft URL | `src/lib/home-draft.ts` | sessionStorage |
 | guest id | `src/lib/guest-id.ts` (`velo-guest-id`) | localStorage; sent as `x-velo-guest` header |
-| bearer token (framed/preview auth) | `src/lib/auth/client.ts` (`grok-auth.bearer-token`) | sessionStorage |
 | downloaded media ("Recent") | `src/lib/media-cache.ts` (IndexedDB `velo-media`/`files`, ≤4 items / 180 MB, owner-scoped) | IndexedDB, `navigator.storage.persist()` requested |
 | tools badge | `mode-tabs.tsx`, `use-tools-badge.ts` | localStorage timestamp |
 
@@ -132,7 +128,7 @@ media cache. **Every path buffers the whole file in browser memory as a `Blob`**
 |---|---|---|
 | **Builder** (first choice) | `downloadViaBuilder` (`src/lib/builder-download.ts:129`) | mints a PO token via the `mintPoToken` server fn, then races **`POST /api/builder`** (server does everything, bytes come back through this origin) against **client same-hop** `fetchSameHopBlob` (`src/lib/bypass.ts:337`). Video-only itags skip the race and use the server only. |
 | **Client same-hop ("Velo unlock")** | `fetchSameHopBlob` (`bypass.ts`) | the *browser* fetches the YouTube watch page through `proxy.corsfix.com` / `api.allorigins.win`, extracts `ytInitialPlayerResponse`, asks `POST /api/unlock` (or the `decipherCipher` server fn) to decipher sig/nsig and stamp a PO token, then downloads the media **through the same public relay** (so the relay's IP matches the `ip=` in the URL); HLS fallback stitches segments. |
-| **Hybrid race** (escalation) | `hybridFetchBlob` (`src/lib/hybrid-download.ts:175`) | mints POT, then races: same-hop bypass, `POST /api/ytdlp`, and "relay" (`resolvePlayback` server fn → try the googlevideo URL via `proxyFetch` → `/api/relay` → finally `GET /api/bypass`). Relay leg is skipped inside Grok previews. |
+| **Hybrid race** (escalation) | `hybridFetchBlob` (`src/lib/hybrid-download.ts:175`) | mints POT, then races: same-hop bypass, `POST /api/ytdlp`, and "relay" (`resolvePlayback` server fn → try the googlevideo URL via `proxyFetch` → `/api/relay` → finally `GET /api/bypass`). |
 | **Hybrid mux** | `hybridMux` (`src/lib/download-client.ts:71`) | when a preset needs separate video+audio: two `hybridFetchBlob`s in parallel then `muxVideoAudio` (mediabunny, copy-mux, MP4 or WebM). |
 | **Audio studio** | `audio-studio.tsx` → `encodeAudio` (`src/lib/audio-encoder.ts:110`) | source from IndexedDB cache or `hybridFetchBlob`; ffmpeg.wasm core (~32 MB `ffmpeg-core.wasm`, bundled as a same-origin asset via `?url`) runs in a module worker, one job at a time. |
 | **Muxed fallback prompt** | `runHomeDownload` (`src/lib/home-actions.ts:167-180`) | if a separate-stream preset fails with an "escalate" error, offer itag 22/18 to the user instead of silently downgrading. |
@@ -198,25 +194,20 @@ All `/api/*`, server functions and SSR share that function and its in-process st
 | `/api/captions` | GET `?id&lang&vss` | none | metadata backstop | `streamYoutubeCaptions` (InnerTube timedtext → yt-dlp) |
 | `/api/feed` | GET `?channelId|channel` | none | metadata backstop | resolves @handle via youtube.com HTML, fetches `feeds/videos.xml`, `Cache-Control: public, max-age=600` |
 | `/api/health` | GET `?deep=1` | none | none | DB ping (`select 1`, optional `to_regclass('verification')`), returns `neon`/`pglite` |
-| `/api/auth/$` | GET/POST | Better Auth | sign-up: 8 / 10 min per IP (in-memory) | Better Auth handler (OAuth, email+password, get-session, bearer) |
+| `/api/auth/$` | GET/POST | Better Auth | Better Auth's built-in production limiter: `/sign-in/*` 3 per 10 s per client IP, in memory, IP from `X-Forwarded-For` (W5 sets the trusted IP source) | Better Auth handler: Google sign-in (`/sign-in/social`, `/callback/google`), `get-session`, `sign-out` |
 
-Dev-server only (Vite `apply:"serve"` plugins, `vite.config.ts`): `/auth/popup` (OAuth popup for
-framed previews, `src/lib/auth/popup.server.ts`), `/__app-env` (resolved `VITE_*` env, read by
-`scripts/check-auth-invariant.mjs`). Nitro middleware in all environments: `/__grok/manifest.webmanifest`,
-`?install=1&platform=ios` tutorial page, HTML head injection (`server/middleware/grok-pwa.ts`).
+The dev server adds no routes. The production build boots through `server/plugins/env.ts`, which sets `NODE_ENV=production` and exits non-zero when `loadServerEnv()` (`src/lib/env.server.ts`) reports missing or invalid configuration.
 
-### 4.2 Server functions (`createServerFn`) — 32 handlers (+1 alias)
+### 4.2 Server functions (`createServerFn`) — 29 handlers (+1 alias)
 
-`authMiddleware` (`src/lib/auth/middleware.ts`) = Fetch-Metadata same-site check
-(`isolation.server.ts`) + `requireUserId` (`verify.server.ts`): real session when auth is
-configured; `"dev-user"` when auth is disabled or (non-production) `GROK_AUTH_*` unset, and no
-`DATABASE_URL`; throws in that case when `DATABASE_URL` is set.
+`authMiddleware` (`src/lib/auth/middleware.ts`) = Fetch-Metadata same-site check (`isolation.server.ts`) + `requireUserId` (`verify.server.ts`): the verified user of the `__Host-velo.session_token` cookie, else `UnauthorizedError` (401). There is no shared or fallback user in any environment.
 
 | File | Function | Method | Auth / gate |
 |---|---|---|---|
 | `resolve-video.ts` | `resolveVideo`, `searchVideos`, `resolvePlaylist`, `resolveBulkVideos` (≤50 ids), `fetchTranscript`, `resolvePlayback`, `decipherCipher`, `mintPoToken` | POST | **none**; per-IP metadata backstop only (`assertMetadataBudget`) |
 | `sign-in-link.ts` | removed in W0-T4 (copy-paste sign-in link) | — | — |
-| `session-isolation.ts` | `isolateOwnSession` | POST | `authMiddleware` |
+| `session-isolation.ts` | removed in W2 — its one-login policy runs in Better Auth's session hooks (`auth-config.server.ts`) | — | — |
+| `auth/status.ts` | `getSignInStatus` → `{ google: boolean }` (whether Google sign-in is configured) | GET | **none** (public; the `/login` loader calls it) |
 | `vault.ts` | `loadVault`, `saveVault`, `clearVault`, `validateVaultSession` (probes youtube.com with the cookies) | GET/POST | `authMiddleware`, rows scoped by `user_id` |
 | `tool-updates.ts` | `checkToolUpdates` | GET | `authMiddleware`; returns `canUpdate` |
 | | `updateTool` (`npm install <pkg>@latest --save` / `pip install --upgrade`) | POST | `authMiddleware` + `operatorGate` (duplicated in-file copy) |
@@ -228,7 +219,7 @@ configured; `"dev-user"` when auth is disabled or (non-production) `GROK_AUTH_*`
 auth configured → user's **verified** email must be in `VELO_ADMIN_EMAILS`; auth not configured →
 only if `VELO_ALLOW_TOOL_INSTALL=1` and the socket address is loopback.
 `proxyManagementGate` (`tool-versions.ts:194-207`): auth off **and** no DB → allowed for everyone;
-auth off with DB → denied; auth on → operator gate.
+auth off with DB → denied; auth on → operator gate. Since W2 the "auth not configured" branches of both gates are unreachable: `authMiddleware` answers 401 first when Google is not configured. W4a removes them with the runtime installer.
 
 `listUserProxies` and `testUserProxy` have no caller in the UI.
 
@@ -302,8 +293,9 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
   `0001_auth.sql` (Better Auth `user/session/account/verification`), `0002_youtube_vault.sql`
   (`youtube_vault(user_id, cookies, cookie_count, updated_at)`), `0003_verification_value_idx.sql`,
   `0004_user_proxies.sql` (`velo_proxy`), `0005_proxy_operations.sql` (proxy health columns,
-  `velo_proxy_validation_run/_result/_evidence`, `velo_proxy_event`).
-  `migrations/auth/0001_auth.sql` is a byte-identical template copy that is never applied.
+  `velo_proxy_validation_run/_result/_evidence`, `velo_proxy_event`), `0006_google_only_auth.sql`
+  (W2: ends every session, drops verification rows, deletes accounts of the removed providers,
+  users left without one and their `youtube_vault` rows).
 - Deploy-time: `npm run build` = `vite build && npm run db:migrate` (`package.json:13`) →
   `scripts/migrate.mjs` applies pending files to `DATABASE_URL` inside the build.
 
@@ -311,12 +303,11 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
 
 | Mode | Condition | Behaviour |
 |---|---|---|
-| **Disabled / dev user** | `VITE_AUTH_ENABLED=false`, or (non-production) `GROK_AUTH_*` unset | no OAuth; `requireUserId` → `"dev-user"` without DB, throws with DB; client shows `DEV_USER` (`use-current-user.ts:21`). (The sign-in-link flow that auto-opened here was removed in W0-T4.) |
-| **Better Auth + Grok broker** | any other value (including **unset** — the default) | `genericOAuth` providers `grok-google`/`grok-x` against `GROK_AUTH_ISSUER` (default `https://auth.grok.me`) using `GROK_AUTH_CLIENT_ID/SECRET` (no fallback: the committed preview client was removed in W0-T2; without them and unless `VITE_AUTH_ENABLED=false`, production throws when `server.ts` is first loaded, i.e. on the first request, not at process start). Email+password is **enabled** (`src/lib/auth/email-password.ts:10`, no email verification). Cookies `__Host-grok-auth.*`, 5-min `session_data` cookie cache. Secret = `BETTER_AUTH_SECRET` or a random per-process value (`server.ts:62-65,190`). |
-| **Gate identity JWT** | `GROK_PROJECT_ID` set and auth not disabled | Better Auth plugin (`gate-session.server.ts`) on `/get-session`: verifies `x-grok-identity` (EdDSA, `iss` = `GROK_GATE_ORIGIN` or `https://gate.grok.me` / `gate.app-builder-testing.com` derived from Host, `aud=app:<GROK_PROJECT_ID>`, ≤10 min), JWKS from `<issuer>/__gate/identity-key` (5 min cache), then creates/swaps a session for provider `grok-gate`. |
-| **Bearer** | always registered | `bearer()` plugin: `Authorization: Bearer <session token>`; the client stores it in sessionStorage when framed (popup flow) and `authMiddleware` forwards it. Download routes read it from the request (`guest-limit.server.ts:335`). |
-| **Preview popup** | framed or `*.grok-sandbox.com` (`oauth-popup.ts`) | opens `/auth/popup`, which exists **only in `vite dev`**. |
-| **Sign-in link** | — | removed in W0-T4. |
+| **Google (production)** | always: boot requires `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Better Auth `google` social provider, `baseURL = VELO_PUBLIC_ORIGIN`, redirect URI `${VELO_PUBLIC_ORIGIN}/api/auth/callback/google`, `prompt=select_account`; `trustedOrigins = [VELO_PUBLIC_ORIGIN]`. Cookies `__Host-velo.*` (Secure, HttpOnly, SameSite=Lax, Path=/, no Domain), 5-min `session_data` cookie cache. Sessions store no IP or user agent, and a new sign-in ends the user's other sessions. OAuth errors redirect to `/login?error=<code>`. Config: `src/lib/auth/auth-config.server.ts`. |
+| **Google (development)** | `GOOGLE_*` set | as above on `http://localhost:${VELO_DEV_PORT ‖ 8080}`; `trustedOrigins` adds the `localhost` and `127.0.0.1` dev origins; the secret is a random per-process value unless `BETTER_AUTH_SECRET` is set. |
+| **Sign-in unavailable (development)** | `GOOGLE_*` unset | no provider; `/login` says sign-in is not set up; every `authMiddleware` function answers 401. |
+
+Removed in W2: the app-builder broker (`genericOAuth`), gate identity JWT, `bearer()` plugin, preview popup and email/password. Removed in W0: the committed preview client and the sign-in link.
 
 ### 4.6 In-process background work, queues and caches
 
@@ -326,7 +317,6 @@ instance has its own copy.
 | Item | File | Notes |
 |---|---|---|
 | Download quota buckets (guest/user/ip/meta, token bucket + sliding window, ≤4 000 rows) | `guest-limit.server.ts` | identity: user id → `x-velo-guest`/cookie → IP; IP from `x-vercel-forwarded-for` → `x-real-ip` → last `x-forwarded-for` hop (Cloudflare headers only with `TRUST_CLOUDFLARE=1`) |
-| Sign-up rate map | `routes/api/auth/$.ts` (via `rate-window.ts`) | |
 | yt-dlp slot pool (4 concurrent, 32 queued, 45 s) | `download-pool.server.ts` | |
 | Mux file cache (4 files / 400 MB / 10 min) + coalescing by `id.itag` | `download-pool.server.ts` → `/tmp/velo-mux-cache` | anonymous downloads only |
 | yt-dlp tmp dirs `velo-ytdl-*` swept every 10 min | `ytdlp-python.server.ts` | |
@@ -337,8 +327,8 @@ instance has its own copy.
 | BotGuard minter (6 h) + token cache | `po-token.server.ts` | |
 | npm/PyPI "latest" cache (10 min), single install lock | `tool-updates.server.ts` | |
 | Proxy route list cache, undici `ProxyAgent`s, validation-run abort controllers | `user-proxy-repository.server.ts`, `proxy-fetch.server.ts`, `proxy-run-service.server.ts` | runs leased in DB (`lease_expires_at`, 120 s); cancellation polled every 250 ms |
-| Gate JWKS cache | `gate-identity.server.ts` | |
-| Preview auth secret / proxy key fallback | `auth/server.ts`, `vault-crypto.ts` | random per process when env unset |
+| Dev auth secret (dev only) / proxy key fallback | `env.server.ts`, `vault-crypto.ts` | random per process when unset outside production; W3 moves the proxy key to `VELO_PROXY_SECRET_KEY` |
+| Better Auth rate-limit counters | `better-auth` (memory) | per process |
 
 Module-level side effects on import: `ipv4-bind.server.ts` (listed in `package.json#sideEffects`)
 globally replaces `dns.lookup` with an IPv4-only wrapper, disables Happy Eyeballs and installs a
@@ -368,15 +358,12 @@ Server: `www.youtube.com` (pages, InnerTube `/youtubei/v1/*`, `/api/jnn/v1/Gener
 (Google-hosted; value is data-driven), `proxy.corsfix.com`, `api.allorigins.win`,
 `cdn.jsdelivr.net` (proxifly list), **arbitrary free SOCKS5 hosts** from that list, operator proxy
 hosts, `registry.npmjs.org`, `pypi.org` (+ files.pythonhosted.org during `pip install`),
-`github.com` (yt-dlp EJS remote component), `auth.grok.me` (OAuth broker), `gate.grok.me` /
-`gate.app-builder-testing.com` (JWKS), `connectors.grok.me` (only in dead `app-data` code),
+`github.com` (yt-dlp EJS remote component), `oauth2.googleapis.com` and `www.googleapis.com/oauth2/v3/certs` (Google sign-in token exchange and ID-token keys),
 Postgres host from `DATABASE_URL`.
 
 Browser: this origin, `proxy.corsfix.com`, `api.allorigins.win`, `*.googlevideo.com`,
 `sponsor.ajay.app` (SponsorBlock), `i.ytimg.com`, `www.youtube.com` embeds,
-**`https://grok.com/grok-app-builder/extensions.js`** (injected on every HTML page by the PWA
-middleware), `og.grok.me` (OG placeholder image URL in meta tags), STUN
-`stun.l.google.com`/`stun.cloudflare.com` (only in the unused multiplayer module).
+`accounts.google.com` (Google sign-in).
 
 Extensions: `www.youtube.com/api/timedtext` (popup), the configured Velo origin
 (default `http://127.0.0.1:8080`).
@@ -405,21 +392,16 @@ links in `session-guide.tsx`. The source under `extensions/velo-session/` remain
 
 ### 4.10 Multiplayer / P2P WebRTC module
 
-`src/lib/multiplayer/{index,p2p}.ts` implements a full-mesh WebRTC room ("perfect negotiation")
-signalled by polling `/api/rtc`. **Nothing imports it and `/api/rtc` has never existed in git
-history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplayer-p2p skill").
+Deleted in W2 (template residue: nothing imported it and `/api/rtc` never existed).
 
 ---
 
 ## 5. Build & deploy
 
-- `npm run build` → `scripts/with-app-env.mjs` (merges `VITE_*` keys from `.grok/app-env.json`
-  — the file does not exist in this repo) → `vite build` → Nitro `vercel` preset →
+- `npm run build` → `vite build` → Nitro `vercel` preset →
   `.vercel/output/` (`static/` ≈35 MB incl. `ffmpeg-core.wasm` 32 MB; `functions/__server.func/`
   ≈34 MB incl. PGLite wasm) → `npm run db:migrate`.
-- Vite plugins (`vite.config.ts`): `pgliteBootstrapPlugin` (dev), `pgliteAssetsPlugin` (build),
-  `authPopupPlugin` (dev), `appEnvPlugin` (dev), `grokPwaPlugin` (all: manifest, install page,
-  head injection, `virtual:grok-og-identity`), tailwind, `tanstackStart`, `nitro({preset:"vercel",
+- Vite plugins (`vite.config.ts`): `pgliteBootstrapPlugin` (dev), tailwind, `tanstackStart`, `nitro({preset:"vercel",
   serverDir:"./server"})` for build/preview, React. `ssr.external`: `youtubei.js, bgutils-js,
   jsdom, @electric-sql/pglite`.
 - No `vercel.json`: no `maxDuration`, memory, region, headers or cron are configured.
@@ -431,14 +413,12 @@ history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplaye
 
 | Name | Used in | Required? | Default | Secret? |
 |---|---|---|---|---|
-| `DATABASE_URL` | `db.ts`, `auth/server.ts`, `verify.server.ts`, `operator-gate.server.ts`, `user-proxy-repository-db.server.ts`, `scripts/migrate.mjs` | **yes for any real deployment** | unset → in-memory PGLite | yes |
-| `BETTER_AUTH_SECRET` | `auth/server.ts:190`, `vault-crypto.ts:83` (proxy key fallback) | **yes** | random per process | yes |
-| `BETTER_AUTH_URL` | `auth/server.ts:94` | yes on any non-`*.grok-sandbox.com` host | dynamic base URL over `*.grok-sandbox.com` + loopback, fallback `http://localhost:8080` | no |
-| `VITE_AUTH_ENABLED` | `auth/server.ts`, `auth/client.ts`, `gate-identity.server.ts`, `check-auth-invariant.mjs` | no | unset = **auth on**; only `"false"` disables | no (inlined into client) |
-| `GROK_AUTH_ISSUER` | `auth/server.ts:80` | no | `https://auth.grok.me` | no |
-| `GROK_AUTH_CLIENT_ID` / `GROK_AUTH_CLIENT_SECRET` | `auth/server.ts:81-82` | yes for working OAuth | none (the hard-coded preview client was removed in W0-T2) | secret: yes |
-| `GROK_PROJECT_ID` | `gate-identity.server.ts` | no | unset → gate identity off | no |
-| `GROK_GATE_ORIGIN` | `gate-identity.server.ts:124` | no | derived from Host (`gate.grok.me` …) | no |
+| `DATABASE_URL` | `env.server.ts`, `db.ts`, `auth/server.ts`, `operator-gate.server.ts`, `user-proxy-repository-db.server.ts`, `scripts/migrate.mjs` | **yes in production (boot exits without it)** | dev: in-memory PGLite | yes |
+| `BETTER_AUTH_SECRET` | `env.server.ts` → `auth-config.server.ts`; `vault-crypto.ts` (proxy key fallback until W3) | **yes in production, ≥ 32 chars** | dev: random per process | yes |
+| `VELO_PUBLIC_ORIGIN` | `env.server.ts` → Better Auth `baseURL` / `trustedOrigins` (C9) | **yes in production**: a bare `https://` origin (`http://` only on loopback) | dev: `http://localhost:${VELO_DEV_PORT ‖ 8080}` | no |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | `env.server.ts` → `auth-config.server.ts` | **yes in production** | dev: unset → sign-in unavailable | secret: yes |
+| `BETTER_AUTH_TRUSTED_ORIGINS` / `BETTER_AUTH_SECRETS` | read by Better Auth itself | **must be unset in production** (boot refuses) | — | — |
+| `VELO_DEV_PORT` / `VELO_DEV_HOST` | `vite.config.ts`, `env.server.ts` (`devOrigin`) | no | `8080` / `127.0.0.1` | no |
 | `VELO_VAULT_KEY` | `vault-crypto.ts` | **should be** | unset → cookies stored plaintext (warn once) | yes |
 | `VELO_VAULT_KEY_PREVIOUS` | `vault-crypto.ts:93` | no | — (proxy credential key rotation) | yes |
 | `VELO_ADMIN_EMAILS` | `operator-gate.server.ts`, `tool-updates.ts` | no | nobody is operator | no |
@@ -448,11 +428,7 @@ history** — it is Grok-template residue (`p2p.ts:1-18` refers to a "multiplaye
 | `VELO_SOCKS_PROXY` / `ALL_PROXY` | `socks-pool.server.ts:100` | no | — | may carry credentials |
 | `YTDLP_BROWSER` | `ytdlp-auth.ts:484` | no | — (reads the *server host's* browser cookies) | n/a |
 | `TRUST_CLOUDFLARE` | `guest-limit.server.ts:122` | no | off | no |
-| `NODE_ENV` | `vault-crypto.ts`, `proxy-fetch.server.ts`, `proxy-transport.server.ts`, `app-data` | set by platform | — | no |
-| `VITE_PUBLIC_HOSTNAME`, `VITE_PROJECT_ID`, `VITE_OG_SERVICE_URL`, `X_CREATOR`, `X_CREATOR_ID` | `scripts/grok-pwa-*.mjs` | no | OG service `https://og.grok.me` | no |
-| `VITE_STUN_URLS` | `multiplayer/p2p.ts` (dead) | no | Google/Cloudflare STUN | no |
-| `GROK_CONNECTORS_URL`, `GROK_CONNECTOR_ACCESS_TOKEN` | `app-data/client.server.ts` (dead) | no | — | token: yes |
-| `BROWSER_ALLOW_EXTERNAL_HOST`, `BROWSER_SMOKE_BASELINE`, `BROWSER_SMOKE_TIMEOUT_MS`, `PREVIEW_THUMBNAIL_TIMEOUT_MS` | `scripts/browser-*.mjs`, `preview-thumbnail.mjs` | dev tooling | — | no |
+| `NODE_ENV` | `env.server.ts`, `vault-crypto.ts`, `proxy-fetch.server.ts`, `proxy-transport.server.ts` | set by platform | forced to production by the built server | no |
 | `CI`, `NO_COLOR`, `npm_config_color`, `npm_execpath` | set for / read by child processes | — | — | no |
 
 There is no `.env.example`; the README documents only `VELO_PYTHON`/`PYTHON_BIN`.
@@ -475,12 +451,12 @@ There is no `.env.example`; the README documents only `VELO_PYTHON`/`PYTHON_BIN`
 
 ### 7.2 Signed-in save with the user's YouTube session
 
-1. `/login` → email+password (`authClient.signUp.email`) or broker OAuth → `isolateOwnSession`.
+1. `/login` → "Continue with Google" → Google → `/api/auth/callback/google` → `/` (the session hooks end the user's other sessions).
 2. Cookies arrive by paste/file/HAR or the `velo-session` extension (`postMessage`) →
    `cookie-import.tsx` → `saveVault` (`vault.ts:26`, encrypted only with `VELO_VAULT_KEY`) and the
    in-memory cookie store.
 3. Save → same path as 7.1 but the request body carries `cookies`; `/api/builder` →
-   `cookiesNeedSession` checks the session (cookie or bearer) → `muxOne` writes
+   `cookiesNeedSession` checks the session cookie → `muxOne` writes
    `<tmp>/cookies.txt`, uses session clients, operator proxies (with cookies), then direct only;
    the private file is not cached and its tmp dir is removed on stream close
    (`ytdlp.server.ts:337-349`).
