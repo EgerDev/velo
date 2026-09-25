@@ -1,7 +1,5 @@
-import { withRetry } from "@/lib/retry";
 import { downloadHeaders } from "@/lib/guest-id";
-import { localRelayUrl, publicRelayUrls, relayHost } from "@/lib/cors-relays";
-import { unlockStreamUrl } from "@/lib/stream-unlock";
+import { localRelayUrl } from "@/lib/cors-relays";
 import { isImaUrl } from "@/lib/ima";
 import { linkAbort } from "@/lib/abort-link";
 import { readBodyToBlob } from "@/lib/read-body";
@@ -14,41 +12,6 @@ export type HybridStep = {
 };
 
 export type StepHandler = (steps: HybridStep[]) => void;
-
-export function stampClientPot(url: string, pot: string | null | undefined): string {
-  return unlockStreamUrl(url, { pot, stripAlr: true }).url;
-}
-
-export function withTimeout<T>(promise: Promise<T>, ms: number, label: string, signal?: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error(`${label} aborted`));
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
-    }, ms);
-    const onAbort = () => {
-      window.clearTimeout(timer);
-      if (signal) signal.removeEventListener("abort", onAbort);
-      reject(new Error(`${label} aborted`));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        window.clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (err) => {
-        window.clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
-        reject(err);
-      },
-    );
-  });
-}
 
 export async function readBlob(
   response: Response,
@@ -89,126 +52,38 @@ export function fetchMode(url: string): "media" | "any" {
   }
 }
 
+/**
+ * Fetch a YouTube / googlevideo URL through this app's own `/api/relay`. The
+ * 20 s timer only guards the headers: the caller drains the body after this
+ * returns, so the parent signal stays linked past that point. AbortSignal.any
+ * does that without a listener to clean up; without it (older Safari/Firefox)
+ * linkAbort's listener stays on the parent for a handed-off response.
+ */
 export async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
-  const method = (init?.method ?? "GET").toUpperCase();
-  const targets = publicRelayUrls(url);
   const mode = fetchMode(url);
+  const controller = new AbortController();
+  const parent = init?.signal ?? undefined;
+  const viaAny = parent && typeof AbortSignal.any === "function";
+  const signal = viaAny ? AbortSignal.any([parent, controller.signal]) : controller.signal;
+  const detach = viaAny ? () => {} : linkAbort(parent, controller);
+  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  let handedOff = false;
   try {
-    return await withRetry(
-      () =>
-        new Promise<Response>((resolve, reject) => {
-          const errors: string[] = [];
-          const controllers: AbortController[] = [];
-          let open = targets.length;
-          let settled = false;
-          if (!targets.length) {
-            reject(new Error("No relays configured."));
-            return;
-          }
-          const parent = init?.signal;
-          if (parent?.aborted) {
-            reject(new Error("aborted"));
-            return;
-          }
-          const failOne = (detail: string) => {
-            if (settled) return;
-            if (detail) errors.push(detail);
-            open -= 1;
-            if (open <= 0) reject(new Error(errors.join(" · ") || "Relays missed."));
-          };
-          for (const target of targets) {
-            const controller = new AbortController();
-            controllers.push(controller);
-            const host = relayHost(target);
-            const signal =
-              parent && typeof AbortSignal.any === "function"
-                ? AbortSignal.any([controller.signal, parent])
-                : controller.signal;
-            // Detached when this attempt loses. The winner's listener stays on:
-            // the caller drains its body afterwards, and Pause / Clear queue
-            // must still reach it (same as the local-relay fallback below).
-            const onAbort = () => controller.abort();
-            if (parent && typeof AbortSignal.any !== "function") {
-              parent.addEventListener("abort", onAbort, { once: true });
-            }
-            const timer = window.setTimeout(() => controller.abort(), 18_000);
-            void fetch(target, { redirect: "manual", ...init, signal })
-              .then((response) => {
-                window.clearTimeout(timer);
-                if (settled) {
-                  parent?.removeEventListener("abort", onAbort);
-                  void response.body?.cancel();
-                  return;
-                }
-                if (response.status >= 300 && response.status < 400) {
-                  parent?.removeEventListener("abort", onAbort);
-                  void response.body?.cancel();
-                  failOne(`${host} redirected off-origin`);
-                  return;
-                }
-                if (!response.ok || (mode === "media" && isBlockPage(response))) {
-                  parent?.removeEventListener("abort", onAbort);
-                  void response.body?.cancel();
-                  failOne(
-                    `${host} ${response.status}${mode === "media" && isBlockPage(response) ? " block-page" : ""}`,
-                  );
-                  return;
-                }
-                settled = true;
-                for (const other of controllers) {
-                  if (other !== controller) other.abort();
-                }
-                resolve(response);
-              })
-              .catch((err) => {
-                window.clearTimeout(timer);
-                parent?.removeEventListener("abort", onAbort);
-                if (settled) return;
-                if (parent?.aborted) {
-                  settled = true;
-                  reject(new Error("aborted"));
-                  return;
-                }
-                const message = err instanceof Error ? err.message : "failed";
-                if (/abort/i.test(message)) failOne(`${host} timed out`);
-                else failOne(`${host}: ${message}`);
-              });
-          }
-        }),
-      { attempts: 2, baseMs: 400, maxMs: 1600 },
-    );
-  } catch (err) {
-    if (method === "GET" && !init?.signal?.aborted) {
-      // The 20 s timer only guards the headers. The caller drains the body
-      // after this returns, so the parent has to stay linked past that point:
-      // AbortSignal.any does it without a listener to clean up; without it
-      // (older Safari/Firefox) linkAbort's listener is left on the parent for
-      // a handed-off response — it only retains this controller, and detaching
-      // it at the headers is what made the body uncancellable.
-      const controller = new AbortController();
-      const parent = init?.signal ?? undefined;
-      const viaAny = parent && typeof AbortSignal.any === "function";
-      const signal = viaAny ? AbortSignal.any([parent, controller.signal]) : controller.signal;
-      const detach = viaAny ? () => {} : linkAbort(parent, controller);
-      const timer = window.setTimeout(() => controller.abort(), 20_000);
-      let handedOff = false;
-      try {
-        const local = await fetch(localRelayUrl(url), {
-          redirect: "error",
-          ...init,
-          headers: downloadHeaders(init?.headers),
-          signal,
-        });
-        if (local.ok && !(mode === "media" && isBlockPage(local))) {
-          handedOff = true;
-          return local;
-        }
-        void local.body?.cancel();
-      } finally {
-        window.clearTimeout(timer);
-        if (!handedOff) detach();
-      }
+    const response = await fetch(localRelayUrl(url), {
+      redirect: "error",
+      ...init,
+      headers: downloadHeaders(init?.headers),
+      signal,
+    });
+    const blocked = mode === "media" && isBlockPage(response);
+    if (response.ok && !blocked) {
+      handedOff = true;
+      return response;
     }
-    throw err;
+    void response.body?.cancel();
+    throw new Error(`Velo relay ${response.status}${blocked ? " block-page" : ""}`);
+  } finally {
+    window.clearTimeout(timer);
+    if (!handedOff) detach();
   }
 }

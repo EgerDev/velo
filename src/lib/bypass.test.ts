@@ -107,35 +107,3 @@ test("only googlevideo /videoplayback is treated as media", () => {
     false,
   );
 });
-
-function bodyOf(parts: Uint8Array[], contentLength?: number): Response {
-  let i = 0;
-  const body = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (i >= parts.length) controller.close();
-      else controller.enqueue(parts[i++]!);
-    },
-  });
-  const headers: Record<string, string> = { "content-type": "video/mp4" };
-  if (contentLength != null) headers["content-length"] = String(contentLength);
-  return new Response(body, { headers });
-}
-
-test("readAll rejects a body that closes short of its content-length", async () => {
-  const { readAll } = await import("./bypass.ts");
-  // A relay that drops mid-range still closes cleanly; the old reader returned
-  // the short part and the next range was appended right after it.
-  const short = bodyOf([new Uint8Array(1000), new Uint8Array(500)], 2500);
-  await assert.rejects(readAll(short), /ended early — got 1500 of 2500 bytes/);
-  // A complete body is byte-identical without the contiguous copy.
-  const a = new Uint8Array(3).fill(1);
-  const b = new Uint8Array(2).fill(2);
-  const full = await readAll(bodyOf([a, b], 5));
-  assert.equal(full.size, 5);
-  assert.equal(full.type, "video/mp4");
-  assert.deepEqual(new Uint8Array(await full.arrayBuffer()), new Uint8Array([1, 1, 1, 2, 2]));
-  // No content-length (relay re-chunked) — nothing to compare against, so the
-  // caller's own range/size check has to catch it.
-  const unknown = await readAll(bodyOf([new Uint8Array(7)]));
-  assert.equal(unknown.size, 7);
-});

@@ -7,7 +7,6 @@ export async function ytdlpBlob(
   videoId: string,
   itag: number,
   cookies?: string,
-  pot?: string | null,
   signal?: AbortSignal,
 ): Promise<Blob> {
   const headers = downloadHeaders({ "content-type": "application/json" });
@@ -18,7 +17,7 @@ export async function ytdlpBlob(
     const response = await fetch("/api/ytdlp", {
       method: "POST",
       headers,
-      body: JSON.stringify({ id: videoId, itag, cookies: cookies || "", pot: pot || "" }),
+      body: JSON.stringify({ id: videoId, itag, cookies: cookies || "" }),
       signal: controller.signal,
     });
     window.clearTimeout(timer);
