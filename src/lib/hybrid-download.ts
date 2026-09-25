@@ -1,7 +1,6 @@
 import { classifyDownloadError } from "@/lib/download-error";
 import { withRetry, isRetryable } from "@/lib/retry";
 import { mintPoToken, resolvePlayback } from "@/lib/resolve-video";
-import { isBuilderPreview, isSandboxHost } from "@/lib/builder-env";
 import { saveMediaBlob, type PendingSave } from "@/lib/builder-save";
 import { nameForBlob } from "@/lib/media-name";
 import { isAudioItag, isVideoOnlyItag } from "@/lib/ytdlp-auth";
@@ -202,8 +201,6 @@ export async function hybridFetchBlob(opts: {
 
   transfer = noteStage(transfer, "hop", 5);
   publish("Racing download paths");
-  const builderFirst =
-    isBuilderPreview() || (typeof window !== "undefined" && isSandboxHost(window.location.hostname));
   patchStep(steps, "server", { status: "skip", detail: "Save already tried the builder hop" }, onSteps);
   const potPromise = runAttempt(steps, onSteps, "botguard", async () => {
     const info = await withTimeout(mintPoToken({ data: { id: videoId } }), 25_000, "BotGuard", signal);
@@ -254,7 +251,7 @@ export async function hybridFetchBlob(opts: {
   } else {
     patchStep(steps, "ytdlp", { status: "skip", detail: "caller muxes — exact itag, not 137+140/18" }, onSteps);
   }
-  if (!silentVideo && !builderFirst) {
+  if (!silentVideo) {
     attempts.push({
       id: "relay",
       run: async (signal) => {
@@ -278,10 +275,8 @@ export async function hybridFetchBlob(opts: {
         throw new Error(errors[0] || "Relays blocked.");
       },
     });
-  } else if (silentVideo) {
-    patchStep(steps, "relay", { status: "skip", detail: "video-only — yt-dlp muxes audio" }, onSteps);
   } else {
-    patchStep(steps, "relay", { status: "skip", detail: "skipped in Grok preview — CDN links navigate the iframe" }, onSteps);
+    patchStep(steps, "relay", { status: "skip", detail: "video-only — yt-dlp muxes audio" }, onSteps);
   }
   return raceFirstBlob(steps, onSteps, attempts, signal);
 }

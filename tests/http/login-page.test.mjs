@@ -27,9 +27,9 @@ describe("the sign-in page", () => {
     assert.equal(res.status, 200);
     assert.match(html, /Sign-in failed/);
     for (const raw of ["zzq_marker", "yyq_marker", "<b>"]) assert.equal(html.includes(raw), false, raw);
-    // Copy check skips only <head>: it carries share-card meta (`twitter:card`), not copy.
-    const body = html.replace(/<head>[\s\S]*<\/head>/, "");
+    // No injected branding meta in <head> any more, so the copy check runs on the whole page.
+    const body = html.replace(/<head>[\s\S]*?<\/head>/, "");
     assert.match(body, /Sign-in failed/);
-    assert.doesNotMatch(body, /pop-?up|broker|password|Twitter|Sign in with email/i);
+    assert.doesNotMatch(html, /pop-?up|broker|password|Twitter|Sign in with email/i);
   });
 });

@@ -77,7 +77,7 @@ Velo is a modern web application built to inspect, stream, download, and extract
 | **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) + [Lucide Icons](https://lucide.dev/) |
 | **Media & InnerTube** | [youtubei.js](https://github.com/LuanRT/YouTube.js), `yt-dlp`, `ffmpeg` copy-transmux |
 | **Database & Auth** | PGLite / PostgreSQL + [Better Auth](https://www.better-auth.com/) |
-| **Testing** | Node.js native test runner (`node --test`), Playwright smoke tests |
+| **Testing** | Node.js native test runner (`node --test`), HTTP black-box tests against the built server |
 
 ---
 
@@ -111,7 +111,6 @@ Velo is a modern web application built to inspect, stream, download, and extract
 │       ├── login.tsx                # Authentication page
 │       └── api/                     # Backend streaming and RPC routes
 ├── scripts/
-│   ├── browser-smoke.mjs            # Automated Playwright desktop & mobile render test
 │   ├── auto-update.mjs              # Verified dependency + yt-dlp updater with rollback
 │   └── migrate.mjs                  # Database schema migration runner
 └── package.json
@@ -190,11 +189,11 @@ npm run typecheck
 npm run lint
 ```
 
-Build for production and verify with browser smoke tests:
+Build for production and run the HTTP black-box tests against the built server:
 
 ```bash
 npm run build
-node scripts/browser-smoke.mjs
+npm run test:http
 ```
 
 ---
