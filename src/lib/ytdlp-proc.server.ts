@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import "@/lib/ipv4-bind.server";
 
 export { killTree, run } from "@/lib/proc-run.server";
 import { killTree } from "@/lib/proc-run.server";

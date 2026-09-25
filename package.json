@@ -1,9 +1,6 @@
 {
   "name": "app-builder-workspace",
   "private": true,
-  "sideEffects": [
-    "src/lib/ipv4-bind.server.ts"
-  ],
   "type": "module",
   "engines": {
     "node": ">=24.15.0"

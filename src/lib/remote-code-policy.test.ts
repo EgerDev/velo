@@ -74,3 +74,14 @@ test("no module in src/ imports node:vm", () => {
     assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), root), "utf8"), vm, name);
   }
 });
+
+test("nothing patches process-wide DNS or the global fetch dispatcher", () => {
+  assert.equal(existsSync(here("./ipv4-bind.server.ts")), false);
+  const root = here("../");
+  for (const name of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+    if (!/\.(ts|tsx)$/.test(name) || name.endsWith("remote-code-policy.test.ts")) continue;
+    const text = readFileSync(new URL(name.replaceAll("\\", "/"), root), "utf8");
+    assert.doesNotMatch(text, /ipv4-bind|setGlobalDispatcher|dns\.lookup\s*=|setDefaultAutoSelectFamily/, name);
+  }
+  assert.doesNotMatch(source("../../package.json"), /sideEffects/);
+});

@@ -1,4 +1,3 @@
-import "@/lib/ipv4-bind.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { isMediaHostTarget, isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
 

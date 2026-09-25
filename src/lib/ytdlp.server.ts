@@ -1,4 +1,3 @@
-import "@/lib/ipv4-bind.server";
 import { run } from "@/lib/ytdlp-proc.server";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

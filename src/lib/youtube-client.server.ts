@@ -1,5 +1,4 @@
 import { Innertube } from "youtubei.js";
-import "@/lib/ipv4-bind.server";
 import { proxiedFetch } from "@/lib/user-proxy.server";
 import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
