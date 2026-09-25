@@ -1,8 +1,8 @@
 # Velo — Architecture
 
 > Audience: developers who have never seen this repository.
-> Scope: branch `hardening/w2-auth` as of 2026-09-24, at `d808bc6` plus the commit that brings
-> this file up to date (W0, W1 and W2 of the hardening roadmap applied; W3 to W8 not yet).
+> Scope: branch `hardening/w4b-remote-code` as of 2026-09-24 (W0, W1, W2 and W4b of the hardening
+> roadmap applied; W3, W4a and W5 to W8 not yet).
 > Method: read from source. Every statement cites the file it comes from. Where behaviour depends on
 > the hosting platform and could not be tested, it is marked **NOT VERIFIED**.
 
@@ -15,8 +15,8 @@ Velo is a single-page web app (plus two browser extensions) that:
 1. **Resolves a YouTube URL / search / playlist** into metadata, formats (itags), caption tracks,
    chapters and "presets" (1080p, 720p, audio, …) — `src/lib/youtube.server.ts`, `src/lib/youtube.ts`.
 2. **Downloads a file** to the user's disk, trying a ladder of server-side and browser-side paths
-   (InnerTube direct, yt-dlp subprocess, free public SOCKS5 proxies, public CORS relays,
-   operator-configured proxies) and, when needed, **muxes video+audio in the browser** with
+   (InnerTube direct, yt-dlp subprocess, operator-configured proxies, this app's own `/api/relay`)
+   and, when needed, **muxes video+audio in the browser** with
    `mediabunny` — `src/lib/download-client.ts`, `src/lib/builder-download.ts`,
    `src/lib/hybrid-download.ts`, `src/lib/ytdlp.server.ts`.
 3. **Transcript studio**: fetches captions (InnerTube timedtext, then yt-dlp), shows a
@@ -35,8 +35,9 @@ Velo is a single-page web app (plus two browser extensions) that:
    or via the `velo-session` extension); signed-in users can store them server-side
    (AES-256-GCM only if `VELO_VAULT_KEY` is set) and they are forwarded to yt-dlp —
    `src/lib/cookies.ts`, `src/lib/vault.ts`, `src/lib/vault-crypto.ts`.
-8. **Tools tab (operator console)**: shows installed vs latest `youtubei.js`, `bgutils-js`,
-   `yt-dlp`; lets an operator run `npm install` / `pip install` on the live server; manages
+8. **Tools tab (operator console)**: shows installed vs latest `youtubei.js` and `yt-dlp`
+   (`TOOL_CATALOG`, `src/lib/tool-versions.ts`); lets an operator run `npm install` / `pip install`
+   on the live server (W4a removes this); manages
    operator HTTP/SOCKS5 egress proxies with a durable validation history —
    `src/lib/tool-updates*.ts`, `src/lib/user-proxy*.ts`, `src/lib/proxy-*.ts`.
 
@@ -125,10 +126,9 @@ media cache. **Every path buffers the whole file in browser memory as a `Blob`**
 
 | Pipeline | Entry | What it does |
 |---|---|---|
-| **Builder** (first choice) | `downloadViaBuilder` (`src/lib/builder-download.ts:129`) | mints a PO token via the `mintPoToken` server fn, then races **`POST /api/builder`** (server does everything, bytes come back through this origin) against **client same-hop** `fetchSameHopBlob` (`src/lib/bypass.ts:337`). Video-only itags skip the race and use the server only. |
-| **Client same-hop ("Velo unlock")** | `fetchSameHopBlob` (`bypass.ts`) | the *browser* fetches the YouTube watch page through `proxy.corsfix.com` / `api.allorigins.win`, extracts `ytInitialPlayerResponse`, asks `POST /api/unlock` (or the `decipherCipher` server fn) to decipher sig/nsig and stamp a PO token, then downloads the media **through the same public relay** (so the relay's IP matches the `ip=` in the URL); HLS fallback stitches segments. |
-| **Hybrid race** (escalation) | `hybridFetchBlob` (`src/lib/hybrid-download.ts:175`) | mints POT, then races: same-hop bypass, `POST /api/ytdlp`, and "relay" (`resolvePlayback` server fn → try the googlevideo URL via `proxyFetch` → `/api/relay` → finally `GET /api/bypass`). |
-| **Hybrid mux** | `hybridMux` (`src/lib/download-client.ts:71`) | when a preset needs separate video+audio: two `hybridFetchBlob`s in parallel then `muxVideoAudio` (mediabunny, copy-mux, MP4 or WebM). |
+| **Builder** (first choice) | `downloadViaBuilder` (`src/lib/builder-download.ts:50`) | one **`POST /api/builder`**: the server does everything and the bytes come back through this origin. |
+| **Hybrid race** (escalation) | `hybridFetchBlob` (`src/lib/hybrid-download.ts:173`) | races `POST /api/ytdlp` against the Velo relay (`resolvePlayback` server fn → the format URL via `proxyFetch` → `GET /api/relay?url=…`). A video-only itag with an `audioItag` (the browser mux) skips the yt-dlp leg; a video-only itag without one skips the relay leg. |
+| **Hybrid mux** | `hybridMux` (`src/lib/download-client.ts:71`) | when a preset needs separate video+audio: two `hybridFetchBlob`s in parallel (so the video leg is relay-only) then `muxVideoAudio` (mediabunny, copy-mux, MP4 or WebM). |
 | **Audio studio** | `audio-studio.tsx` → `encodeAudio` (`src/lib/audio-encoder.ts:110`) | source from IndexedDB cache or `hybridFetchBlob`; ffmpeg.wasm core (~32 MB `ffmpeg-core.wasm`, bundled as a same-origin asset via `?url`) runs in a module worker, one job at a time. |
 | **Muxed fallback prompt** | `runHomeDownload` (`src/lib/home-actions.ts:167-180`) | if a separate-stream preset fails with an "escalate" error, offer itag 22/18 to the user instead of silently downgrading. |
 
@@ -140,31 +140,24 @@ media cache. **Every path buffers the whole file in browser memory as a `Blob`**
         ▼
  downloadPresetFile (download-client.ts:157)
         │
-        ├─(1)─ downloadViaBuilder ──► server fn mintPoToken ──► po-token.server (BotGuard in jsdom)
-        │        │
-        │        ├── race ──► POST /api/builder {id,itag,cookies?,pot}
-        │        │               cookiesNeedSession → downloadQuotaResponse (in-memory buckets)
-        │        │               builder.server.streamBuilderDownload
-        │        │                 itag 18/22: youtube-stream.streamYoutubeDownload (InnerTube + nsig + POT,
-        │        │                             4 parallel range lanes)   ─► else ▼
-        │        │                 ytdlp.server.downloadWithYtdlp
-        │        │                   mux cache /tmp/velo-mux-cache (anon only) / coalesce id.itag
-        │        │                   acquireYtdlpSlot (4 per process, queue 32, 45 s wait)
-        │        │                   muxOne ladder (≤ 8 min budget):
-        │        │                     a) operator proxies (DB, trusted: cookies allowed)
-        │        │                     b) direct probe (first client) unless "direct blocked" (15 min)
-        │        │                     c) up to 3 free SOCKS5 hops (proxifly list, no cookies)
-        │        │                     d) direct, remaining clients
-        │        │                   → python3 -m yt_dlp … -o /tmp/velo-ytdl-*/media.%(ext)s
-        │        │                   ← file streamed back (createReadStream)
-        │        │
-        │        └── race ──► fetchSameHopBlob (browser) ──► corsfix / allorigins (watch page)
-        │                         └► POST /api/unlock (decipher + POT) └► media via same relay
+        ├─(1)─ downloadViaBuilder ──► POST /api/builder {id,itag,cookies?}
+        │               cookiesNeedSession → downloadQuotaResponse (in-memory buckets)
+        │               builder.server.streamBuilderDownload
+        │                 itag 18/22: youtube-stream.streamYoutubeDownload (InnerTube format URL
+        │                             as YouTube sent it, 2 KB probe, one stream) ─► else ▼
+        │                 ytdlp.server.downloadWithYtdlp
+        │                   mux cache /tmp/velo-mux-cache (anon only) / coalesce id.itag
+        │                   acquireYtdlpSlot (4 per process, queue 32, 45 s wait)
+        │                   muxOne ladder (≤ 8 min budget):
+        │                     a) operator proxies (DB, trusted: cookies allowed)
+        │                     b) direct probe (first client) unless "direct blocked" (15 min)
+        │                     c) direct, remaining clients
+        │                   → python3 -m yt_dlp … -o /tmp/velo-ytdl-*/media.%(ext)s
+        │                   ← file streamed back (createReadStream)
         │
         ├─(2)─ on escalation: single stream → downloadViaHybrid ; A+V preset → hybridMux
-        │        hybridFetchBlob race: [same-hop bypass] [POST /api/ytdlp] [resolvePlayback →
-        │        googlevideo direct / GET /api/relay → GET /api/bypass (server same-hop via relays)]
-        │        hybridMux: 2× hybridFetchBlob → mediabunny muxVideoAudio (in-memory)
+        │        hybridFetchBlob race: [POST /api/ytdlp] [resolvePlayback → GET /api/relay?url=…]
+        │        hybridMux: 2× hybridFetchBlob (video leg relay-only) → mediabunny muxVideoAudio (in-memory)
         │
         ▼
  saveMediaBlob → picker writable | <a download> ; putCachedMedia (IndexedDB)
@@ -189,10 +182,8 @@ its in-process state.
 |---|---|---|---|---|
 | `/api/builder` | POST (GET → 405) | none; `cookies` requires a valid session (`cookiesNeedSession`) | download bucket, cost 1 | `streamBuilderDownload` (InnerTube for 18/22, else yt-dlp ladder); 503 `code:"queue"` when the yt-dlp pool is full |
 | `/api/ytdlp` | POST | as above | download bucket, cost 1 | `downloadWithYtdlp` directly |
-| `/api/download` | GET `?id&itag` | none | download bucket | InnerTube stream; on 403/throw falls back to `streamSameHop`. **No caller in the current UI.** |
-| `/api/bypass` | GET `?id&itag` | none | download bucket | `streamSameHop` — server fetches watch page and media through corsfix/allorigins |
-| `/api/unlock` | POST `{url|signatureCipher|cipher, videoId?, cpn?, pot?}` | none | download bucket | server-side decipher (nsig), optional POT mint, returns unlocked URL + analysis |
-| `/api/relay` | GET `?url=` | none | googlevideo host → download bucket; YouTube page hosts → metadata backstop | fetches `https://*.youtube.com|youtube-nocookie|ytimg|ggpht|googlevideo` URLs; page/image hosts additionally fall back to corsfix/allorigins; one redirect hop only if it stays on an allowed host; response gets `CSP: sandbox` + `nosniff` |
+| `/api/download` | GET `?id&itag` | none | download bucket | `streamYoutubeDownload` (InnerTube stream); error answers refund the quota. **No caller in the current UI.** |
+| `/api/relay` | GET `?url=` | none | googlevideo host → download bucket; YouTube page hosts → metadata backstop | fetches `https://*.youtube.com|youtube-nocookie|ytimg|ggpht|googlevideo` URLs (`isRelayTarget`, `src/lib/cors-relays.ts`) directly, never through a third-party relay; one redirect hop only if it stays on an allowed host; response gets `CSP: sandbox` + `nosniff` |
 | `/api/captions` | GET `?id&lang&vss` | none | metadata backstop | `streamYoutubeCaptions` (InnerTube timedtext → yt-dlp) |
 | `/api/feed` | GET `?channelId|channel` | none | metadata backstop | resolves @handle via youtube.com HTML, fetches `feeds/videos.xml`, `Cache-Control: public, max-age=600` |
 | `/api/health` | GET `?deep=1` | none | none | DB ping (`select 1`, optional `to_regclass('verification')`), returns `neon`/`pglite` |
@@ -200,13 +191,13 @@ its in-process state.
 
 The dev server adds no routes. The production build boots through `server/plugins/env.ts`, which sets `NODE_ENV=production` and exits non-zero when `loadServerEnv()` (`src/lib/env.server.ts`) reports missing or invalid configuration.
 
-### 4.2 Server functions (`createServerFn`) — 29 handlers (+1 alias)
+### 4.2 Server functions (`createServerFn`) — 27 handlers (+1 alias)
 
 `authMiddleware` (`src/lib/auth/middleware.ts`) = Fetch-Metadata same-site check (`isolation.server.ts`) + `requireUserId` (`verify.server.ts`): the verified user of the `__Host-velo.session_token` cookie, else `UnauthorizedError` (401). There is no shared or fallback user in any environment.
 
 | File | Function | Method | Auth / gate |
 |---|---|---|---|
-| `resolve-video.ts` | `resolveVideo`, `searchVideos`, `resolvePlaylist`, `resolveBulkVideos` (≤50 ids), `fetchTranscript`, `resolvePlayback`, `decipherCipher`, `mintPoToken` | POST | **none**; per-IP metadata backstop only (`assertMetadataBudget`) |
+| `resolve-video.ts` | `resolveVideo`, `searchVideos`, `resolvePlaylist`, `resolveBulkVideos` (≤50 ids), `fetchTranscript`, `resolvePlayback` | POST | **none**; per-IP metadata backstop only (`assertMetadataBudget`) |
 | `sign-in-link.ts` | removed in W0-T4 (copy-paste sign-in link) | — | — |
 | `session-isolation.ts` | removed in W2 — its one-login policy runs in Better Auth's session hooks (`auth-config.server.ts`) | — | — |
 | `auth/status.ts` | `getSignInStatus` → `{ google: boolean }` (whether Google sign-in is configured) | GET | **none** (public; the `/login` loader calls it) |
@@ -227,60 +218,59 @@ auth off with DB → denied; auth on → operator gate. Since W2 the "auth not c
 
 ### 4.3 Extraction fallback ladder
 
-**Metadata** (`resolveYoutubeVideo`, `src/lib/youtube.server.ts:29`):
+**Metadata** (`resolveYoutubeVideo`, `src/lib/youtube.server.ts:23`):
 
-1. `getClient()` — one shared `youtubei.js` `Innertube` per process, 4 h TTL, `retrieve_player`,
-   `fetch: proxiedFetch` (rides operator HTTP proxies first, then direct —
-   `src/lib/user-proxy.server.ts:69`). `Platform.shim.eval = (data) => new Function(data.output)()`
-   evaluates YouTube player JS in the server process (`youtube-client.server.ts:8`).
-2. Mint a GVS PO token (`mintContentPoToken`).
-3. `getBasicInfo` over 14 InnerTube clients in windows of 3
+1. `getClient()` — one shared `youtubei.js` `Innertube` per process, 4 h TTL,
+   `retrieve_player: false`, `fetch: proxiedFetch` (rides operator HTTP proxies first, then
+   direct — `src/lib/user-proxy.server.ts`). No player script is downloaded and no JavaScript
+   evaluator is installed (`youtube-client.server.ts:5-11`).
+2. `getPlayableInfo` over 14 InnerTube clients in windows of 3
    (`WEB_EMBEDDED, TV_EMBEDDED, TV_SIMPLY, VISIONOS, IOS, MWEB, TV, YTMUSIC, YTMUSIC_ANDROID,
-   YTSTUDIO_ANDROID, YTKIDS, WEB_CREATOR, ANDROID, WEB`), POT for web-family clients; first
-   `OK`+formats wins; cached 10 min (30 s for degraded answers), 200 entries.
-4. If no ≥1080p format: `listYtdlpFormats` (`yt-dlp -J`, takes a pool slot; direct → free SOCKS hop).
+   YTSTUDIO_ANDROID, YTKIDS, WEB_CREATOR, ANDROID, WEB`); first `OK`+formats wins; cached 10 min
+   (30 s for degraded answers), 200 entries. No PO token is minted or sent.
+3. If no ≥1080p format: `listYtdlpFormats` (`yt-dlp -J`, takes a pool slot; operator proxy first,
+   then direct while direct is not marked blocked).
 
-**PO token** (`src/lib/po-token.server.ts`): fetch `https://www.youtube.com/`, parse `ytcfg` and the
-`ytAtN` BotGuard challenge, download the interpreter script from the URL YouTube names, run it
-with `new Function` against a `jsdom` window **bound onto `globalThis.window/self/document`**
-while it runs (documented concurrency hazard, :79-90), `BotGuardClient.snapshot`, `POST
-https://www.youtube.com/api/jnn/v1/GenerateIT`, `WebPoMinter`; tokens cached 4 h per video/slot
-(400 entries); on failure a cold-start token cached 90 s.
-
-**nsig / signature** (`src/lib/nsig.ts`, `youtube-stream.server.ts:157`): `player.decipher` of the
-youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `pot`, `cpn`, strips
-`alr`, rewrites to `redirector.googlevideo.com`.
+**Format URLs**: a format URL is used exactly as YouTube sent it. With no player, youtubei.js's
+`decipher()` returns `''` for a signatureCipher-only format, and `plainFormatUrl`
+(`youtube-stream.server.ts:57`) refuses it with a fixed "isn't available as a direct download"
+message. The server deciphers no signature and no `n` parameter.
 
 **Media**:
-- InnerTube direct (`streamYoutubeDownload`): 2 KB probe, then 4 parallel `range=` lanes for files
-  > 8 MB (`orderedParallelStream`), via `proxiedFetch`.
-- yt-dlp (`ytdlp.server.ts:118` `muxOne`), argv built by `ytdlpArgv` (`src/lib/ytdlp-auth.ts:505`):
+- InnerTube direct (`streamYoutubeDownload`, `youtube-stream.server.ts:120`): the format URL
+  (a video-only format answers 422), a 2 KB probe, then one stream of the whole file, via `proxiedFetch`.
+- yt-dlp (`ytdlp.server.ts:111` `muxOne`), argv built by `ytdlpArgv` (`src/lib/ytdlp-auth.ts`):
   ```
-  <VELO_PYTHON|PYTHON_BIN|python3> -m yt_dlp --no-js-runtimes --js-runtimes node
+  <VELO_PYTHON|PYTHON_BIN|python3> -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components
+    --no-js-runtimes --js-runtimes node
     [--force-ipv4 | --proxy socks5h://… ]  [--cookies <tmp>/cookies.txt | --cookies-from-browser $YTDLP_BROWSER]
-    --add-headers Accept-Language:en-US,en;q=0.9  [--impersonate chrome|safari]
-    --remote-components ejs:github
-    --extractor-args "youtube:player_client=<c>;player_js_variant=main[;visitor_data=…][;data_sync_id=…][;fetch_pot=never;po_token=<c>.gvs+…,<c>.player+…]"
+    --add-headers Accept-Language:en-US,en;q=0.9
+    --extractor-args "youtube:player_client=<c>;player_js_variant=main[;visitor_data=…][;data_sync_id=…]"
     --no-playlist --newline --check-formats  <THROTTLE_FLAGS>  --merge-output-format mp4/mkv
     -f <selector e.g. 137+140/137+251/96>  -o <tmpdir>/media.%(ext)s  https://www.youtube.com/watch?v=<id>
   ```
-  `THROTTLE_FLAGS` (`throttle.ts`): `--retries 1 --fragment-retries 10 --extractor-retries 3
-  --retry-sleep linear=1:4:2 --throttled-rate 100K --http-chunk-size 10M --concurrent-fragments 1
+  The part up to `node` is `YTDLP_BASE_ARGV`, shared by the download, captions and `-J` formats
+  runs (`ytdlp-meta.server.ts`). `THROTTLE_FLAGS` (`throttle.ts`): `--retries 1 --fragment-retries 10
+  --extractor-retries 3 --retry-sleep linear=1:4:2 --http-chunk-size 10M --concurrent-fragments 1
   --socket-timeout 20 --sleep-requests 0.2`. On "requested format is not available" the `-f`
   selector is widened once. Clients: guests `socksClientsForItag` ∪ `visionos, web_embedded,
   tv_simply, android`; cookies `web_embedded, tv_downgraded, web, mweb, web_safari`. Stall timeout
   45 s / 180 s per attempt, 2 attempts, 8 min ladder budget. Failures are classified from stderr
-  into retry / next-client / next-socks / stop (`classifyYtdlpFailure`).
-- **Cookie rule**: the cookie file and `--cookies-from-browser` are never passed over a free-pool
-  SOCKS hop (`ytdlp.server.ts:178`, `ytdlp-auth.ts:537-541`); logged-in sessions skip the free pool
-  entirely (`ytdlp.server.ts:242,255`). Operator ("trusted") proxies do carry cookies.
-- **SOCKS same-hop** (`src/lib/socks-pool.server.ts`): list from `VELO_SOCKS_PROXY`/`ALL_PROXY`,
-  `/tmp/velo-socks-good.json`, and `https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/…/socks5/data.json`;
-  each candidate probed with `curl -sS -m 7 -x <proxy> https://redirector.googlevideo.com/generate_204`
-  (10 in parallel, ≤45 s, keep 6); cache 8 min; dead list 15 min in `/tmp/velo-socks-dead.json`.
-- **CORS-relay same-hop** (`bypass.server.ts` server side, `bypass.ts` client side):
-  `https://proxy.corsfix.com/?<url>` and `https://api.allorigins.win/raw?url=<url>` fetch the watch
-  page **and the media bytes** (`bypass.server.ts:116`).
+  into retry / next-client / next-socks / stop (`classifyYtdlpFailure`); "next-socks" means "this
+  hop is dead, try the next route".
+- **Cookie rule**: `ytdlpArgv` passes no cookie source of any kind over an untrusted proxy; an
+  operator ("trusted") proxy may carry the session (`attempt` in `ytdlp.server.ts`, `ytdlpArgv`).
+- **yt-dlp's challenge solver (roadmap C5 exception)**: yt-dlp solves YouTube's JS challenges
+  itself, running the solver from its own install (the `yt-dlp-ejs` package in the
+  `yt-dlp[default]` extras) under `node`. `--no-remote-components` stops it fetching a solver at run
+  time, and `--ignore-config` / `--no-plugin-dirs` stop a user or system config file or a plugin
+  from turning that (or anything else D7 turns off) back on. Velo's own code runs no player or
+  BotGuard JavaScript.
+- **Child environment**: every yt-dlp run (and the ffmpeg and solver processes it starts) gets
+  `childEnv()` (`src/lib/proc-run.server.ts`): only `CHILD_ENV_ALLOWLIST` (PATH, temp dirs, home,
+  locale, CA certificate paths and the Windows equivalents) is inherited, so no server secret and
+  no ambient `*_PROXY` variable reaches the solver. `tool-updates.server.ts` still passes the full
+  environment to `npm` / `pip` until W4a.
 
 ### 4.4 Data stores & migrations
 
@@ -327,50 +317,44 @@ them, and each extra instance behind a load balancer would have its own copy.
 | yt-dlp slot pool (4 concurrent, 32 queued, 45 s) | `download-pool.server.ts` | |
 | Mux file cache (4 files / 400 MB / 10 min) + coalescing by `id.itag` | `download-pool.server.ts` → `/tmp/velo-mux-cache` | anonymous downloads only |
 | yt-dlp tmp dirs `velo-ytdl-*` swept every 10 min | `ytdlp-python.server.ts` | |
-| Python probe, `PySocks`/`curl_cffi` auto-install (runtime `pip install`) | `ytdlp-python.server.ts:100-145` | |
+| Python probe (`<python> -m yt_dlp --version`) | `ytdlp-python.server.ts` | no runtime `pip install` |
 | "direct yt-dlp blocked" bit (15 min) | `ytdlp-python.server.ts` | |
-| SOCKS pool cache/in-use set + `/tmp` good/dead files | `socks-pool.server.ts` | |
-| InnerTube client (4 h), playable-info cache, nsig cache, format cache | `youtube-client.server.ts`, `nsig.ts`, `ytdlp-meta.server.ts` | |
-| BotGuard minter (6 h) + token cache | `po-token.server.ts` | |
+| InnerTube client (4 h), playable-info cache, format cache | `youtube-client.server.ts`, `ytdlp-meta.server.ts` | |
 | npm/PyPI "latest" cache (10 min), single install lock | `tool-updates.server.ts` | |
 | Proxy route list cache, undici `ProxyAgent`s, validation-run abort controllers | `user-proxy-repository.server.ts`, `proxy-fetch.server.ts`, `proxy-run-service.server.ts` | runs leased in DB (`lease_expires_at`, 120 s); cancellation polled every 250 ms |
 | Dev auth secret (dev only) / proxy key fallback | `env.server.ts`, `vault-crypto.ts` | random per process when unset outside production; W3 moves the proxy key to `VELO_PROXY_SECRET_KEY` |
 | Better Auth rate-limit counters | `better-auth` (memory) | per process |
 
-Module-level side effects on import: `ipv4-bind.server.ts` (listed in `package.json#sideEffects`)
-globally replaces `dns.lookup` with an IPv4-only wrapper, disables Happy Eyeballs and installs a
-global undici `Agent({ allowH2:false, family:4 })` for the whole process (`ipv4-bind.server.ts:15-63`).
+Nothing patches process-wide DNS or the global fetch dispatcher (W4b deleted `ipv4-bind.server.ts`);
+`--force-ipv4` on direct yt-dlp runs is the only IPv4 pin.
 
 ### 4.7 Subprocesses
 
 | Command | Where | argv |
 |---|---|---|
-| `python3 -m yt_dlp …` | `ytdlp.server.ts` via `run` (`proc-run.server.ts`) and `runCapture` (`ytdlp-proc.server.ts`, `detached: true`, tree-kill) | see §4.3; `-J` for formats; subtitle variant in `ytdlp-meta.server.ts` |
+| `python3 -m yt_dlp …` | `ytdlp.server.ts` via `run` (`proc-run.server.ts`) and `runCapture` (`ytdlp-proc.server.ts`, `detached: true`, tree-kill), both with `env: childEnv()` | see §4.3: every run starts with `YTDLP_BASE_ARGV`; `-J` for formats and the subtitle variant in `ytdlp-meta.server.ts` |
 | `python3 -m yt_dlp --version` | `ensurePython` | probe |
-| `python3 -c "import socks"` / `"import curl_cffi"` then `python3 -m pip install --quiet PySocks|curl_cffi` | `ytdlp-python.server.ts:115-120` | triggered by any guest download ladder |
-| `curl -sS -m 7 -o /dev/null -w %{http_code} -x <socks> https://redirector.googlevideo.com/generate_204` | `socks-pool.server.ts:124-148` | |
-| `npm install <youtubei.js|bgutils-js>@latest --no-audit --no-fund --loglevel=error --save` | `tool-updates.server.ts:241` | operator only; `cwd=process.cwd()` |
-| `python3 -m pip install --upgrade --no-input yt-dlp [--break-system-packages]` | `tool-updates.server.ts:196-205` | operator only |
-| `ffmpeg` | spawned **by yt-dlp** for merges (not by Velo) | |
-| `node` | spawned by yt-dlp for the EJS nsig solver (`--js-runtimes node`); the solver is fetched from GitHub (`--remote-components ejs:github`) | |
+| `npm install youtubei.js@latest --no-audit --no-fund --loglevel=error --save` | `tool-updates.server.ts:243` | operator only; `cwd=process.cwd()`; full `process.env` (W4a) |
+| `python3 -m pip install --upgrade --no-input yt-dlp [--break-system-packages]` | `tool-updates.server.ts:198-204` | operator only; full `process.env` (W4a) |
+| `ffmpeg` | spawned **by yt-dlp** for merges (not by Velo) | inherits the yt-dlp child env |
+| `node` | spawned by yt-dlp to run its bundled challenge solver (`--js-runtimes node`, `--no-remote-components`) | inherits the yt-dlp child env |
 
 No shell is used for these; arguments are arrays. The only caller-influenced values are the 11-char
-video id, numeric itag, sanitised POT/visitor strings, a validated proxy URL and a temp cookie file.
+video id, numeric itag, sanitised visitor/data-sync strings, a validated proxy URL and a temp
+cookie file.
 
 ### 4.8 External services contacted
 
-Server: `www.youtube.com` (pages, InnerTube `/youtubei/v1/*`, `/api/jnn/v1/GenerateIT`,
-`/api/timedtext`, `feeds/videos.xml`), `*.googlevideo.com` incl. `redirector.googlevideo.com`,
-`i.ytimg.com`/`*.ggpht.com` (relay), the BotGuard interpreter host YouTube names in `ytAtN`
-(Google-hosted; value is data-driven), `proxy.corsfix.com`, `api.allorigins.win`,
-`cdn.jsdelivr.net` (proxifly list), **arbitrary free SOCKS5 hosts** from that list, operator proxy
-hosts, `registry.npmjs.org`, `pypi.org` (+ files.pythonhosted.org during `pip install`),
-`github.com` (yt-dlp EJS remote component), `oauth2.googleapis.com` and `www.googleapis.com/oauth2/v3/certs` (Google sign-in token exchange and ID-token keys),
-Postgres host from `DATABASE_URL`.
+Server: `www.youtube.com` (pages, InnerTube `/youtubei/v1/*`, `/api/timedtext`,
+`feeds/videos.xml`), `*.googlevideo.com` incl. `redirector.googlevideo.com` (media, proxy route
+probe), `i.ytimg.com`/`*.ggpht.com` (relay), operator proxy hosts, `registry.npmjs.org`, `pypi.org`
+(+ files.pythonhosted.org during `pip install`), `oauth2.googleapis.com` and
+`www.googleapis.com/oauth2/v3/certs` (Google sign-in token exchange and ID-token keys), Postgres
+host from `DATABASE_URL`. yt-dlp fetches no remote component (`--no-remote-components`). No free
+proxy list, public CORS relay or CDN script host is contacted.
 
-Browser: this origin, `proxy.corsfix.com`, `api.allorigins.win`, `*.googlevideo.com`,
-`sponsor.ajay.app` (SponsorBlock), `i.ytimg.com`, `www.youtube.com` embeds,
-`accounts.google.com` (Google sign-in).
+Browser: this origin, `*.googlevideo.com`, `sponsor.ajay.app` (SponsorBlock), `i.ytimg.com`,
+`www.youtube.com` embeds, `accounts.google.com` (Google sign-in).
 
 Extensions: `www.youtube.com/api/timedtext` (popup), the configured Velo origin
 (default `http://127.0.0.1:8080`).
@@ -411,7 +395,7 @@ Deleted in W2 (template residue: nothing imported it and `/api/rtc` never existe
   `node .output/server/index.mjs`.
 - Vite plugins (`vite.config.ts`): `pgliteBootstrapPlugin` (dev only), tailwind, `tanstackStart`,
   `nitro({preset:"node-server", serverDir:"./server"})` for build and preview only, React.
-  `ssr.external`: `youtubei.js, bgutils-js, jsdom, @electric-sql/pglite`.
+  `ssr.external`: `youtubei.js, @electric-sql/pglite`.
 - `npm run preview` (`vite preview`, `127.0.0.1:8081`, strict) and `npm run build:dev`
   (`vite build --mode development`) both go through Nitro: the server they serve or produce runs
   the `server/plugins/env.ts` boot check, which forces `NODE_ENV=production`. They need the full
@@ -440,13 +424,12 @@ Deleted in W2 (template residue: nothing imported it and `/api/rtc` never existe
 | `VELO_ADMIN_EMAILS` | `operator-gate.server.ts`, `tool-updates.ts` | no | nobody is operator | no |
 | `VELO_ALLOW_TOOL_INSTALL` | same | no | off (`"1"` = loopback installs with auth off) | no |
 | `VELO_SIGNIN_LINK` / `VELO_SIGNIN_LINK_EMAILS` | — | no | removed in W0-T4 (ignored) | no |
-| `VELO_PYTHON` / `PYTHON_BIN` | `ytdlp-auth.ts:900`, `scripts/auto-update.mjs` | no | `python3` | no |
-| `VELO_SOCKS_PROXY` / `ALL_PROXY` | `socks-pool.server.ts:101` | no | — | may carry credentials |
-| `YTDLP_BROWSER` | `ytdlp-auth.ts:485` | no | — (reads the *server host's* browser cookies) | n/a |
+| `VELO_PYTHON` / `PYTHON_BIN` | `ytdlp-auth.ts:760` (`pythonBin`), `scripts/auto-update.mjs` | no | `python3` | no |
+| `YTDLP_BROWSER` | `ytdlp-auth.ts:351` | no | — (reads the *server host's* browser cookies) | n/a |
 | `TRUST_CLOUDFLARE` | `guest-limit.server.ts:120` | no | off | no |
 | `LOG_LEVEL` | `log.server.ts:39` reads `process.env` directly; `env.server.ts` also parses it into `serverEnv().LOG_LEVEL`, which nothing reads yet | no | `info` (or `debug`, `warn`, `error`) | no |
 | `SENTRY_DSN` | `env.server.ts` only: parsed, **not read yet**. W5 wires it (Sentry, roadmap D6) | no | unset | no |
-| `VELO_EGRESS_PROXY` | `env.server.ts` only: parsed, **not read yet**. W4a wires it as the single operator egress proxy; today egress uses `VELO_SOCKS_PROXY` / `ALL_PROXY` (above) | no | unset → direct | may carry credentials |
+| `VELO_EGRESS_PROXY` | `env.server.ts` only: parsed, **not read yet**. W4a wires it as the single operator egress proxy; today server egress goes direct or through the operator's saved proxy routes, and `childEnv()` keeps ambient `*_PROXY` variables away from yt-dlp | no | unset → direct | may carry credentials |
 | `VELO_EXTENSION_IDS` | `env.server.ts` only: parsed (comma list), **not read yet**. W6 wires it (extension handshake) | no | `[]` | no |
 | `VELO_PROXY_SECRET_KEY` / `VELO_PROXY_SECRET_KEY_PREVIOUS` | `env.server.ts` only: parsed, **not read yet**. W3 wires them; until then the proxy credential key is `VELO_VAULT_KEY` (`_PREVIOUS`), falling back to `BETTER_AUTH_SECRET` (`vault-crypto.ts`) | no | unset | yes |
 | `YTDLP_PYTHON` | `env.server.ts` only: parsed, **not read yet**. W4a/W5 wire it; today `pythonBin()` reads `VELO_PYTHON` / `PYTHON_BIN` (above) | no | `python3` (`python` on Windows) | no |
@@ -462,7 +445,7 @@ There is no `.env.example`; the README documents only `VELO_PYTHON`/`PYTHON_BIN`
 1. `index.tsx` → `lookupVideo` (`home-actions.ts:15`) → server fn `resolveVideo`
    (`resolve-video.ts:37`) → `assertMetadataBudget` → `resolveYoutubeVideo` (§4.3) → presets.
 2. Save → `runHomeDownload` (`home-actions.ts:87`) → `downloadPresetFile` → `downloadViaBuilder`
-   → `mintPoToken` → race `POST /api/builder` vs client same-hop.
+   → `POST /api/builder`.
 3. `/api/builder` (`routes/api/builder.ts`) → quota (`guest-limit.server.ts:358`) →
    `streamBuilderDownload` → itag 137 → `downloadWithYtdlp` → cache/coalesce → slot → `muxOne`
    ladder → `python3 -m yt_dlp -f 137+140/137+251/96 …` (merge by ffmpeg) → `mediaFileResponse`.
@@ -487,7 +470,7 @@ There is no `.env.example`; the README documents only `VELO_PYTHON`/`PYTHON_BIN`
 
 `transcript-studio.tsx` / `transcript-viewer.tsx` → `fetchTranscript` server fn
 (`resolve-video.ts:85`) → `getTranscriptText` (`youtube-captions.server.ts:139`): InnerTube caption
-track (+`tlang`) → yt-dlp subtitles fallback (`ytdlp-meta.server.ts:63`, pool slot, direct→SOCKS)
+track (+`tlang`) → yt-dlp subtitles fallback (`fetchSubtitlesViaYtdlp`, `ytdlp-meta.server.ts`, pool slot, operator proxy → direct)
 → VTT parse → cues → client exports (`transcript.ts`, `transcript-export.ts`, `nle-export.ts`).
 Direct caption file download uses `GET /api/captions`.
 

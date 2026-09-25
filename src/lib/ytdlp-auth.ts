@@ -56,9 +56,9 @@ const VIDEO_ONLY = new Set([
 ]);
 
 /**
- * What actually works on this host (proved over SOCKS): 1080p H.264 + AAC,
- * then H.264 + Opus (mkv), then HLS stitch, then muxed 720/360. Skip 1080p60
- * / AV1 / VP9 on the automatic hop — they stall, throttle, or fail mux more often.
+ * The automatic 1080p selector: H.264 + AAC, then H.264 + Opus (mkv), then the
+ * HLS itag 96 playlist. It skips 1080p60 / AV1 / VP9, which stalled or failed
+ * mux more often in testing (24 Aug 2026).
  * Do not fall through to muxed 720/360 here: Save would label 360p as Full HD.
  * Muxed 22/18 is offered as a user-confirmed fallback prompt after this selector
  * fails (pickMuxedFallback in routes/index.tsx), never substituted silently.
@@ -825,11 +825,11 @@ export function ytdlpWorkingCommand(opts: Parameters<typeof ytdlpArgv>[0]): stri
 }
 
 /**
- * Proved 24 Aug 2026 on this host (Me at the zoo, SOCKS, yt-dlp 2026.08.19):
- * web_embedded extracts (then with TLS impersonation, since removed under D7);
- * without po_token only itag 18 is playable.
- * android without POT is SABR-only (same 18). 1080p needs dual gvs+player po_token.
- * SOCKS example omits --force-ipv4 — the hop owns the YouTube-side family.
+ * The shape of the Save command over a proxy, for copy-paste. A proxied run
+ * omits --force-ipv4: the proxy owns the YouTube-side address family.
+ * Test record, 24 Aug 2026 (Me at the zoo, yt-dlp 2026.08.19): web_embedded
+ * extracts; without a PO token only itag 18 is playable and android is
+ * SABR-only, so this 1080p selector needs a PO token Velo does not supply (D7).
  */
 export const YTDLP_WORKING_EXAMPLE =
   "python3 -m yt_dlp --ignore-config --no-plugin-dirs --no-remote-components --no-js-runtimes --js-runtimes node --proxy socks5h://HOST:PORT --add-headers Accept-Language:en-US,en;q=0.9 --extractor-args youtube:player_client=web_embedded --no-playlist --check-formats --http-chunk-size 10M --concurrent-fragments 1 --merge-output-format mp4/mkv -f 137+140/137+251/96 https://www.youtube.com/watch?v=jNQXAC9IVRw";

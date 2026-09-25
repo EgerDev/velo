@@ -16,7 +16,7 @@ export const FORMAT_PRIORITY = [
 
 export const SAVE_MECHANICS = [
   { name: "AbortController", detail: "Winner / Close kills every other fetch." },
-  { name: "HLS fallback", detail: "Stitch itag 96 TS chunks when 137 is SABR or 403." },
+  { name: "HLS fallback", detail: "When 137+140 and 137+251 are unavailable, yt-dlp saves the itag 96 playlist instead." },
   { name: "IMA SDK", detail: "Ad player (ima3.js). Never loaded; DoubleClick/DAI dropped." },
   { name: "IPv4 pin", detail: "Without a proxy, yt-dlp stays on IPv4 so the player request and the file share one address family." },
 ] as const;

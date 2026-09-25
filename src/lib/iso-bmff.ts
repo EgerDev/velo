@@ -3,9 +3,9 @@
  *
  * YouTube itag 137 is one googlevideo URL (not an MPD). The file is fragmented
  * MP4: ftyp(dash) + moov + sidx + moof/mdat… dash.js would build a SegmentBase
- * MPD from `sidx` and fetch each referenced_size with HTTP Range — same hop
- * as the player. We parse that index ourselves; the preview iframe cannot run
- * dash.js against googlevideo (CORS + IP bind).
+ * MPD from `sidx` and fetch each referenced_size with HTTP Range. This module
+ * reads those boxes itself, without dash.js; the download code uses only its
+ * container sniffers (looksLikeMediaFile, looksLikeFragment).
  *
  * HLS (web_safari itag 96) is MPEG-TS packets (`0x47`, 188 bytes) listed in an
  * m3u8. Concatenate in order. No EXT-X-MAP on YouTube VOD (that would be CMAF).

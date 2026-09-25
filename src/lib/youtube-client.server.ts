@@ -4,9 +4,11 @@ import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
 // No JavaScript evaluator is installed and every client is created with
 // `retrieve_player: false` (roadmap D7/C5): the server never downloads or runs
-// YouTube's player script. youtubei.js then returns format URLs exactly as
-// YouTube sent them, and anything that would need deciphering throws the
-// library's own "provide your own JavaScript evaluator" error.
+// YouTube's player script. With no player, youtubei.js's `decipher()` returns
+// the format URL exactly as YouTube sent it, or `''` when YouTube sent only a
+// signatureCipher; `plainFormatUrl` (youtube-stream.server.ts) turns `''` into
+// its fixed "isn't available as a direct download" message. The library's own
+// "provide your own JavaScript evaluator" error is an unreachable backstop.
 
 export const STREAM_HEADERS = {
   accept: "*/*",
