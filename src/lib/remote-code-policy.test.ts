@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 // Roadmap D7/C5 (W4b): no BotGuard minting, server-side deciphering, same-hop
@@ -51,4 +51,26 @@ test("the unlock and same-hop bypass routes and their server helpers are gone", 
   assert.doesNotMatch(source("../routes/api/download.ts"), /streamSameHop|bypass/);
   assert.doesNotMatch(source("./resolve-video.ts"), /decipherCipher|decipherRawFormat/);
   assert.doesNotMatch(source("./youtube-stream.server.ts"), /unlockPlaybackUrl/);
+});
+
+test("the server downloads and runs no YouTube player script", () => {
+  for (const file of ["./nsig.ts", "./stream-unlock.ts", "./parallel-stream.ts"]) {
+    assert.equal(existsSync(here(file)), false, file);
+  }
+  const client = source("./youtube-client.server.ts");
+  assert.doesNotMatch(client, /Platform|shim\.eval|new Function|retrieve_player: true/);
+  assert.equal(client.match(/retrieve_player: false,/g)?.length, 2);
+  assert.doesNotMatch(source("./youtube-stream.server.ts"), /session\.player|nsig|decipherRawFormat|rn=/);
+});
+
+test("no module in src/ imports node:vm", () => {
+  const vm = /\bfrom\s*["'](node:)?vm["']|import\(\s*["'](node:)?vm["']\s*\)|require\(\s*["'](node:)?vm["']\s*\)|getBuiltinModule\(\s*["'](node:)?vm["']/;
+  const root = here("../");
+  const files = readdirSync(root, { recursive: true, encoding: "utf8" }).filter((name) =>
+    /\.(ts|tsx|js|mjs)$/.test(name),
+  );
+  assert.ok(files.length > 100, "walked src/");
+  for (const name of files) {
+    assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), root), "utf8"), vm, name);
+  }
 });

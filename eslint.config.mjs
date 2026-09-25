@@ -6,18 +6,33 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 /**
- * The server never executes remote JavaScript (roadmap D7/C5). These are the
- * in-process escape hatches; W4b deletes the remaining uses.
+ * The server never executes remote JavaScript (roadmap D7/C5). ESLint's core
+ * `no-eval`, `no-implied-eval` and `no-new-func` cover the direct forms; these
+ * selectors add the aliased ones they miss (`globalThis.Function(...)`,
+ * `x.eval(...)`, `(0, eval)(...)`) and every way to reach `node:vm`.
  */
 const UNTRUSTED_EVAL_MESSAGE =
   "Do not evaluate code in-process. The server never executes remote JavaScript (roadmap C5, D7).";
+const VM_MODULE = "/^(node:)?vm$/";
 const noInProcessEval = [
   { selector: "NewExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "NewExpression[callee.property.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "CallExpression[callee.property.name='Function']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.property.name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: "SequenceExpression > Identifier[name='eval']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
   { selector: "CallExpression[callee.property.name='runInThisContext']", message: UNTRUSTED_EVAL_MESSAGE },
+  { selector: `ImportExpression[source.value=${VM_MODULE}]`, message: UNTRUSTED_EVAL_MESSAGE },
+  {
+    selector: `CallExpression[callee.name='require'][arguments.0.value=${VM_MODULE}]`,
+    message: UNTRUSTED_EVAL_MESSAGE,
+  },
+  {
+    selector: `CallExpression[callee.property.name='getBuiltinModule'][arguments.0.value=${VM_MODULE}]`,
+    message: UNTRUSTED_EVAL_MESSAGE,
+  },
 ];
 
 /** Flat ESLint config. Every rule is an error; `npm run lint` runs with --max-warnings 0. */
@@ -64,7 +79,19 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "off",
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
       "no-restricted-syntax": ["error", ...noInProcessEval],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "vm", message: UNTRUSTED_EVAL_MESSAGE },
+            { name: "node:vm", message: UNTRUSTED_EVAL_MESSAGE },
+          ],
+        },
+      ],
     },
   },
   {

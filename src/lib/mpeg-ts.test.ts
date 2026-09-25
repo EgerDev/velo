@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { containerKind, parseTsPacket, scanMpegTs, TS_PACKET, TS_SYNC } from "./mpeg-ts.ts";
 import { dashHlsSliceEnd, dashSegmentPlan, hlsContainer, sidxDurationSec } from "./iso-bmff.ts";
-import { parseHls } from "./stream-unlock.ts";
+import { parseHls } from "./hls.ts";
 import { dashCmafFixture, hlsTsFixture } from "./media-test-fixtures/index.ts";
 
 test("PAT/PMT: program 1 → PMT 4095 → AAC 257 + H.264 256", () => {

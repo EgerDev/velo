@@ -1,10 +1,13 @@
-import { Innertube, Platform } from "youtubei.js";
+import { Innertube } from "youtubei.js";
 import "@/lib/ipv4-bind.server";
 import { proxiedFetch } from "@/lib/user-proxy.server";
 import type { MetadataSessionOptions } from "@/lib/ytdlp-auth";
 
-// eslint-disable-next-line no-restricted-syntax -- W4b deletes this code path (C5) and this line
-Platform.shim.eval = (data) => new Function(data.output)();
+// No JavaScript evaluator is installed and every client is created with
+// `retrieve_player: false` (roadmap D7/C5): the server never downloads or runs
+// YouTube's player script. youtubei.js then returns format URLs exactly as
+// YouTube sent them, and anything that would need deciphering throws the
+// library's own "provide your own JavaScript evaluator" error.
 
 export const STREAM_HEADERS = {
   accept: "*/*",
@@ -48,7 +51,7 @@ export async function getClient(
     const client = await Innertube.create({
       lang: "en",
       location: "US",
-      retrieve_player: true,
+      retrieve_player: false,
       enable_session_cache: false,
       fetch: proxiedFetch,
       cookie: session.cookie,
@@ -62,7 +65,7 @@ export async function getClient(
     clientPromise = Innertube.create({
       lang: "en",
       location: "US",
-      retrieve_player: true,
+      retrieve_player: false,
       enable_session_cache: true,
       fetch: proxiedFetch,
     }).catch((err) => {

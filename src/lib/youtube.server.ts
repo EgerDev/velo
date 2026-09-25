@@ -17,11 +17,7 @@ import { toFormat, uniqueFormats, toSearchHit, uniqueHits, pickThumbnail, type R
 
 export { toSearchHit } from "@/lib/youtube-map.server";
 export { streamYoutubeCaptions, getTranscriptText } from "@/lib/youtube-captions.server";
-export {
-  decipherRawFormat,
-  getPlaybackUrl,
-  streamYoutubeDownload,
-} from "@/lib/youtube-stream.server";
+export { getPlaybackUrl, streamYoutubeDownload } from "@/lib/youtube-stream.server";
 export type { PlaybackFile } from "@/lib/youtube-stream.server";
 
 export async function resolveYoutubeVideo(input: string): Promise<ResolvedVideo> {
