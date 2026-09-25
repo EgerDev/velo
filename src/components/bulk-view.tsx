@@ -69,7 +69,7 @@ export function BulkView({
               </Badge>
             </div>
             <p className="text-xs text-muted mt-1 max-w-xl">
-              Paste multiple YouTube links or playlists. Velo saves them one after another with short pauses between requests, and copies the original streams into one file without re-encoding.
+              Paste multiple YouTube links or playlists. Velo saves them a few at a time, with short pauses between starts, and copies the original streams into one file without re-encoding.
             </p>
           </div>
 

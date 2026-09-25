@@ -125,13 +125,16 @@ test("yt-dlp gets no TLS impersonation and nothing pip-installs curl_cffi at run
 });
 
 test("user-facing copy and the README make no circumvention claims", () => {
-  const banned = /bypass|beat bot|bot[- ]detection|po token|botguard|\bn-?sig\b|anti-throttle|same-hop|matching hop|cors relay/i;
-  const components = here("../components/");
-  for (const name of readdirSync(components, { recursive: true, encoding: "utf8" })) {
-    if (!name.endsWith(".tsx")) continue;
-    assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), components), "utf8"), banned, name);
+  const banned = /bypass|beat bot|bot[- ]detection|po[- ]?token|botguard|\bn-?sig\b|anti-throttl|same[- ]hop|matching hop|cors relay/i;
+  for (const dir of [here("../components/"), here("../routes/")]) {
+    for (const name of readdirSync(dir, { recursive: true, encoding: "utf8" })) {
+      if (!name.endsWith(".tsx")) continue;
+      assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), dir), "utf8"), banned, name);
+    }
   }
-  for (const file of ["./youtube-copy.ts", "./download-error.ts", "./download-client.ts", "./builder-download.ts", "./hybrid-download.ts", "../../README.md"]) {
+  // ytdlp-auth.ts stays out: it holds the parser regexes for yt-dlp's stderr.
+  const files = ["./youtube-copy.ts", "./download-error.ts", "./download-client.ts", "./builder-download.ts", "./hybrid-download.ts", "./bulk-download.ts", "./throttle-advisor.ts", "../../README.md"];
+  for (const file of files) {
     assert.doesNotMatch(source(file), banned, file);
   }
   // UX-05: no "AI" badge on a transcript feature that runs no AI.
