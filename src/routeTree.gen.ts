@@ -12,13 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiBuilderRouteImport } from './routes/api/builder'
-import { Route as ApiBypassRouteImport } from './routes/api/bypass'
 import { Route as ApiCaptionsRouteImport } from './routes/api/captions'
 import { Route as ApiDownloadRouteImport } from './routes/api/download'
 import { Route as ApiFeedRouteImport } from './routes/api/feed'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiRelayRouteImport } from './routes/api/relay'
-import { Route as ApiUnlockRouteImport } from './routes/api/unlock'
 import { Route as ApiYtdlpRouteImport } from './routes/api/ytdlp'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -35,11 +33,6 @@ const LoginRoute = LoginRouteImport.update({
 const ApiBuilderRoute = ApiBuilderRouteImport.update({
   id: '/api/builder',
   path: '/api/builder',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBypassRoute = ApiBypassRouteImport.update({
-  id: '/api/bypass',
-  path: '/api/bypass',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCaptionsRoute = ApiCaptionsRouteImport.update({
@@ -67,11 +60,6 @@ const ApiRelayRoute = ApiRelayRouteImport.update({
   path: '/api/relay',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiUnlockRoute = ApiUnlockRouteImport.update({
-  id: '/api/unlock',
-  path: '/api/unlock',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiYtdlpRoute = ApiYtdlpRouteImport.update({
   id: '/api/ytdlp',
   path: '/api/ytdlp',
@@ -87,13 +75,11 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/builder': typeof ApiBuilderRoute
-  '/api/bypass': typeof ApiBypassRoute
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
   '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
-  '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -101,13 +87,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/builder': typeof ApiBuilderRoute
-  '/api/bypass': typeof ApiBypassRoute
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
   '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
-  '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -116,13 +100,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/builder': typeof ApiBuilderRoute
-  '/api/bypass': typeof ApiBypassRoute
   '/api/captions': typeof ApiCaptionsRoute
   '/api/download': typeof ApiDownloadRoute
   '/api/feed': typeof ApiFeedRoute
   '/api/health': typeof ApiHealthRoute
   '/api/relay': typeof ApiRelayRoute
-  '/api/unlock': typeof ApiUnlockRoute
   '/api/ytdlp': typeof ApiYtdlpRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -132,13 +114,11 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/builder'
-    | '/api/bypass'
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
     | '/api/health'
     | '/api/relay'
-    | '/api/unlock'
     | '/api/ytdlp'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -146,13 +126,11 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/builder'
-    | '/api/bypass'
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
     | '/api/health'
     | '/api/relay'
-    | '/api/unlock'
     | '/api/ytdlp'
     | '/api/auth/$'
   id:
@@ -160,13 +138,11 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/builder'
-    | '/api/bypass'
     | '/api/captions'
     | '/api/download'
     | '/api/feed'
     | '/api/health'
     | '/api/relay'
-    | '/api/unlock'
     | '/api/ytdlp'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -175,13 +151,11 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   ApiBuilderRoute: typeof ApiBuilderRoute
-  ApiBypassRoute: typeof ApiBypassRoute
   ApiCaptionsRoute: typeof ApiCaptionsRoute
   ApiDownloadRoute: typeof ApiDownloadRoute
   ApiFeedRoute: typeof ApiFeedRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiRelayRoute: typeof ApiRelayRoute
-  ApiUnlockRoute: typeof ApiUnlockRoute
   ApiYtdlpRoute: typeof ApiYtdlpRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -207,13 +181,6 @@ declare module '@tanstack/react-router' {
       path: '/api/builder'
       fullPath: '/api/builder'
       preLoaderRoute: typeof ApiBuilderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/bypass': {
-      id: '/api/bypass'
-      path: '/api/bypass'
-      fullPath: '/api/bypass'
-      preLoaderRoute: typeof ApiBypassRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/captions': {
@@ -251,13 +218,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRelayRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/unlock': {
-      id: '/api/unlock'
-      path: '/api/unlock'
-      fullPath: '/api/unlock'
-      preLoaderRoute: typeof ApiUnlockRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/ytdlp': {
       id: '/api/ytdlp'
       path: '/api/ytdlp'
@@ -279,13 +239,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   ApiBuilderRoute: ApiBuilderRoute,
-  ApiBypassRoute: ApiBypassRoute,
   ApiCaptionsRoute: ApiCaptionsRoute,
   ApiDownloadRoute: ApiDownloadRoute,
   ApiFeedRoute: ApiFeedRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiRelayRoute: ApiRelayRoute,
-  ApiUnlockRoute: ApiUnlockRoute,
   ApiYtdlpRoute: ApiYtdlpRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

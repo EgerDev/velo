@@ -19,7 +19,6 @@ export { toSearchHit } from "@/lib/youtube-map.server";
 export { streamYoutubeCaptions, getTranscriptText } from "@/lib/youtube-captions.server";
 export {
   decipherRawFormat,
-  unlockPlaybackUrl,
   getPlaybackUrl,
   streamYoutubeDownload,
 } from "@/lib/youtube-stream.server";

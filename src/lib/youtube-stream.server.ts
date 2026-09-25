@@ -190,18 +190,6 @@ export async function decipherRawFormat(input: {
   }
 }
 
-export async function unlockPlaybackUrl(input: {
-  url?: string;
-  signatureCipher?: string;
-  cipher?: string;
-  videoId?: string;
-  cpn?: string;
-}): Promise<{ url: string; applied: string[] }> {
-  const deciphered = await decipherRawFormat(input);
-  const { unlockStreamUrl } = await import("@/lib/stream-unlock");
-  return unlockStreamUrl(deciphered, { cpn: input.cpn, stripAlr: true });
-}
-
 export async function getPlaybackUrl(id: string, itag: number): Promise<PlaybackFile> {
   const { format, title, cpn } = await findRawFormat(id, itag);
   const deciphered = await decipherRawFormat({

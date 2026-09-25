@@ -43,3 +43,12 @@ test("no PO-token minter remains, and no route or yt-dlp call carries a PO token
     assert.doesNotMatch(source(file), /\bpot\??:/, file);
   }
 });
+
+test("the unlock and same-hop bypass routes and their server helpers are gone", () => {
+  for (const file of ["../routes/api/unlock.ts", "../routes/api/bypass.ts", "./bypass.server.ts", "./bypass-parse.ts"]) {
+    assert.equal(existsSync(here(file)), false, file);
+  }
+  assert.doesNotMatch(source("../routes/api/download.ts"), /streamSameHop|bypass/);
+  assert.doesNotMatch(source("./resolve-video.ts"), /decipherCipher|decipherRawFormat/);
+  assert.doesNotMatch(source("./youtube-stream.server.ts"), /unlockPlaybackUrl/);
+});
