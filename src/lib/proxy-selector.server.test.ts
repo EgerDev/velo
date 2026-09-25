@@ -18,18 +18,18 @@ test("Given unordered routes, When metadata routes are selected, Then capable ha
   assert.deepEqual(selected.map((item) => item.kind === "proxy" ? item.id : item.kind), ["a", "b", "direct"]);
 });
 
-test("Given only incapable or skipped routes, When yt-dlp routes are selected, Then free SOCKS and direct remain ordered fallbacks", () => {
+test("Given only incapable or skipped routes, When yt-dlp routes are selected, Then direct is the only fallback", () => {
   // Given / When
-  const selected = selectProxyRoutes([route("x", 1, "http", false)], "ytdlp", ["free-b", "free-a"]);
+  const selected = selectProxyRoutes([route("x", 1, "http", false)], "ytdlp");
   // Then
-  assert.deepEqual(selected.map((item) => item.kind === "free_socks" ? item.url : item.kind), ["free-b", "free-a", "direct"]);
+  assert.deepEqual(selected.map((item) => item.kind), ["direct"]);
 });
 
-for (const capability of ["metadata", "media", "ytdlp"] as const) test(`Given ${capability} consumers, When configured attempts fail, Then the ledger preserves configured, free, and direct fallback order`, async () => {
-  const routes = selectProxyRoutes([route("b", 2, "http"), route("a", 1, "http")], capability, capability === "ytdlp" ? ["free"] : []);
+for (const capability of ["metadata", "media", "ytdlp"] as const) test(`Given ${capability} consumers, When configured attempts fail, Then the ledger preserves configured then direct fallback order`, async () => {
+  const routes = selectProxyRoutes([route("b", 2, "http"), route("a", 1, "http")], capability);
   const ledger = await attemptSelectedRoutes(routes, async (selected) => selected.kind === "direct" ? { ok: true, value: "direct-ok" } : { ok: false });
-  assert.deepEqual(ledger.attempted.map((selected) => selected.kind === "proxy" ? selected.id : selected.kind), capability === "ytdlp" ? ["a", "b", "free_socks", "direct"] : ["a", "b", "direct"]);
-  assert.deepEqual(ledger.attempted.map((selected) => selected.trusted), capability === "ytdlp" ? [true, true, false, false] : [true, true, false]);
+  assert.deepEqual(ledger.attempted.map((selected) => selected.kind === "proxy" ? selected.id : selected.kind), ["a", "b", "direct"]);
+  assert.deepEqual(ledger.attempted.map((selected) => selected.trusted), [true, true, false]);
   assert.equal(ledger.result, "direct-ok");
 });
 

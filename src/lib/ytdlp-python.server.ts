@@ -7,10 +7,9 @@ import { pythonBin, classifyPythonProbe, type PythonProbe } from "@/lib/ytdlp-au
 export const TMP_PREFIX = "velo-ytdl-";
 
 /**
- * Direct yt-dlp beats the free SOCKS pool by 2-40x where it works (measured:
- * ~3s vs 6-17s per live hop, 110s+ walking dead ones), but a datacenter origin
- * gets 403. So every ladder probes direct first and, once it fails, skips the
- * probe for a while: a blocked host pays one fast failure per window.
+ * A datacenter origin often gets 403 from YouTube. So every ladder probes
+ * direct first and, once it fails, skips the probe for a while: a blocked host
+ * pays one fast failure per window.
  * ponytail: one process-wide bit; key it by client/family if those diverge.
  */
 const DIRECT_RETRY_MS = 15 * 60_000;
@@ -51,8 +50,8 @@ sweepTimer.unref?.();
 /**
  * Is the Python side usable at all?
  *
- * Without this, a host with no Python ran the whole ladder — every client, then
- * every SOCKS hop — spawning a process that could never start, and reported it
+ * Without this, a host with no Python ran the whole ladder — every client on
+ * every route — spawning a process that could never start, and reported it
  * as `spawn python3 ENOENT · spawn python3 ENOENT · …`. The cause is permanent
  * and knowable in one spawn, so check once and say which of the two things is
  * actually missing.
@@ -102,8 +101,8 @@ export async function requirePython(): Promise<void> {
  * Probe for an optional Python package, installing it once if absent.
  *
  * Cached per process, but a failure is retried after a cooldown rather than
- * remembered forever — one transient pip failure otherwise disabled SOCKS (or
- * impersonation) for the life of the server.
+ * remembered forever — one transient pip failure otherwise disabled
+ * impersonation for the life of the server.
  */
 function optionalModule(module: string, pipName: string): () => Promise<boolean> {
   let state: { at: number; result: Promise<boolean> } | null = null;
@@ -141,5 +140,4 @@ function optionalModule(module: string, pipName: string): () => Promise<boolean>
   };
 }
 
-export const ensurePySocks = optionalModule("socks", "PySocks");
 export const ensureImpersonate = optionalModule("curl_cffi", "curl_cffi");

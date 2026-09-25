@@ -4,12 +4,10 @@ import { join } from "node:path";
 import { runCapture } from "@/lib/ytdlp-proc.server";
 import {
   ensurePython,
-  ensurePySocks,
   ensureImpersonate,
   directYtdlpOpen,
   markDirectYtdlpBlocked,
 } from "@/lib/ytdlp-python.server";
-import { markSocksDead, markSocksGood, releaseSocks, takeSocks } from "@/lib/socks-pool.server";
 import { ytdlpJsonToFormats, type YtDlpJsonFormat } from "@/lib/ytdlp-formats";
 import type { VideoFormat } from "@/lib/youtube";
 import { acquireYtdlpSlot } from "@/lib/download-pool.server";
@@ -32,24 +30,14 @@ formatSweep.unref?.();
 type Hop = { readonly proxy?: string; readonly markDead: () => void; readonly markGood: () => void };
 
 /**
- * One metadata ladder stage. A saved route is tried once; the free stage tries
- * direct while it is open (see directYtdlpOpen), then one pool SOCKS hop.
- * `tryHop` returns a result to end the stage, or null to move to the next hop.
+ * One metadata ladder stage. A saved route is tried once; otherwise direct is
+ * tried while it is open (see directYtdlpOpen). `tryHop` returns a result to
+ * end the stage, or null to move on.
  */
 async function runHops<T>(saved: Hop | null, tryHop: (hop: Hop) => Promise<T | null>): Promise<T | null> {
   if (saved) return tryHop(saved);
-  if (directYtdlpOpen()) {
-    const hit = await tryHop({ markDead: markDirectYtdlpBlocked, markGood: () => undefined });
-    if (hit !== null) return hit;
-  }
-  const socks = await takeSocks(1);
-  const proxy = socks[0];
-  if (!proxy) return null;
-  try {
-    return await tryHop({ proxy, markDead: () => markSocksDead(proxy), markGood: () => markSocksGood(proxy) });
-  } finally {
-    releaseSocks(socks);
-  }
+  if (!directYtdlpOpen()) return null;
+  return tryHop({ markDead: markDirectYtdlpBlocked, markGood: () => undefined });
 }
 
 /** A saved (operator) route as a hop; its verdicts go to the route store. */
@@ -72,7 +60,6 @@ export async function fetchSubtitlesViaYtdlp(opts: {
   if (!(await ensurePython()).ok) return null;
   const release = await acquireYtdlpSlot(opts.signal);
   try {
-    await ensurePySocks().catch(() => undefined);
     const impersonate = await ensureImpersonate().catch(() => false);
 
     const {
@@ -91,7 +78,7 @@ export async function fetchSubtitlesViaYtdlp(opts: {
     const subLangs = subLangsArg(opts.lang, opts.tlang);
     const clients = ["web_embedded", "tv_simply"];
 
-    // The operator's proxy rides first, then the free stage (runHops).
+    // The operator's proxy rides first, then direct (runHops).
     const { userProxyLadder } = await import("@/lib/user-proxy.server");
     const userRoutes = await userProxyLadder("ytdlp");
     const tryHop = async ({ proxy, markDead, markGood }: Hop): Promise<string | null> => {
@@ -174,11 +161,10 @@ export async function fetchSubtitlesViaYtdlp(opts: {
 
 async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
   // Best-effort enrichment: no Python means no extra formats, but it should not
-  // cost a pool slot and a SOCKS hop to find that out.
+  // cost a pool slot to find that out.
   if (!(await ensurePython()).ok) return [];
   const release = await acquireYtdlpSlot();
   try {
-    await ensurePySocks().catch(() => undefined);
     const impersonate = await ensureImpersonate().catch(() => false);
     const {
       extractorArgs,
@@ -190,8 +176,8 @@ async function listYtdlpFormatsOnce(id: string): Promise<VideoFormat[]> {
     const clients = ["web_embedded", "tv_simply"];
 
     // Same first-hop rule as the download ladder: the operator's proxy before
-    // any free-SOCKS hop, so formats/captions do not fail on a blocked origin
-    // while downloads through the same proxy succeed.
+    // direct, so formats/captions do not fail on a blocked origin while
+    // downloads through the same proxy succeed.
     const { userProxyLadder } = await import("@/lib/user-proxy.server");
     const userRoutes = await userProxyLadder("ytdlp");
     // null = next hop; [] = stop this stage (aborted, or output too big to retry).
@@ -283,8 +269,8 @@ export async function listYtdlpFormats(id: string, signal?: AbortSignal): Promis
     formatInflight.set(id, shared);
   }
   const mapped = await shared;
-  // Negative-cache the empty outcome: re-running yt-dlp -J over SOCKS on every
-  // resolve of the same id holds a pool slot for nothing.
+  // Negative-cache the empty outcome: re-running yt-dlp -J on every resolve of
+  // the same id holds a pool slot for nothing.
   if (!mapped.length) formatCache.set(id, { value: [], expires: Date.now() + FORMAT_EMPTY_TTL_MS });
   if (signal?.aborted) return [];
   return mapped;

@@ -79,7 +79,6 @@ export async function proxiedFetch(
   const selected = [...ladder.map((route) => ({ kind: "proxy", id: route.id, protocol: route.protocol, trusted: true } as const)), { kind: "direct", trusted: false } as const];
   const outcome = await attemptSelectedRoutes<Response>(selected, async (choice) => {
     if (choice.kind === "direct") return { ok: true, value: await fetch(input, init) };
-    if (choice.kind === "free_socks") return { ok: false };
     const route = ladder.find((candidate) => candidate.id === choice.id);
     if (route === undefined) return { ok: false };
     try {

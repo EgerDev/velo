@@ -85,3 +85,25 @@ test("nothing patches process-wide DNS or the global fetch dispatcher", () => {
   }
   assert.doesNotMatch(source("../../package.json"), /sideEffects/);
 });
+
+test("no source file names a free proxy list, a public CORS relay or the BotGuard library", () => {
+  const banned = /proxifly|free-proxy-list|corsfix|allorigins|bgutils/i;
+  const repo = here("../../");
+  const self = "remote-code-policy.test.ts";
+  let scanned = 0;
+  for (const dir of ["src", "scripts", "server", "public", "packages"]) {
+    const base = new URL(`${dir}/`, repo);
+    if (!existsSync(base)) continue;
+    for (const name of readdirSync(base, { recursive: true, encoding: "utf8" })) {
+      if (!/\.(ts|tsx|js|mjs|cjs|json|html|css)$/.test(name) || name.endsWith(self)) continue;
+      scanned += 1;
+      assert.doesNotMatch(readFileSync(new URL(name.replaceAll("\\", "/"), base), "utf8"), banned, `${dir}/${name}`);
+    }
+  }
+  for (const file of ["package.json", "vite.config.ts"]) {
+    scanned += 1;
+    assert.doesNotMatch(readFileSync(new URL(file, repo), "utf8"), banned, file);
+  }
+  assert.ok(scanned > 100, "walked the source tree");
+  assert.equal(existsSync(here("./socks-pool.server.ts")), false);
+});

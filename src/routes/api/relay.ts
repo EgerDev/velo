@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { isMediaHostTarget, isRelayTarget, publicRelayUrls } from "@/lib/cors-relays";
+import { isMediaHostTarget, isRelayTarget } from "@/lib/cors-relays";
 
 /** Time-to-headers ceiling per upstream hop; once headers arrive the body is bounded only by client disconnect (request.signal). */
 const RELAY_HOP_TIMEOUT_MS = 20_000;
@@ -16,9 +16,9 @@ const RELAY_HOP_TIMEOUT_MS = 20_000;
  * normally uncompressed, so progress reporting still gets a length.
  */
 function relayHeaders(upstream: Response, relayHost: string): Record<string, string> {
-  // Bodies may come from third-party CORS proxies yet are served from the app
-  // origin: sandbox + nosniff keep a text/html answer inert if the URL is ever
-  // navigated to directly (fetch()/blob consumers ignore both).
+  // Upstream bodies are served from the app origin: sandbox + nosniff keep a
+  // text/html answer inert if the URL is ever navigated to directly
+  // (fetch()/blob consumers ignore both).
   const out: Record<string, string> = {
     "Cache-Control": "no-store",
     "X-Velo-Relay": relayHost,
@@ -53,8 +53,7 @@ export const Route = createFileRoute("/api/relay")({
           await import("@/lib/guest-limit.server");
         // Meter EVERY request. googlevideo bytes (any path) spend a download
         // token; page/HTML fetches clear the cheap per-IP metadata backstop.
-        // Without this the non-media path was an unauthenticated, uncapped proxy
-        // that also amplified onto three third-party CORS services per request.
+        // Without this the non-media path was an unauthenticated, uncapped proxy.
         const media = isMediaHostTarget(target);
         if (media) {
           const limited = await downloadQuotaResponse(request, 1);
@@ -65,13 +64,14 @@ export const Route = createFileRoute("/api/relay")({
         }
 
         const range = request.headers.get("range") ?? undefined;
-        const attempts = [target, ...publicRelayUrls(target)];
+        // Direct only: no third-party CORS relay (roadmap Global Constraints).
+        const attempts = [target];
         const errors: string[] = [];
 
         for (const href of attempts) {
           if (request.signal.aborted) break;
-          // Header-only timer, as in bypass.server.ts hop(): cleared in `finally`
-          // once headers are in, so the cap never cuts a streaming body.
+          // Header-only timer: cleared in `finally` once headers are in, so the
+          // cap never cuts a streaming body.
           // `request.signal` stays on the fetch to cancel it on client disconnect.
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), RELAY_HOP_TIMEOUT_MS);

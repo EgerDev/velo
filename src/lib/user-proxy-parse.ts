@@ -34,8 +34,7 @@ export const PROXY_INPUT_MAX = 255;
  * Accept `IP:PORT`, `user:pass@IP:PORT`, or a full URL whose scheme matches the
  * selector (http/https -> http; socks5/socks5h -> socks5). A bare string
  * follows the selector. Socks4 is rejected: it has no v5 handshake, so
- * relabelling it `socks5h` just fails at version negotiation — the same reason
- * socks-pool.server.ts refuses it.
+ * relabelling it `socks5h` just fails at version negotiation.
  *
  * Returns the canonical proxy URL and a credential-free display string.
  */
