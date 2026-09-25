@@ -26,7 +26,6 @@ import {
   YTDLP_EXTRACTOR_LAYERS,
   YTDLP_EXTRACTOR_ARGS,
   YTDLP_PLAYER_CLIENTS,
-  YOUTUBE_ALT_APIS,
   GUEST_CLIENTS,
   resolvePlayerClient,
   ytdlpFamilyArgs,
@@ -77,8 +76,6 @@ test("anonymous downloads try visionos first (guest dash/mux); android_vr aliase
   assert.equal(resolvePlayerClient("android"), "android");
   const vr = YTDLP_PLAYER_CLIENTS.find((row) => row.id === "android_vr");
   assert.equal(vr?.pot, "alias");
-  assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "tv_embedded"));
-  assert.ok(YOUTUBE_ALT_APIS.some((row) => row.id === "invidious" && /403/.test(row.note)));
   const argv = ytdlpArgv({
     dir: "/tmp/x",
     id: "jNQXAC9IVRw",

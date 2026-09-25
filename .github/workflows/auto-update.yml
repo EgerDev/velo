@@ -1,5 +1,5 @@
 # Weekly refresh of the extraction libraries that track the YouTube player
-# (youtubei.js, bgutils-js, jsdom, undici, socks-proxy-agent). Everything else
+# (youtubei.js, undici, socks-proxy-agent). Everything else
 # is Dependabot's (.github/dependabot.yml); yt-dlp moves to Dependabot pip once
 # requirements.txt exists (W5).
 #
@@ -54,7 +54,7 @@ jobs:
           npm_config_ignore_scripts: "true"
         run: |
           export NPM_CONFIG_BEFORE="$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)"
-          npm run update:deps -- --skip-ytdlp --only=youtubei.js,bgutils-js,jsdom,undici,socks-proxy-agent
+          npm run update:deps -- --skip-ytdlp --only=youtubei.js,undici,socks-proxy-agent
       - id: diff
         run: |
           if git diff --quiet -- package.json package-lock.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi

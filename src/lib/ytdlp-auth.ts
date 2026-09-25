@@ -356,63 +356,6 @@ export const YTDLP_PLAYER_CLIENTS = [
   },
 ] as const;
 
-/**
- * APIs besides yt-dlp player_client. Probed 24 Aug 2026 on this host:
- * Invidious/Piped public instances 403/disabled; Cobalt needs hostname-bound Turnstile;
- * Data API v3 has no streams. youtubei.js clients below are not in yt-dlp.
- */
-export const YOUTUBE_ALT_APIS = [
-  {
-    id: "tv_embedded",
-    via: "youtubei.js",
-    innertube: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-    note: "Embed TV; already in Innertube metadata loop",
-  },
-  {
-    id: "android_music",
-    via: "youtubei.js",
-    innertube: "ANDROID_MUSIC 7.x",
-    note: "Raw player POST LOGIN_REQUIRED; still tried with session POT",
-  },
-  {
-    id: "android_creator",
-    via: "youtubei.js",
-    innertube: "ANDROID_CREATOR",
-    note: "YouTube Studio Android; session POT",
-  },
-  {
-    id: "web_kids",
-    via: "youtubei.js",
-    innertube: "WEB_KIDS",
-    note: "Made-for-kids titles; 'reload' on zoo",
-  },
-  {
-    id: "ios",
-    via: "youtubei.js",
-    innertube: "IOS",
-    note: "play=OK but SABR (0 URLs) without POT",
-  },
-  {
-    id: "invidious",
-    via: "public API",
-    innertube: "—",
-    note: "yewtu.be 403, nadeko endpoint disabled, fdn NXDOMAIN",
-  },
-  { id: "piped", via: "public API", innertube: "—", note: "kavin 502, adminforge timeout" },
-  {
-    id: "cobalt",
-    via: "cobalt.tools",
-    innertube: "—",
-    note: "Turnstile is hostname-bound; cannot mint from this origin",
-  },
-  {
-    id: "data_api_v3",
-    via: "googleapis",
-    innertube: "—",
-    note: "Metadata only — no googlevideo URLs",
-  },
-] as const;
-
 export function ytdlpClients(loggedIn: boolean): readonly string[] {
   return loggedIn ? SESSION_CLIENTS : GUEST_CLIENTS;
 }

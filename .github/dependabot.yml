@@ -1,5 +1,5 @@
-# Dependency updates. The extraction family (youtubei.js, bgutils-js, jsdom,
-# undici, socks-proxy-agent) is refreshed weekly by auto-update.yml with a
+# Dependency updates. The extraction family (youtubei.js, undici,
+# socks-proxy-agent) is refreshed weekly by auto-update.yml with a
 # rollback verifier, so it is ignored here. Dependabot also honours these
 # ignores for security updates: auto-update covers them within a week.
 # pip (yt-dlp) is added by W5 together with requirements.txt.
@@ -26,8 +26,6 @@ updates:
         update-types: [minor, patch]
     ignore:
       - dependency-name: youtubei.js
-      - dependency-name: bgutils-js
-      - dependency-name: jsdom
       - dependency-name: undici
       - dependency-name: socks-proxy-agent
       - dependency-name: nitro # exact-pinned beta; W4a owns the upgrade

@@ -3,10 +3,10 @@
  * stale. Pure — no node or network imports — so the panel, the server function
  * and the tests all share one definition of "behind".
  *
- * Why these three: `youtubei.js` and `bgutils-js` track the YouTube player and
- * BotGuard; the `yt-dlp` Python module ships roughly monthly because YouTube
- * keeps breaking it. Left alone they go stale in weeks and extraction starts
- * failing for reasons that look like bugs in this repo.
+ * Why these two: `youtubei.js` tracks the YouTube InnerTube API; the `yt-dlp`
+ * Python module ships roughly monthly because YouTube keeps breaking it. Left
+ * alone they go stale in weeks and extraction starts failing for reasons that
+ * look like bugs in this repo.
  */
 
 export type ToolKind = "npm" | "pip";
@@ -23,7 +23,7 @@ export type ToolSpec = {
   liveReload: boolean;
 };
 
-export type ToolId = "youtubei.js" | "bgutils-js" | "yt-dlp";
+export type ToolId = "youtubei.js" | "yt-dlp";
 
 export const TOOL_CATALOG: readonly ToolSpec[] = [
   {
@@ -31,15 +31,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     label: "youtubei.js",
     kind: "npm",
     pkg: "youtubei.js",
-    role: "InnerTube client — metadata, formats, player deciphering.",
-    liveReload: false,
-  },
-  {
-    id: "bgutils-js",
-    label: "bgutils-js",
-    kind: "npm",
-    pkg: "bgutils-js",
-    role: "BotGuard / PO-token minting for web clients.",
+    role: "InnerTube client — metadata and formats.",
     liveReload: false,
   },
   {
