@@ -15,6 +15,18 @@ test("maps Google OAuth failures for the login page", () => {
   assert.equal(describeAuthError("Failed to fetch").code, "network");
 });
 
+test("substrings inside other words do not pick a category", () => {
+  assert.equal(describeAuthError("Could not generate a token").code, "unknown");
+  assert.equal(describeAuthError("separate accounts").code, "unknown");
+  assert.equal(describeAuthError("Unexpected state of the session").code, "unknown");
+});
+
+test("exact codes win, including Better Auth's rate-limit response", () => {
+  assert.equal(describeAuthError("Too many requests. Please try again later.").code, "rate_limited");
+  assert.equal(describeAuthError("429").code, "rate_limited");
+  assert.equal(describeAuthError("access denied (429)").code, "rate_limited");
+});
+
 test("unknown failures never echo the raw message", () => {
   const info = describeAuthError("Error: connect ECONNREFUSED 10.0.0.5:5432 at pg.Client");
   assert.equal(info.code, "unknown");
