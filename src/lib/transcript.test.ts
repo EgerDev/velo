@@ -58,9 +58,11 @@ You know the rules and so do I
 
     const cues = parseWebVttIntoCues(vtt);
     assert.equal(cues.length, 3);
-    assert.equal(cues[0].startFormatted, "00:01");
+    assert.equal(Math.round(cues[0].start * 1000), 1360);
+    assert.equal(Math.round(cues[0].end * 1000), 3040);
+    assert.equal(cues[0].startFormatted, "00:01.360");
     assert.equal(cues[0].text, "[Music playing]");
-    assert.equal(cues[1].startFormatted, "00:18");
+    assert.equal(cues[1].startFormatted, "00:18.640");
     assert.equal(cues[1].text, "We're no strangers to love");
     assert.equal(cues[2].text, "You know the rules and so do I");
   });

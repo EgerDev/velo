@@ -18,6 +18,12 @@ test("maps OAuth and credential failures for the login page", () => {
   assert.match(friendlyAuthError("Pop-up blocked — allow pop-ups for sign-in"), /Pop-up blocked/);
 });
 
+test("wrong-credentials advice does not point at the removed sign-in link", () => {
+  const info = describeAuthError("Invalid email or password");
+  assert.doesNotMatch(info.action, /sign-in link/i);
+  assert.equal(info.action, "Check caps lock, or create an account.");
+});
+
 test("maps OAuth callback search params with details", () => {
   assert.equal(messageForOAuthSearch(undefined), null);
   const denied = describeOAuthSearch("access_denied");

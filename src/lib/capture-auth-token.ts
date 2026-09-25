@@ -9,11 +9,6 @@ function storeBearer(token: string) {
   }
 }
 
-export function applySessionBearer(token: string) {
-  if (typeof window === "undefined") return;
-  storeBearer(token);
-}
-
 /** Better Auth's bearer plugin returns the session on `set-auth-token`. */
 export function captureAuthToken(response: Response | undefined) {
   if (!response || typeof window === "undefined") return;
@@ -119,7 +114,7 @@ const AUTH_ERRORS: Array<{ test: (message: string) => boolean; info: AuthErrorIn
       code: "credentials",
       title: "Email or password is wrong",
       detail: "Velo could not match that login.",
-      action: "Check caps lock, or use a sign-in link.",
+      action: "Check caps lock, or create an account.",
     },
   },
   {

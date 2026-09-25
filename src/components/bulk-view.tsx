@@ -68,11 +68,11 @@ export function BulkView({
       <div className="rounded-2xl border border-border bg-card/70 backdrop-blur-md p-5 sm:p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center justify-center size-8 rounded-lg bg-accent/15 text-accent">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
                 <ListPlus className="size-4" />
               </span>
-              <h2 className="text-lg font-bold tracking-tight text-fg">Bulk & Playlist Downloader</h2>
+              <h2 className="min-w-0 text-lg font-bold tracking-tight text-fg">Bulk & Playlist Downloader</h2>
               <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-wider border-accent/40 text-accent">
                 Anti-Throttle Queue
               </Badge>

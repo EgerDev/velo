@@ -120,9 +120,9 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset }: A
           itag: audioPreset.itag,
           cookies: cookiesForDownload(signedIn),
           signal: abort.signal,
-          onProgress: (label, percent) => {
+          onProgress: (label, view) => {
             if (abort.signal.aborted) return;
-            setPhase({ kind: "fetching", percent, label });
+            setPhase({ kind: "fetching", percent: view.percent, label });
           },
         });
       }
@@ -305,7 +305,7 @@ export function AudioStudio({ videoId, title, author, duration, audioPreset }: A
             <div
               className="h-full rounded-full bg-accent transition-[width] duration-[var(--motion-quick)]"
               style={{
-                width: `${Math.max(4, phase.kind === "converting" ? phase.percent : phase.percent)}%`,
+                width: `${phase.kind === "fetching" || phase.kind === "converting" ? phase.percent : 0}%`,
               }}
             />
           </div>

@@ -127,8 +127,11 @@ export function isRouteUsable(state: ProxyHealthState): boolean {
 }
 
 export type Clock = { readonly now: () => EpochMilliseconds };
+/** A completed check is stale once it is an hour old. */
+export const EVIDENCE_STALE_AFTER_MS = 3_600_000;
+
 export function isEvidenceStale(lastCheckedAt: EpochMilliseconds | null, clock: Clock): boolean {
-  return lastCheckedAt !== null && clock.now() - lastCheckedAt >= 3_600_000;
+  return lastCheckedAt !== null && clock.now() - lastCheckedAt >= EVIDENCE_STALE_AFTER_MS;
 }
 
 export type SafeProxyView = {

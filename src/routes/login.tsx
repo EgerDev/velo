@@ -1,29 +1,25 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { createFileRoute, Link, Navigate, useNavigate, useRouter } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import {
-  applySessionBearer,
   describeAuthError,
   describeOAuthSearch,
   emailAuthFetchOptions,
   type AuthErrorInfo,
 } from "@/lib/capture-auth-token";
-import { redeemSignInLink, requestSignInLink, signInLinkStatus } from "@/lib/sign-in-link";
 import { isolateOwnSession } from "@/lib/session-isolation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Wordmark } from "@/components/wordmark";
 import { GUEST } from "@/lib/guest-copy";
 
-type LoginSearch = { error?: string; error_description?: string; link?: string };
+type LoginSearch = { error?: string; error_description?: string };
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>): LoginSearch => ({
     error: typeof search.error === "string" ? search.error : undefined,
     error_description: typeof search.error_description === "string" ? search.error_description : undefined,
-    link: typeof search.link === "string" ? search.link : undefined,
   }),
   component: Login,
 });
@@ -33,66 +29,15 @@ function Login() {
   const router = useRouter();
   const search = Route.useSearch();
   const { user, isPending } = useCurrentUserState();
-  const [mode, setMode] = useState<"signin" | "signup" | "link">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<AuthErrorInfo | null>(
     describeOAuthSearch(search.error, search.error_description),
   );
-  const [busy, setBusy] = useState<"oauth" | "email" | "link" | null>(null);
+  const [busy, setBusy] = useState<"oauth" | "email" | null>(null);
   const [oauthId, setOauthId] = useState<string | null>(null);
-  const [magicPath, setMagicPath] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  // Sign-in links are only offered where the server allows them — this app
-  // can't send email, so the token comes back to the caller and the flow stays
-  // gated. Assume off until told otherwise so the option never flashes in.
-  const [linkOffered, setLinkOffered] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    signInLinkStatus()
-      .then((status) => {
-        if (!cancelled) setLinkOffered(status.enabled);
-      })
-      .catch(() => {
-        if (!cancelled) setLinkOffered(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!search.link) return;
-    let cancelled = false;
-    setBusy("link");
-    redeemSignInLink({ data: { token: search.link } })
-      .then(async (result) => {
-        if (cancelled) return;
-        applySessionBearer(result.token);
-        try {
-          await authClient.getSession();
-        } catch {
-          /* store recovers */
-        }
-        try {
-          await isolateOwnSession();
-        } catch {
-          /* still signed in */
-        }
-        await router.invalidate();
-        await navigate({ to: "/" });
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(describeAuthError(err instanceof Error ? err.message : "That sign-in link failed."));
-        setBusy(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [search.link, navigate, router]);
 
   if (!isPending && user) return <Navigate to="/" />;
 
@@ -129,20 +74,6 @@ function Login() {
   async function handleEmail(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (mode === "link") {
-      setBusy("link");
-      try {
-        const result = await requestSignInLink({
-          data: { email: email.trim(), origin: window.location.origin },
-        });
-        setMagicPath(result.path);
-      } catch (err) {
-        setError(describeAuthError(err instanceof Error ? err.message : "Could not create a sign-in link."));
-      } finally {
-        setBusy(null);
-      }
-      return;
-    }
     setBusy("email");
     try {
       if (mode === "signup") {
@@ -173,8 +104,6 @@ function Login() {
     }
   }
 
-  const magicHref = magicPath ? `${typeof window !== "undefined" ? window.location.origin : ""}${magicPath}` : "";
-
   return (
     <main className="min-h-dvh px-4 py-8 sm:px-6 sm:py-12">
       <a
@@ -186,7 +115,7 @@ function Login() {
       <div id="signin" className="mx-auto w-full max-w-md">
         <Wordmark />
         <h1 className="mt-10 font-display text-3xl leading-[var(--leading-display)] tracking-[var(--tracking-display)] text-fg sm:text-4xl">
-          {mode === "signup" ? "Create an account" : mode === "link" ? "Email a sign-in link" : "Sign in"}
+          {mode === "signup" ? "Create an account" : "Sign in"}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">{GUEST.login}</p>
 
@@ -248,82 +177,40 @@ function Login() {
                   className="h-12"
                 />
               </label>
-              {mode !== "link" ? (
-                <label className="block space-y-1">
-                  <span className="text-xs text-muted">Password</span>
-                  <Input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="At least 8 characters"
-                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                    className="h-12"
-                  />
-                </label>
-              ) : (
-                <p className="text-xs leading-relaxed text-muted">
-                  We can’t send email from this preview. You’ll get a one-time link to copy — it signs
-                  you in on this browser for 15 minutes.
-                </p>
-              )}
-              {magicPath ? (
-                <div className="space-y-2 rounded-md bg-elevated px-3 py-3 text-xs text-muted shadow-[var(--shadow-border)]">
-                  <p className="break-all text-fg">{magicHref}</p>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-9 w-full"
-                    onClick={() => {
-                      navigator.clipboard
-                        .writeText(magicHref)
-                        .then(() => setCopied(true))
-                        .catch(() => toast.error("Couldn’t copy the link — select and copy it above."));
-                    }}
-                  >
-                    {copied ? "Copied" : "Copy sign-in link"}
-                  </Button>
-                </div>
-              ) : null}
+              <label className="block space-y-1">
+                <span className="text-xs text-muted">Password</span>
+                <Input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  className="h-12"
+                />
+              </label>
               {error && busy !== "oauth" ? null : null}
               <Button type="submit" className="h-12 w-full" disabled={busy !== null}>
-                {busy === "email" || busy === "link"
+                {busy === "email"
                   ? "Working…"
                   : mode === "signup"
                     ? "Create account"
-                    : mode === "link"
-                      ? "Create sign-in link"
-                      : "Sign in with email"}
+                    : "Sign in with email"}
               </Button>
             </form>
 
             <div className="space-y-1 pt-1 text-center text-sm text-muted">
-              {linkOffered || mode === "link" ? (
-                <button
-                  type="button"
-                  className="w-full"
-                  onClick={() => {
-                    setMode(mode === "link" ? "signin" : "link");
-                    setError(null);
-                    setMagicPath(null);
-                  }}
-                >
-                  {mode === "link" ? "Use a password instead" : "Email me a sign-in link"}
-                </button>
-              ) : null}
-              {mode !== "link" ? (
-                <button
-                  type="button"
-                  className="w-full"
-                  onClick={() => {
-                    setMode(mode === "signup" ? "signin" : "signup");
-                    setError(null);
-                  }}
-                >
-                  {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Create one"}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="w-full"
+                onClick={() => {
+                  setMode(mode === "signup" ? "signin" : "signup");
+                  setError(null);
+                }}
+              >
+                {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Create one"}
+              </button>
             </div>
           </div>
         ) : (

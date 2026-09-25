@@ -378,7 +378,7 @@ export function ProxyToolsCard() {
             {[
               ["healthy", pool.healthy, "text-success"],
               ["degraded", pool.degraded, "text-warn"],
-              ["attention", pool.blocked, "text-danger"],
+              ["blocked", pool.blocked, "text-danger"],
               ["stale", pool.stale, "text-warn"],
               ["disabled", pool.disabled, "text-subtle"],
             ].map(([label, count, tone], index) => (
@@ -433,7 +433,7 @@ export function ProxyToolsCard() {
             </Button>
           ) : null}
           {run ? (
-            <p aria-live="polite" className="font-mono text-xs text-muted">
+            <p aria-live="polite" className="min-w-0 max-w-full basis-full break-words font-mono text-xs text-muted sm:basis-auto">
               {run.status} · completed {run.completed}/{run.total} · {run.failed} need attention ·
               next cursor {run.nextCursor}
             </p>

@@ -5,6 +5,7 @@ import {
   type AudioMetadata,
   type AudioProfileId,
 } from "@/lib/audio-profiles";
+import { emptyTransfer, foldTransferProgress, presentedTransfer, settleTransfer } from "@/lib/transfer-progress";
 
 /**
  * ffmpeg.wasm runtime for the audio profiles.
@@ -128,16 +129,21 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
     const coverName = options.cover ? `cover_${stamp}.jpg` : null;
     const written: string[] = [];
 
+    let transfer = emptyTransfer();
+    const publishEncode = (percent: number) => {
+      transfer = foldTransferProgress(transfer, { id: "encode", percent });
+      options.onProgress?.({ stage: "encoding", percent: presentedTransfer(transfer).percent });
+    };
     const handleProgress = ({ progress }: { progress?: number }) => {
       if (typeof progress !== "number" || !Number.isFinite(progress)) return;
-      // ffmpeg reports 0..1 but can overshoot slightly at the tail.
-      const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
-      options.onProgress?.({ stage: "encoding", percent });
+      // ffmpeg reports 0..1 and can hit 1 before exec returns. The fold keeps
+      // 100 for the settle after the output file is actually in hand.
+      publishEncode(Math.round(progress * 100));
     };
     ffmpeg.on("progress", handleProgress);
 
     try {
-      options.onProgress?.({ stage: "encoding", percent: 0 });
+      publishEncode(0);
       await ffmpeg.writeFile(inputName, new Uint8Array(await options.source.arrayBuffer()));
       written.push(inputName);
       if (coverName && options.cover) {
@@ -180,7 +186,8 @@ export async function encodeAudio(options: EncodeAudioOptions): Promise<EncodedA
       const data = await ffmpeg.readFile(outputName);
       const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
       if (!bytes.length) throw new Error("Conversion produced an empty file.");
-      options.onProgress?.({ stage: "encoding", percent: 100 });
+      transfer = settleTransfer(transfer, "complete");
+      options.onProgress?.({ stage: "encoding", percent: presentedTransfer(transfer).percent });
       // The copy profile keeps the source container, so its blob type must
       // follow the actual output extension rather than the profile's default.
       const outExt = filename.split(".").pop()?.toLowerCase();

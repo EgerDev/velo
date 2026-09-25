@@ -313,9 +313,15 @@ export function VideoPanel({
     [downloading, speedSamples, progress?.percent],
   );
 
-  // No bytes have reached the browser yet: the server is still fetching and
-  // muxing, so any percentage would be fiction.
-  const preparing = downloading && !progress?.loaded && !progress?.failed;
+  // Stage-only waits (no file bytes and no segment counts) stay indeterminate.
+  // Segment ticks have a real fraction and must not look like "no progress".
+  const preparing =
+    downloading &&
+    !progress?.failed &&
+    !progress?.aborted &&
+    progress?.mode !== "bytes" &&
+    progress?.mode !== "segments" &&
+    progress?.mode !== "complete";
 
   // Elapsed time is the one honest number during that wait.
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -346,7 +352,9 @@ export function VideoPanel({
     setElapsedSec(0);
     if (startedAt == null) return;
     const finished = progressRef.current;
-    if (finished?.failed) return;
+    // Saved is only the transfer that actually finished. A failure, a cancel,
+    // or a percent that never reached the terminal 100 must not look done.
+    if (!finished || finished.failed || finished.aborted || finished.percent !== 100) return;
     setLastRun({
       bytes: finished?.loaded ?? finished?.total ?? selectedSizeRef.current,
       seconds: (Date.now() - startedAt) / 1000,
@@ -1094,10 +1102,9 @@ export function VideoPanel({
               </span>
             </div>
             {/*
-              Until the first bytes reach the browser the server is still
-              fetching and muxing, and no percentage would be truthful — show
-              an indeterminate bar and the elapsed time instead of a number
-              frozen at 8%.
+              Stage-only: the server is still fetching and muxing, so the bar
+              stays indeterminate. Byte and segment fractions use the percent
+              the presenter already computed.
             */}
             <div
               className={cn(
@@ -1113,7 +1120,7 @@ export function VideoPanel({
               {preparing ? null : (
                 <div
                   className="h-full bg-accent transition-[width] duration-[var(--motion-quick)] rounded-full"
-                  style={{ width: `${Math.max(4, progress.percent)}%` }}
+                  style={{ width: `${progress.percent}%` }}
                 />
               )}
             </div>
@@ -1123,15 +1130,16 @@ export function VideoPanel({
                 it hands the file over — large files can sit here for a minute.
               </p>
             ) : null}
-            {progress.bytesPerSec || progress.loaded ? (
+            {progress.mode === "bytes" &&
+            (progress.bytesPerSec != null || progress.loaded != null || progress.total != null) ? (
               <div className="mt-2 flex items-center justify-between text-[11px] tabular-nums text-muted">
                 <span>
                   {progress.bytesPerSec ? formatSpeed(progress.bytesPerSec) : ""}
                   {progress.throttled ? " · slow speed (nsig hop active)" : ""}
                 </span>
                 <span>
-                  {progress.loaded ? formatBytes(progress.loaded) : ""}
-                  {progress.total ? ` / ${formatBytes(progress.total)}` : ""}
+                  {progress.loaded != null ? formatBytes(progress.loaded) : ""}
+                  {progress.total != null ? ` / ${formatBytes(progress.total)}` : ""}
                 </span>
               </div>
             ) : null}
@@ -1598,73 +1606,48 @@ export function VideoPanel({
                   })}
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] border-collapse text-xs">
-                    <thead>
-                      <tr className="text-left font-mono text-[10px] uppercase tracking-wider text-subtle border-b border-border">
-                        <th className="py-1.5 pr-3 font-medium">Quality</th>
-                        <th className="py-1.5 pr-3 font-medium">Codec</th>
-                        <th className="py-1.5 pr-3 font-medium">File</th>
-                        <th className="py-1.5 pr-3 font-medium text-right">Bitrate</th>
-                        <th className="py-1.5 pr-3 font-medium text-right">Size</th>
-                        <th className="py-1.5 pr-3 font-medium text-right">itag</th>
-                        <th className="py-1.5 font-medium" aria-label="Actions" />
-                      </tr>
-                    </thead>
-                    {FORMAT_GROUPS.map((group) => {
-                      const items = formats.filter(
-                        (f) => f.kind === group.key && matchesFormatFilter(f, formatFilter),
-                      );
-                      if (!items.length) return null;
-                      return (
-                        <tbody key={group.key}>
-                          <tr>
-                            <td colSpan={7} className="pt-3 pb-1">
-                              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-subtle/80">
-                                <span aria-hidden className="inline-block h-2.5 w-[2px] -skew-x-12 rounded-[1px] bg-accent" />
-                                {group.label}
-                                <span className="opacity-60">{items.length}</span>
-                              </span>
-                            </td>
-                          </tr>
+                <div className="space-y-3">
+                  {FORMAT_GROUPS.map((group) => {
+                    const items = formats.filter(
+                      (f) => f.kind === group.key && matchesFormatFilter(f, formatFilter),
+                    );
+                    if (!items.length) return null;
+                    return (
+                      <div key={group.key}>
+                        <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-subtle/80">
+                          <span aria-hidden className="inline-block h-2.5 w-[2px] -skew-x-12 rounded-[1px] bg-accent" />
+                          {group.label}
+                          <span className="opacity-60">{items.length}</span>
+                        </p>
+                        <ul className="mt-1 divide-y divide-border/50">
                           {items.map((format) => (
-                            <tr
+                            <li
                               key={`${format.itag}-${format.kind}-${format.ext}`}
-                              className="border-t border-border/50 hover:bg-elevated/40 transition-colors"
+                              className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs"
                             >
-                              <td className="py-2 pr-3 font-mono font-medium text-fg whitespace-nowrap">
-                                {qualityWithFps(format)}
-                              </td>
-                              <td className="py-2 pr-3 text-muted whitespace-nowrap">{format.codec ?? "—"}</td>
-                              <td className="py-2 pr-3 font-mono uppercase text-subtle">{format.ext}</td>
-                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-subtle whitespace-nowrap">
-                                {formatBitrate(format.bitrate)}
-                              </td>
-                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-muted whitespace-nowrap">
-                                {formatBytes(format.size)}
-                              </td>
-                              <td className="py-2 pr-3 text-right font-mono tabular-nums text-subtle/70">
-                                {format.itag}
-                              </td>
-                              <td className="py-1 text-right">
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  className="h-7 px-2.5 text-[11px]"
-                                  disabled={downloading}
-                                  onClick={() => onDownloadFormat(format)}
-                                  aria-label={`Download ${format.qualityLabel} ${format.ext}, itag ${format.itag}`}
-                                >
-                                  <Download className="size-3 mr-1" />
-                                  Save
-                                </Button>
-                              </td>
-                            </tr>
+                              <span className="font-mono font-medium text-fg">{qualityWithFps(format)}</span>
+                              <span className="text-muted">{format.codec ?? "—"}</span>
+                              <span className="font-mono uppercase text-subtle">{format.ext}</span>
+                              <span className="font-mono tabular-nums text-subtle">{formatBitrate(format.bitrate)}</span>
+                              <span className="font-mono tabular-nums text-muted">{formatBytes(format.size)}</span>
+                              <span className="font-mono tabular-nums text-subtle/70">itag {format.itag}</span>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="ml-auto h-7 px-2.5 text-[11px]"
+                                disabled={downloading}
+                                onClick={() => onDownloadFormat(format)}
+                                aria-label={`Download ${format.qualityLabel} ${format.ext}, itag ${format.itag}`}
+                              >
+                                <Download className="size-3 mr-1" />
+                                Save
+                              </Button>
+                            </li>
                           ))}
-                        </tbody>
-                      );
-                    })}
-                  </table>
+                        </ul>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <p className="text-[11px] text-subtle">
@@ -1683,9 +1666,9 @@ export function VideoPanel({
               className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-medium text-fg hover:bg-elevated/40 transition-colors cursor-pointer"
               aria-expanded={openSection === "trimmer"}
             >
-              <span className="flex items-center gap-2">
-                <Scissors className="size-4 text-accent" />
-                <span>Precision Time-Range Trimmer (Clip & Cut)</span>
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <Scissors className="size-4 shrink-0 text-accent" />
+                <span className="min-w-0">Precision Time-Range Trimmer (Clip & Cut)</span>
                 <span className="rounded bg-accent/15 text-accent px-1.5 py-0.5 text-[10px] font-mono">
                   {trimValidation.valid ? `${formatDuration(trimValidation.duration)} clip` : "Custom"}
                 </span>

@@ -4,7 +4,8 @@ import { isUserAbort } from "@/lib/download-error";
 import { beginBuilderSave, discardPendingSave } from "@/lib/builder-save";
 import { pickBestPreset, type VideoPreset } from "@/lib/youtube";
 import type { BulkItem } from "@/lib/bulk-download";
-import { useHistoryStore } from "@/lib/history-store";
+import { historyRowForSave, useHistoryStore } from "@/lib/history-store";
+import { emptyTransfer, foldTransferProgress, noteStage, presentedTransfer, settleTransfer } from "@/lib/transfer-progress";
 
 export async function processBulkItem(opts: {
   item: BulkItem;
@@ -61,7 +62,16 @@ export async function processBulkItem(opts: {
       onProgress: (prog: DownloadProgress) => {
         // Progress events fire per network chunk; cloning the item array per
         // tick is O(queue) × O(chunks). Whole percents are all the bar shows.
-        const pct = Math.max(10, Math.min(95, Math.round(prog.percent)));
+        // Bytes win over a synthetic percent, and 100 stays reserved for the
+        // settle after the file exists.
+        const pct = presentedTransfer(
+          foldTransferProgress(
+            emptyTransfer(),
+            prog.loaded != null && prog.total != null
+              ? { id: item.id, loaded: prog.loaded, total: prog.total }
+              : { id: item.id, percent: prog.percent },
+          ),
+        ).percent;
         if (pct === lastPct) return;
         lastPct = pct;
         mutate((prev) =>
@@ -72,31 +82,56 @@ export async function processBulkItem(opts: {
     wrote = true;
     // Bulk saves belong in History too: the panel promises "saved files land
     // here", and a 20-video batch used to leave it empty. Same shape as a
-    // single save (home-actions).
-    useHistoryStore.getState().record({
+    // single save (home-actions). A failed or aborted item never reaches this.
+    const row = historyRowForSave({
       id: item.id,
       title: title || item.id,
       author: item.author ?? "",
       thumbnail: item.thumbnail ?? `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
       duration: item.duration,
       url: item.url,
-      lastItag: saved.itag,
-      lastPreset: saved.title,
-      lastExt: saved.ext,
+      itag: saved.itag,
+      preset: saved.title,
+      ext: saved.ext,
     });
+    if (row) useHistoryStore.getState().record(row);
+    const finished = presentedTransfer(settleTransfer(emptyTransfer(), "complete"));
     mutate((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, status: "completed", progress: 100, filename, error: null } : i)),
+      prev.map((i) =>
+        i.id === item.id ? { ...i, status: "completed", progress: finished.percent, filename, error: null } : i,
+      ),
     );
   } catch (err) {
     if (!wrote) void discardPendingSave(pendingSave);
     if (isUserAbort(err, opts.signal)) {
-      mutate((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: "ready", progress: 0 } : i)));
+      mutate((prev) =>
+        prev.map((i) =>
+          i.id === item.id
+            ? { ...i, status: "ready", progress: presentedTransfer(settleTransfer(emptyTransfer(), "aborted")).percent }
+            : i,
+        ),
+      );
       return;
     }
     const errMsg = err instanceof Error ? err.message : "Download failed.";
     mutate((prev) =>
       prev.map((i) =>
-        i.id === item.id ? { ...i, status: "failed", error: errMsg, retryCount: i.retryCount + 1 } : i,
+        i.id === item.id
+          ? {
+              ...i,
+              status: "failed",
+              error: errMsg,
+              retryCount: i.retryCount + 1,
+              progress: presentedTransfer(
+                settleTransfer(
+                  !Number.isFinite(i.progress) || i.progress >= 100
+                    ? emptyTransfer()
+                    : noteStage(emptyTransfer(), "item", i.progress),
+                  "failed",
+                ),
+              ).percent,
+            }
+          : i,
       ),
     );
   }

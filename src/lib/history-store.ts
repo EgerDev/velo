@@ -37,7 +37,7 @@ type HistoryState = {
 
 const MAX_ITEMS = 40;
 const EMPTY_SHELF: HistoryShelf = { items: [], lastPresetId: null };
-const OWNER_POINTER = "velo-session-owner";
+export const HISTORY_OWNER_KEY = "velo-session-owner";
 const SHELF_PREFIX = "velo-history:";
 const LEGACY_BLOB = "velo-history";
 
@@ -79,6 +79,34 @@ export function shelfStorageKey(ownerId: string): string {
   return `${SHELF_PREFIX}${ownerId}`;
 }
 
+/** A history row exists only for a save that finished, and it stores the file that save produced. */
+export function historyRowForSave(
+  save: {
+    id: string;
+    title: string;
+    author: string;
+    thumbnail: string;
+    duration: number | null;
+    url: string;
+    itag: number;
+    preset: string;
+    ext: string;
+  } | null,
+): Omit<HistoryItem, "downloadedAt"> | null {
+  if (!save || !Number.isFinite(save.itag) || !save.ext) return null;
+  return {
+    id: save.id,
+    title: save.title,
+    author: save.author,
+    thumbnail: save.thumbnail,
+    duration: save.duration,
+    url: save.url,
+    lastItag: save.itag,
+    lastPreset: save.preset,
+    lastExt: save.ext,
+  };
+}
+
 function parseShelf(raw: string | null): HistoryShelf {
   if (!raw) return { items: [], lastPresetId: null };
   try {
@@ -97,26 +125,43 @@ export function readPersistedShelf(ownerId: string): HistoryShelf {
   return parseShelf(historyStorage().getItem(shelfStorageKey(ownerId)));
 }
 
-export function writePersistedShelf(ownerId: string, shelf: HistoryShelf) {
-  const store = historyStorage();
+/**
+ * Persist one owner's shelf. A quota failure restores the previous shelf and
+ * does not remove the owner pointer: the screen can still be showing every
+ * item, and dropping the pointer would orphan that list.
+ */
+export function commitHistoryShelf(
+  store: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  ownerId: string,
+  shelf: HistoryShelf,
+): boolean {
+  const key = shelfStorageKey(ownerId);
+  const pointerBefore = store.getItem(HISTORY_OWNER_KEY);
+  const shelfBefore = store.getItem(key);
   try {
-    store.setItem(shelfStorageKey(ownerId), JSON.stringify(shelf));
-    store.setItem(OWNER_POINTER, ownerId);
+    store.setItem(key, JSON.stringify(shelf));
+    store.setItem(HISTORY_OWNER_KEY, ownerId);
+    return true;
   } catch {
-    // Quota exceeded. Give up items progressively rather than in one step: a
-    // single retry at 10 that also failed dropped the shelf AND the owner
-    // pointer, orphaning the shelf while the UI kept showing every item.
-    for (const keep of [10, 3, 0]) {
+    try {
+      if (shelfBefore == null) store.removeItem(key);
+      else store.setItem(key, shelfBefore);
+    } catch {
+      /* the previous shelf stays if the store rejects the restore too */
+    }
+    if (pointerBefore != null) {
       try {
-        const pruned = { ...shelf, items: shelf.items.slice(0, keep) };
-        store.setItem(shelfStorageKey(ownerId), JSON.stringify(pruned));
-        store.setItem(OWNER_POINTER, ownerId);
-        return;
+        store.setItem(HISTORY_OWNER_KEY, pointerBefore);
       } catch {
-        /* try a smaller shelf */
+        /* never remove a pointer we could not rewrite */
       }
     }
+    return false;
   }
+}
+
+export function writePersistedShelf(ownerId: string, shelf: HistoryShelf) {
+  commitHistoryShelf(historyStorage(), ownerId, shelf);
 }
 
 function splitLegacyBlob() {

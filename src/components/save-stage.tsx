@@ -94,9 +94,9 @@ export function SaveStage({ files, videoId, thumbnail, onClose }: SaveStageProps
               cookies: cookiesForDownload(signedIn),
               pendingSave,
               signal: abort.signal,
-              onProgress: (label, percent) => {
+              onProgress: (label, view) => {
                 if (abort.signal.aborted) return;
-                setStatus(`${label} (${Math.max(0, Math.min(100, Math.round(percent)))}%)`);
+                setStatus(`${label} (${Math.max(0, Math.min(100, Math.round(view.percent)))}%)`);
               },
               onSteps: (next) => {
                 if (!abort.signal.aborted) setSteps(next);

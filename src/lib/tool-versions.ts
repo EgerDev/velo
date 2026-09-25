@@ -139,6 +139,19 @@ export function specVersion(spec: string | undefined | null): string | null {
   return /^\d/.test(cleaned) ? cleaned : null;
 }
 
+const TOOL_STATUS_LABEL: Record<ToolStatus, string> = {
+  missing: "Not installed",
+  unknown: "Registry unreachable",
+  current: "Up to date",
+  behind: "Update available",
+  ahead: "Ahead",
+};
+
+/** The status word the Tools row shows. One table, shared with the tests. */
+export function toolStatusLabel(status: ToolStatus): string {
+  return TOOL_STATUS_LABEL[status];
+}
+
 export function toolStatus(
   current: string | null,
   latest: string | null,

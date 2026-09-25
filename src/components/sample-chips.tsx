@@ -22,7 +22,7 @@ export function SampleChipRow({ samples, onPick, className }: SampleChipRowProps
   return (
     <div
       className={cn(
-        "stagger mt-4 flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap",
+        "stagger mt-4 flex flex-wrap items-center gap-2 pb-1 pt-0.5",
         className,
       )}
     >

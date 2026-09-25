@@ -43,8 +43,8 @@ const STATUS_TONES = {
   danger: "text-danger",
 } as const satisfies Record<DisplayRouteStatus["tone"], string>;
 
-function evidenceAge(route: SafeProxyView): string {
-  const freshness = evidenceFreshness(route);
+function evidenceAge(route: SafeProxyView, now: number): string {
+  const freshness = evidenceFreshness(route, now);
   if (freshness !== "Evidence current") return freshness;
   if (route.lastCheckedAt === null) return freshness;
   return `Checked ${new Date(route.lastCheckedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -94,7 +94,9 @@ export function ProxyToolsRow({
   readonly onCancelDelete: () => void;
   readonly onConfirmDelete: (route: SafeProxyView) => void;
 }) {
+  const now = Date.now();
   const status = displayRouteStatus(route);
+  const freshness = evidenceFreshness(route, now);
   const working = busy !== null;
   const StatusIcon = STATUS_ICONS[status.key];
   const removeTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -126,8 +128,8 @@ export function ProxyToolsRow({
               />
               {status.label}
             </span>
-            <span className={cn("font-mono", route.stale ? "text-warn" : "text-subtle")}>
-              {evidenceAge(route)}
+            <span className={cn("min-w-0 font-mono", freshness === "Evidence older than one hour" ? "text-warn" : "text-subtle")}>
+              {evidenceAge(route, now)}
             </span>
             {route.protocol === "socks5" ? (
               <span className="font-mono text-subtle">yt-dlp only</span>

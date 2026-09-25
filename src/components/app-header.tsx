@@ -23,7 +23,8 @@ const LEVEL_STYLES: Record<SessionLevel, { tone: string; Icon: typeof ShieldChec
   ready: { tone: "text-success", Icon: ShieldCheck },
   expiring: { tone: "text-warn", Icon: ShieldAlert },
   expired: { tone: "text-danger", Icon: ShieldAlert },
-  unusable: { tone: "text-danger", Icon: ShieldAlert },
+  unreadable: { tone: "text-danger", Icon: ShieldAlert },
+  incomplete: { tone: "text-danger", Icon: ShieldAlert },
   none: { tone: "text-subtle", Icon: ShieldQuestion },
 };
 
@@ -115,21 +116,21 @@ export function AppHeader({
   const { tone, Icon } = LEVEL_STYLES[status.level];
 
   return (
-    <header className="glass-nav sticky top-0 z-20 flex items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
-      <Wordmark />
-      <nav aria-label="Session and library" className="flex items-center gap-0.5 sm:gap-1">
+    <header className="glass-nav sticky top-0 z-20 flex min-w-0 items-center justify-between gap-2 px-4 py-2.5 sm:px-6">
+      <Wordmark className="shrink-0" />
+      <nav aria-label="Session and library" className="flex min-w-0 items-center gap-0.5 sm:gap-1">
         <button
           type="button"
           onClick={onReviewSession}
           title={status.detail}
           aria-label={`${status.label}. ${status.detail}`}
           className={cn(
-            "inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors cursor-pointer hover:bg-elevated/60",
+            "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors cursor-pointer hover:bg-elevated/60",
             tone,
           )}
         >
           <Icon className="size-4 shrink-0" />
-          <span className="hidden sm:inline">{status.label}</span>
+          <span className="truncate">{status.label}</span>
         </button>
 
         <HeaderMenu label="History" icon={<Clock className="size-4 shrink-0" />}>

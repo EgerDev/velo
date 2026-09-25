@@ -18,6 +18,16 @@ export type TranscriptData = {
   readingMinutes: number;
 };
 
+/** Clock for a cue. Whole seconds stay compact; a fractional source keeps its milliseconds. */
+export function formatCueTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+  const totalMs = Math.round(seconds * 1000);
+  const ms = totalMs % 1000;
+  const base = formatTime(Math.floor(totalMs / 1000));
+  if (ms <= 0) return base;
+  return `${base}.${String(ms).padStart(3, "0")}`;
+}
+
 export function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
   const s = Math.floor(seconds);
@@ -146,8 +156,8 @@ export function parseWebVttIntoCues(vttText: string): TranscriptCue[] {
           id: cueId++,
           start: startSec,
           end: endSec,
-          startFormatted: formatTime(startSec),
-          endFormatted: formatTime(endSec),
+          startFormatted: formatCueTime(startSec),
+          endFormatted: formatCueTime(endSec),
           text,
         });
       }
