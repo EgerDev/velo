@@ -12,10 +12,10 @@ const databaseUrl =
   rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
 
 /**
- * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
- * sandbox), otherwise a local embedded **PGLite** (Postgres compiled to WASM) so
- * the app has a working database even with nothing configured — the live preview
- * included. Swap in Neon later by just setting `DATABASE_URL`; no code changes.
+ * Active backend: Postgres when `DATABASE_URL` is set (always, in production —
+ * boot refuses to start without it), otherwise, in development only, an
+ * embedded **PGLite** (Postgres compiled to WASM). The `"neon"` label is the
+ * health check's historical name for the Postgres path.
  */
 export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
 
@@ -24,8 +24,8 @@ export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
  * tagged-template and `.query()` forms resolve to an array of row objects:
  *
  *   const sql = await getSql();
- *   const rows = await sql`select * from todos where id = ${id}`; // parameterized
- *   const rows2 = await sql.query("select * from todos where id = $1", [id]);
+ *   const rows = await sql`select * from velo_proxy where id = ${id}`; // parameterized
+ *   const rows2 = await sql.query("select * from velo_proxy where id = $1", [id]);
  */
 export interface Sql {
   <T = Record<string, unknown>>(
