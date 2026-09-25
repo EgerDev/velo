@@ -3436,7 +3436,7 @@ Only the owner can do this: it needs a Google Cloud account, the production doma
 - [ ] **Remove obsolete variables** from every deployment and CI secret store:
   - remove `GROK_AUTH_ISSUER`, `GROK_AUTH_CLIENT_ID`, `GROK_AUTH_CLIENT_SECRET`, `GROK_PROJECT_ID`, `GROK_GATE_ORIGIN`, `GROK_CONNECTORS_URL`, `GROK_CONNECTOR_ACCESS_TOKEN`, `VITE_AUTH_ENABLED`, `VITE_PROJECT_ID`, `VITE_PUBLIC_HOSTNAME`, `VITE_OG_SERVICE_URL` and `BETTER_AUTH_URL`;
   - `BETTER_AUTH_TRUSTED_ORIGINS` and `BETTER_AUTH_SECRETS` must be absent, or boot refuses.
-- [ ] **Migrate, then roll out.** Run `DATABASE_URL=… npm run db:migrate` against production before the W2 release serves. It prints `applied 0006_google_only_auth.sql`, which signs everyone out and deletes platform-brokered accounts. Then deploy.
+- [ ] **Roll out, then migrate.** Migrations are backward-compatible and run as a separate, approved step *before* the new code serves. This release is the exception: `0006` is data-only, so run it right *after* the W2 code is live, so the old code cannot recreate broker rows in the gap. Deploy the W2 release first, then run `DATABASE_URL=… npm run db:migrate` against production. It prints `applied 0006_google_only_auth.sql`, which signs everyone out and deletes platform-brokered accounts.
 - [ ] **Verify.**
   - `curl -s https://<domain>/api/health?deep=1` returns `"status":"ok"`.
   - `/login` shows *Continue with Google*. The Google chooser names *Velo*. After sign-in you land on `/`, signed in.
@@ -3521,6 +3521,15 @@ Ledger and hand-off items (W0 and W1 → W2):
   - `pythonBin()` still reads `VELO_PYTHON`/`PYTHON_BIN`, while C1 names `YTDLP_PYTHON`: migrate the reader to `serverEnv().YTDLP_PYTHON`, or amend C1.
   - `requireSameOrigin` HTTP tests can boot with `tests/http/env.mjs` (`PROD_ENV`, `TEST_ORIGIN`). A request whose `Origin` must equal `VELO_PUBLIC_ORIGIN` uses `TEST_ORIGIN`.
   - `requireSameOrigin` must exempt `/api/auth/*`: Google's OAuth callback arrives as a cross-site top-level GET; Better Auth's own origin and state checks cover that route.
+  - Behavioural HTTP tests: a per-user endpoint answers 401 without a session and 403 for `Sec-Fetch-Site: same-site` (SEC-06). W8 owns them if W4a ships without them.
+- **W3 / W4a / W5 (C1 readers):** these server modules still read `process.env` directly instead of `serverEnv()`. Each moves to `serverEnv()` in the workstream that rewrites it:
+  - `vault-crypto.ts` (`VELO_VAULT_KEY[_PREVIOUS]`, `BETTER_AUTH_SECRET`, `NODE_ENV`) → W3, above;
+  - `tool-updates.ts` and `operator-gate.server.ts` (`VELO_ADMIN_EMAILS`, `VELO_ALLOW_TOOL_INSTALL`, `DATABASE_URL`) → W4a, with the runtime installs;
+  - `ytdlp-auth.ts` (`YTDLP_BROWSER`, and `pythonBin()` reading `VELO_PYTHON`/`PYTHON_BIN`) → W4a, above;
+  - `socks-pool.server.ts` (`VELO_SOCKS_PROXY`/`ALL_PROXY`) → W4a, replaced by `VELO_EGRESS_PROXY`;
+  - `guest-limit.server.ts` (`TRUST_CLOUDFLARE`) → W5 (C8, `VELO_TRUST_PROXY`);
+  - `log.server.ts` (`LOG_LEVEL`), `db.ts` and `user-proxy-repository-db.server.ts` (`DATABASE_URL`) → W5. `log.server.ts` must not call `serverEnv()` at import: anything that runs before the boot plugin would memoise the development defaults;
+  - `NODE_ENV`-only test-override guards in `proxy-fetch.server.ts` and `proxy-transport.server.ts` → whichever of W4a/W5 touches them. `tool-updates.server.ts` spreads `process.env` into a child process; that goes with the runtime installs (W4a), not into `serverEnv()`.
 - **W4b:** no new work. Anchor note: W2-T7 removed the `builderFirst` branch in `src/lib/hybrid-download.ts`, around the POT minting W4b deletes.
 - **W5:**
   - Better Auth's built-in rate limiter (active in production) reads the client IP from `X-Forwarded-For` by default. Without a proxy that is spoofable. Behind a proxy that appends, it collapses to one shared bucket.
@@ -3529,7 +3538,7 @@ Ledger and hand-off items (W0 and W1 → W2):
     - This covers WEB-12's rate-limit part and relates to SEC-09.
   - Route Better Auth's logger through `log` (C4).
   - The container sets `NODE_ENV=production`; the plugin forces it anyway.
-  - `npm run db:migrate` (0006) must run before a W2 release serves (Task 13).
+  - Migration order in the deploy runbook: migrations are backward-compatible and run as a separate, approved step *before* the new code serves. This release is the exception: `0006` is data-only, so run it right *after* the W2 code is live, so the old code cannot recreate broker rows in the gap. (Task 13).
 - **W6:**
   - `extension/` and `extensions/` still contain platform hosts (`*.grok-sandbox.com`, `*.grok.com`, `grok.me`), outside the Task 11 gate's roots. W6 deletes them.
   - `packages/extension/` is already inside the gate.
@@ -3547,6 +3556,8 @@ Ledger and hand-off items (W0 and W1 → W2):
   - `?auto=1` drive-by download (ARCH-15).
   - A real PWA manifest and touch icon if wanted: the platform ones are gone.
   - Visual and a11y polish of `/login`.
+  - Behavioural HTTP tests: a per-user endpoint answers 401 without a session and 403 for `Sec-Fetch-Site: same-site` (SEC-06), if W4a has not added them.
+  - PRIV-13: per-user history (`u:<userId>` keys) stays in localStorage after sign-out.
 - **W9:** legal sign-off on the template-derived code that remains (LIC-03/REPO-05); the optional history-rewrite decision (REPO-02).
 - **Every later HTTP test:** boot with `tests/http/env.mjs`, using `PROD_ENV` plus `NO_DB_URL` when no database is needed, or `dbEnv()` with `{ skip: NEEDS_DB }`. The built server refuses any other production boot.
 - **Files W2 touches outside its obvious ownership** (minimal, listed for the reviewer):

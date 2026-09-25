@@ -1,9 +1,8 @@
 # Velo — Architecture
 
 > Audience: developers who have never seen this repository.
-> Scope: the working tree as of 2026-09-23 (branch `main`, HEAD `81cbd95` plus 27 modified and 3
-> untracked files — note that the working tree imports the untracked `src/lib/transfer-progress.ts`,
-> so HEAD and the working tree are not the same program).
+> Scope: branch `hardening/w2-auth` as of 2026-09-24, at `d808bc6` plus the commit that brings
+> this file up to date (W0, W1 and W2 of the hardening roadmap applied; W3 to W8 not yet).
 > Method: read from source. Every statement cites the file it comes from. Where behaviour depends on
 > the hosting platform and could not be tested, it is marked **NOT VERIFIED**.
 
@@ -53,10 +52,10 @@ The repo was scaffolded from the **Grok App Builder** template. W2 removed its p
 
 ```
 AGENTS.md                 short note for coding agents (points to the hardening roadmap)
-vite.config.ts            Vite 8 + TanStack Start + Nitro (vercel preset) + dev-only plugins
+vite.config.ts            Vite 8 + TanStack Start + Nitro (node-server preset, build/preview only) + dev-only PGLite bootstrap
 server/plugins/           Nitro plugin env.ts: forces NODE_ENV=production and validates the config before the server listens
 scripts/                  migrate/test/update tooling and repository policy tests
-migrations/               SQL schema (applied at build to DATABASE_URL, or at boot to PGLite)
+migrations/               SQL schema (applied to DATABASE_URL by `npm run db:migrate`, or on first use to the dev PGLite)
 public/                   static assets (favicon; the velo-session extension zip + unpacked copy were removed in W0-T3)
 extension/                "Velo" Chrome MV3 extension (in-page buttons, queue, transcript popup) — not packaged/served
 extensions/velo-session/  "Velo YouTube Session" MV3 extension (cookie exporter) — source only, no longer served; stays until W6
@@ -177,9 +176,12 @@ media cache. **Every path buffers the whole file in browser memory as a `Blob`**
 ## 4. Backend architecture
 
 Runtime: TanStack Start SSR + server functions compiled by Nitro 3 (beta `3.0.260610-beta`,
-preset `vercel`) into **one** Vercel Node function `__server.func` (`nodejs24.x`,
-`supportsResponseStreaming: true`, no `maxDuration` set — `.vercel/output/functions/__server.func/.vc-config.json`).
-All `/api/*`, server functions and SSR share that function and its in-process state.
+preset `node-server`, `vite.config.ts`) into **one** long-lived Node process,
+`.output/server/index.mjs`, started by `npm start`. It listens on `NITRO_PORT ?? PORT` (default
+3000) on all interfaces unless `NITRO_HOST`/`HOST` is set. Before it listens, the Nitro plugin
+`server/plugins/env.ts` forces `NODE_ENV=production` and calls `loadServerEnv()`, so a missing
+required variable exits the process. All `/api/*`, server functions and SSR share that process and
+its in-process state.
 
 ### 4.1 HTTP API routes (`src/routes/api/*`)
 
@@ -287,8 +289,10 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
 - Unset → embedded **PGLite** in memory, one instance per process on `globalThis`
   (`db.ts:115-175`), migrations applied at first use via `import.meta.glob("/migrations/*.sql")`;
   Better Auth reaches it through a custom Kysely dialect (`src/lib/auth/pglite-dialect.ts`).
-  PGLite `.wasm/.data` files are copied into the Vercel function by `pgliteAssetsPlugin`
-  (`vite.config.ts:55-79`). Data is lost whenever the process ends.
+  This is a development fallback only: production boot requires `DATABASE_URL`. In dev,
+  `pgliteBootstrapPlugin` (`vite.config.ts`) applies the migrations before the first request.
+  The build still ships PGLite (Nitro copies it to `.output/server/_libs/`), but the production
+  server never selects it. Data is lost whenever the process ends.
 - Migrations (`migrations/*.sql`, applied by basename, tracked in `_migrations`):
   `0001_auth.sql` (Better Auth `user/session/account/verification`), `0002_youtube_vault.sql`
   (`youtube_vault(user_id, cookies, cookie_count, updated_at)`), `0003_verification_value_idx.sql`,
@@ -296,27 +300,30 @@ youtubei.js player with a process-wide nsig cache; `stream-unlock.ts` stamps `po
   `velo_proxy_validation_run/_result/_evidence`, `velo_proxy_event`), `0006_google_only_auth.sql`
   (W2: ends every session, drops verification rows, deletes accounts of the removed providers,
   users left without one and their `youtube_vault` rows).
-- Deploy-time: `npm run build` = `vite build && npm run db:migrate` (`package.json:13`) →
-  `scripts/migrate.mjs` applies pending files to `DATABASE_URL` inside the build.
+- Deploy-time: `npm run build` is `vite build` only and never touches a database.
+  `npm run db:migrate` (`scripts/migrate.mjs`) is a separate step that applies pending files to
+  `DATABASE_URL`. Migrations are backward-compatible and run as their own approved step before the
+  new code serves. The W2 release is the exception: run `0006` (data only) right after the new
+  code is live, so the old code cannot recreate broker rows in between (W2 plan, Task 13).
 
 ### 4.5 Auth modes
 
 | Mode | Condition | Behaviour |
 |---|---|---|
 | **Google (production)** | always: boot requires `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Better Auth `google` social provider, `baseURL = VELO_PUBLIC_ORIGIN`, redirect URI `${VELO_PUBLIC_ORIGIN}/api/auth/callback/google`, `prompt=select_account`; `trustedOrigins = [VELO_PUBLIC_ORIGIN]`. Cookies `__Host-velo.*` (Secure, HttpOnly, SameSite=Lax, Path=/, no Domain), 5-min `session_data` cookie cache. Sessions store no IP or user agent, and a new sign-in ends the user's other sessions. OAuth errors redirect to `/login?error=<code>`. Config: `src/lib/auth/auth-config.server.ts`. |
-| **Google (development)** | `GOOGLE_*` set | as above on `http://localhost:${VELO_DEV_PORT ‖ 8080}`; `trustedOrigins` adds the `localhost` and `127.0.0.1` dev origins; the secret is a random per-process value unless `BETTER_AUTH_SECRET` is set. |
+| **Google (development)** | `GOOGLE_*` set | as above on `http://localhost:${VELO_DEV_PORT ‖ 8080}`; `trustedOrigins` adds the `localhost` and `127.0.0.1` dev origins; the secret is a random per-process value unless `BETTER_AUTH_SECRET` is set. Open the app at `http://localhost:<port>`, not `127.0.0.1`: the OAuth state cookie is host-bound and the callback returns to `localhost`, so a sign-in started on `127.0.0.1` fails. |
 | **Sign-in unavailable (development)** | `GOOGLE_*` unset | no provider; `/login` says sign-in is not set up; every `authMiddleware` function answers 401. |
 
 Removed in W2: the app-builder broker (`genericOAuth`), gate identity JWT, `bearer()` plugin, preview popup and email/password. Removed in W0: the committed preview client and the sign-in link.
 
 ### 4.6 In-process background work, queues and caches
 
-All of the following live in module memory (or `/tmp`) of one server process; on Vercel each warm
-instance has its own copy.
+All of the following live in module memory (or `/tmp`) of one server process; a restart clears
+them, and each extra instance behind a load balancer would have its own copy.
 
 | Item | File | Notes |
 |---|---|---|
-| Download quota buckets (guest/user/ip/meta, token bucket + sliding window, ≤4 000 rows) | `guest-limit.server.ts` | identity: user id → `x-velo-guest`/cookie → IP; IP from `x-vercel-forwarded-for` → `x-real-ip` → last `x-forwarded-for` hop (Cloudflare headers only with `TRUST_CLOUDFLARE=1`) |
+| Download quota buckets (guest/user/ip/meta, token bucket + sliding window, ≤4 000 rows) | `guest-limit.server.ts` | identity: user id → `x-velo-guest`/cookie → IP; IP from `x-vercel-forwarded-for` → `x-real-ip` → last `x-forwarded-for` hop (Cloudflare headers only with `TRUST_CLOUDFLARE=1`). The first two are trusted unconditionally, a Vercel-era assumption: on any other host a client can set them. W5 replaces this (C8, `VELO_TRUST_PROXY`) |
 | yt-dlp slot pool (4 concurrent, 32 queued, 45 s) | `download-pool.server.ts` | |
 | Mux file cache (4 files / 400 MB / 10 min) + coalescing by `id.itag` | `download-pool.server.ts` → `/tmp/velo-mux-cache` | anonymous downloads only |
 | yt-dlp tmp dirs `velo-ytdl-*` swept every 10 min | `ytdlp-python.server.ts` | |
@@ -398,16 +405,25 @@ Deleted in W2 (template residue: nothing imported it and `/api/rtc` never existe
 
 ## 5. Build & deploy
 
-- `npm run build` → `vite build` → Nitro `vercel` preset →
-  `.vercel/output/` (`static/` ≈35 MB incl. `ffmpeg-core.wasm` 32 MB; `functions/__server.func/`
-  ≈34 MB incl. PGLite wasm) → `npm run db:migrate`.
-- Vite plugins (`vite.config.ts`): `pgliteBootstrapPlugin` (dev), tailwind, `tanstackStart`, `nitro({preset:"vercel",
-  serverDir:"./server"})` for build/preview, React. `ssr.external`: `youtubei.js, bgutils-js,
-  jsdom, @electric-sql/pglite`.
-- No `vercel.json`: no `maxDuration`, memory, region, headers or cron are configured.
-- Dev: `npm run dev` → `vite dev --host 0.0.0.0 --port 8080` (strict); preview on `127.0.0.1:8081`.
-- CI: only `.github/workflows/auto-update.yml`: manual (`workflow_dispatch`) `npm run update:deps`,
-  `contents: read`, no PR step, until W1 rewrites it. No test/typecheck/build workflow.
+- `npm run build` is `vite build` only → Nitro `node-server` preset → `.output/`
+  (`public/` ≈34 MB incl. `ffmpeg-core.wasm` 32 MB; `server/` ≈18 MB, entry `server/index.mjs`).
+  It does not migrate: `npm run db:migrate` is a separate step (§4.4). `npm start` runs
+  `node .output/server/index.mjs`.
+- Vite plugins (`vite.config.ts`): `pgliteBootstrapPlugin` (dev only), tailwind, `tanstackStart`,
+  `nitro({preset:"node-server", serverDir:"./server"})` for build and preview only, React.
+  `ssr.external`: `youtubei.js, bgutils-js, jsdom, @electric-sql/pglite`.
+- `npm run preview` (`vite preview`, `127.0.0.1:8081`, strict) and `npm run build:dev`
+  (`vite build --mode development`) both go through Nitro: the server they serve or produce runs
+  the `server/plugins/env.ts` boot check, which forces `NODE_ENV=production`. They need the full
+  production configuration (the five required variables, §6), exactly like `npm start`;
+  `--mode development` does not bring back the dev defaults.
+- Dev: `npm run dev` → `vite dev` on `127.0.0.1:8080` (strict), unless `VELO_DEV_HOST` /
+  `VELO_DEV_PORT` override it. No Nitro and no boot check in dev.
+- CI (`.github/workflows/`): `ci.yml` runs `npm test` on Ubuntu and Windows, then typecheck,
+  lint, build, `db:migrate` twice against Postgres 16 and `test:http` on every PR and push to
+  `main`; plus `codeql.yml`, `dependency-review.yml`, `scorecard.yml` and `auto-update.yml`
+  (weekly and manual dependency update: a read-only job updates, a separate job opens the PR with
+  an App token).
 
 ## 6. Environment variables
 
@@ -425,9 +441,15 @@ Deleted in W2 (template residue: nothing imported it and `/api/rtc` never existe
 | `VELO_ALLOW_TOOL_INSTALL` | same | no | off (`"1"` = loopback installs with auth off) | no |
 | `VELO_SIGNIN_LINK` / `VELO_SIGNIN_LINK_EMAILS` | — | no | removed in W0-T4 (ignored) | no |
 | `VELO_PYTHON` / `PYTHON_BIN` | `ytdlp-auth.ts:900`, `scripts/auto-update.mjs` | no | `python3` | no |
-| `VELO_SOCKS_PROXY` / `ALL_PROXY` | `socks-pool.server.ts:100` | no | — | may carry credentials |
-| `YTDLP_BROWSER` | `ytdlp-auth.ts:484` | no | — (reads the *server host's* browser cookies) | n/a |
-| `TRUST_CLOUDFLARE` | `guest-limit.server.ts:122` | no | off | no |
+| `VELO_SOCKS_PROXY` / `ALL_PROXY` | `socks-pool.server.ts:101` | no | — | may carry credentials |
+| `YTDLP_BROWSER` | `ytdlp-auth.ts:485` | no | — (reads the *server host's* browser cookies) | n/a |
+| `TRUST_CLOUDFLARE` | `guest-limit.server.ts:120` | no | off | no |
+| `LOG_LEVEL` | `log.server.ts:39` reads `process.env` directly; `env.server.ts` also parses it into `serverEnv().LOG_LEVEL`, which nothing reads yet | no | `info` (or `debug`, `warn`, `error`) | no |
+| `SENTRY_DSN` | `env.server.ts` only: parsed, **not read yet**. W5 wires it (Sentry, roadmap D6) | no | unset | no |
+| `VELO_EGRESS_PROXY` | `env.server.ts` only: parsed, **not read yet**. W4a wires it as the single operator egress proxy; today egress uses `VELO_SOCKS_PROXY` / `ALL_PROXY` (above) | no | unset → direct | may carry credentials |
+| `VELO_EXTENSION_IDS` | `env.server.ts` only: parsed (comma list), **not read yet**. W6 wires it (extension handshake) | no | `[]` | no |
+| `VELO_PROXY_SECRET_KEY` / `VELO_PROXY_SECRET_KEY_PREVIOUS` | `env.server.ts` only: parsed, **not read yet**. W3 wires them; until then the proxy credential key is `VELO_VAULT_KEY` (`_PREVIOUS`), falling back to `BETTER_AUTH_SECRET` (`vault-crypto.ts`) | no | unset | yes |
+| `YTDLP_PYTHON` | `env.server.ts` only: parsed, **not read yet**. W4a/W5 wire it; today `pythonBin()` reads `VELO_PYTHON` / `PYTHON_BIN` (above) | no | `python3` (`python` on Windows) | no |
 | `NODE_ENV` | `env.server.ts`, `vault-crypto.ts`, `proxy-fetch.server.ts`, `proxy-transport.server.ts` | set by platform | forced to production by the built server | no |
 | `CI`, `NO_COLOR`, `npm_config_color`, `npm_execpath` | set for / read by child processes | — | — | no |
 
@@ -487,5 +509,6 @@ Direct caption file download uses `GET /api/captions`.
 
 Detailed findings are in `audit/01-architecture.md`. In short: the design assumes a long-lived
 Linux host with Python/yt-dlp/ffmpeg/curl/npm, a writable working directory and shared memory
-between requests; the configured target is Vercel serverless, where none of those assumptions is
-guaranteed (**NOT VERIFIED** on a live Vercel deployment by this audit).
+between requests. The build now matches that: Nitro's `node-server` preset produces one long-lived
+Node process (§4, §5). The container that supplies the rest of that host (Python, yt-dlp, ffmpeg)
+is W5's work and does not exist yet, so a deployment of this tree is **NOT VERIFIED**.
